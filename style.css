@@ -480,6 +480,28 @@
     align-items: flex-start;
 }
 
+/* ปุ่มลบคอมเมนต์ — จางไว้ให้แตะได้บนมือถือ เข้มขึ้นตอน hover */
+.tinyfeed-comment-del {
+    flex-shrink: 0;
+    margin-left: auto;
+    align-self: center;
+    padding: 2px 6px;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    opacity: 0.35;
+    font-size: 0.85em;
+    transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.tinyfeed-comment:hover .tinyfeed-comment-del {
+    opacity: 0.8;
+}
+
+.tinyfeed-comment-del:hover {
+    color: #f4212e;
+    opacity: 1;
+}
+
 .tinyfeed-comment .tinyfeed-avatar {
     width: 28px;
     height: 28px;

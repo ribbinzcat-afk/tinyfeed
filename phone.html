@@ -281,7 +281,9 @@
                         <select id="tinyfeed-cfg-inject-mode">
                             <option value="off">ไม่แทรก</option>
                             <option value="posts">แทรกเฉพาะโพสต์</option>
-                            <option value="both">แทรกโพสต์ + ข่าว</option>
+                            <option value="news">แทรกเฉพาะข่าว</option>
+                            <option value="posts_comments">แทรกโพสต์ + คอมเมนต์</option>
+                            <option value="posts_comments_news">แทรกโพสต์ + คอมเมนต์ + ข่าว</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field-row">
@@ -306,12 +308,35 @@
                         <span>เชื่อมเนื้อหาข้ามแอป (แอปนึงอ้างอิงอีกแอปได้)</span>
                         <input id="tinyfeed-cfg-crossapp" type="checkbox" />
                     </label>
+                    <div class="tinyfeed-field-label">แหล่งที่ให้แอปอื่นมองเห็น</div>
+                    <label class="tinyfeed-field-row">
+                        <span>· โพสต์ในฟีด</span>
+                        <input id="tinyfeed-cfg-crossapp-feed" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· คอมเมนต์ในโพสต์</span>
+                        <input id="tinyfeed-cfg-crossapp-comments" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· ข่าว</span>
+                        <input id="tinyfeed-cfg-crossapp-news" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· แชต TinyConnect (ส่วนตัว)</span>
+                        <input id="tinyfeed-cfg-crossapp-connect" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· ไลฟ์ TinyStream</span>
+                        <input id="tinyfeed-cfg-crossapp-stream" type="checkbox" />
+                    </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">จำนวนที่แนบข้ามแอป</span>
                         <input id="tinyfeed-cfg-crossapp-count" type="number" min="1" />
                     </label>
-                    <small class="tinyfeed-field-hint">เปิดแล้วตอน AI สร้างเนื้อหาในแอปหนึ่ง จะเห็นเนื้อหาแอปอื่นด้วย เช่น คุยในแชตแล้วพูดถึงโพสต์ในฟีด หรือผู้ชมไลฟ์พูดถึงข่าว (ใช้ token เพิ่ม)</small>
-                    <small class="tinyfeed-field-hint">แทรกโพสต์/ข่าวล่าสุดเข้า context ของ RP หลัก → ตัวละครอ้างอิงโพสต์ได้ (เช่น "เห็นที่โพสต์แล้วนะ") · depth = แทรกลึกกี่ข้อความจากล่าสุด (ต่ำ = ใกล้ปัจจุบัน)</small>
+                    <small class="tinyfeed-field-hint">เปิดแล้วตอน AI สร้างเนื้อหาในแอปหนึ่ง จะเห็นเนื้อหา "แหล่งที่ติ๊กไว้" ของแอปอื่น เช่น ผู้ชมไลฟ์พูดถึงข่าว หรือโพสต์อ้างอิงแชต (ใช้ token เพิ่ม) · แอปที่กำลังสร้างจะไม่เอาเนื้อหาตัวเองมาซ้ำ · แชต TinyConnect เป็นเรื่องส่วนตัว จึงปิดไว้เป็นค่าเริ่มต้น</small>
+                    <small class="tinyfeed-field-hint">แทรกเนื้อหาล่าสุดเข้า context ของ RP หลัก → ตัวละครอ้างอิงได้ (เช่น "เห็นที่โพสต์แล้วนะ")</small>
+                    <small class="tinyfeed-field-hint">จำนวนล่าสุดที่แทรก = นับ "ต่อแอป" ของจำนวนรายการล่าสุด: โพสต์กี่โพสต์ / ข่าวกี่ข่าว / แชตกี่ข้อความต่อคน / คอมเมนต์สดกี่อัน · และถ้าเปิดโหมดรวมคอมเมนต์ ก็จำกัดคอมเมนต์ต่อโพสต์เท่าจำนวนนี้เช่นกัน (มากขึ้น = เข้าใจบริบทดีขึ้น แต่เปลือง token)</small>
+                    <small class="tinyfeed-field-hint">depth = แทรกลึกกี่ข้อความจากล่าสุด (ต่ำ = ใกล้ปัจจุบัน) ไม่เกี่ยวกับจำนวน เป็นตำแหน่งที่วางข้อมูลในประวัติแชท</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
