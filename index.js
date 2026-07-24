@@ -537,6 +537,7 @@ function deleteConnectMessage(idx) {
     if (!activeThread || isNaN(idx)) return;
     const msgs = getThread(activeThread);
     if (idx < 0 || idx >= msgs.length) return;
+    if (!confirm("ต้องการลบข้อความนี้ใช่ไหม?")) return;
     msgs.splice(idx, 1);
     saveFeedData();
     renderThread();
@@ -1256,6 +1257,7 @@ function deleteComment(postId, cidx) {
     const post = getFeedData().feed.find((p) => p.id === postId);
     if (!post || !Array.isArray(post.comments)) return;
     if (isNaN(cidx) || cidx < 0 || cidx >= post.comments.length) return;
+    if (!confirm("ต้องการลบคอมเมนต์นี้ใช่ไหม?")) return;
     post.comments.splice(cidx, 1);
     saveFeedData();
     renderFeed();
