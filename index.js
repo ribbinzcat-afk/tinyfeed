@@ -54,15 +54,21 @@ const defaultSettings = {
     // Phase 2: คำสั่งเสริมที่ผู้ใช้ใส่เอง (ต่อท้าย prompt โดยไม่แตะโครงสร้าง)
     postExtraPrompt: "",
     newsExtraPrompt: "",
-    // Phase 2: แทรกฟีดเข้าประวัติแชทหลัก ("off" | "posts" | "both")
+    // Phase 2: แทรกฟีดเข้าประวัติแชทหลัก ("off" | "posts" | "news" | "posts_comments" | "posts_comments_news")
     injectMode: "off",
     injectDepth: 4,
     injectCount: 5,
     injectConnect: false,   // แทรกแชต TinyConnect เข้า RP
     injectStream: false,    // แทรกไลฟ์ TinyStream เข้า RP
     // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
-    crossAppEnabled: false,
+    crossAppEnabled: false,       // master switch
     crossAppCount: 3,
+    // เลือกรายแหล่งว่าเนื้อหาไหนให้แอปอื่นมองเห็น (แชต default ปิดเพื่อความเป็นส่วนตัว)
+    crossAppFeed: true,           // โพสต์ในฟีด
+    crossAppComments: false,      // คอมเมนต์ในโพสต์
+    crossAppNews: true,           // ข่าว
+    crossAppConnect: false,       // แชต TinyConnect (ส่วนตัว)
+    crossAppStream: true,         // ไลฟ์ TinyStream
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -82,6 +88,10 @@ function loadSettings() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
     if (Object.keys(extension_settings[extensionName]).length === 0) {
         Object.assign(extension_settings[extensionName], defaultSettings);
+    }
+    // migrate ค่าเก่า: "both" (โพสต์+ข่าว) → แบบใหม่ที่รวมคอมเมนต์ด้วย
+    if (extension_settings[extensionName].injectMode === "both") {
+        extension_settings[extensionName].injectMode = "posts_comments_news";
     }
     const enabled = extension_settings[extensionName].enabled;
     $("#tinyfeed-enabled").prop("checked", enabled);
@@ -366,15 +376,17 @@ function toggleGroupForm(show) {
         </label>`).join("");
     $("#tinyfeed-group-members").html(rows || `<span class="tinyfeed-field-hint">ยังไม่มีคนให้เลือก</span>`);
     $("#tinyfeed-group-name").val("");
+    $("#tinyfeed-group-avatar").val("");
     form.removeClass("tinyfeed-hidden");
 }
 
 function createGroup() {
     const name = String($("#tinyfeed-group-name").val() || "").trim();
+    const avatar = String($("#tinyfeed-group-avatar").val() || "").trim();
     const members = $(".tinyfeed-group-check:checked").map(function () { return $(this).val(); }).get();
     if (!name) { toastr.info("ตั้งชื่อกลุ่มก่อนนะ", "TinyConnect"); return; }
     if (members.length < 2) { toastr.info("เลือกสมาชิกอย่างน้อย 2 คน", "TinyConnect"); return; }
-    getConnectGroups().push({ id: "g" + Date.now(), name, members });
+    getConnectGroups().push({ id: "g" + Date.now(), name, members, avatar });
     saveFeedData();
     toggleGroupForm(false);
     renderConnectList();
@@ -450,12 +462,16 @@ function renderConnectList() {
 
     const groupRows = groups.map((g) => {
         const key = "group:" + g.id;
+        const groupAva = g.avatar
+            ? makeAvatar({ author: g.name, avatar: g.avatar })
+            : makeAnonAvatar(g.name);
         return `<div class="tinyfeed-connect-contact tinyfeed-connect-group" data-key="${escapeAttr(key)}" data-name="${escapeAttr(g.name)}" data-group="1">
-            ${makeAnonAvatar(g.name)}
+            ${groupAva}
             <div class="tinyfeed-connect-contact-body">
                 <div class="tinyfeed-connect-contact-name">${escapeText(g.name)} <span class="tinyfeed-group-count">(${g.members.length})</span></div>
                 <div class="tinyfeed-connect-contact-last">${escapeText(lastOf(key, g.members.join(", ")))}</div>
             </div>
+            <span class="tinyfeed-group-edit" data-key="${escapeAttr(key)}" title="ตั้งรูปกลุ่ม"><i class="fa-solid fa-camera"></i></span>
             <span class="tinyfeed-group-del" data-key="${escapeAttr(key)}" title="ลบกลุ่ม"><i class="fa-solid fa-trash"></i></span>
         </div>`;
     }).join("");
@@ -482,21 +498,26 @@ function renderThread() {
     const contact = getConnectContacts().find((c) => c.key === activeThread)
         || { name: activeThreadName, isMain: false, avatar: "" };
     const group = findGroup(activeThread);
-    const rows = msgs.map((m) => {
+    const delBtn = (i) => `<span class="tinyfeed-msg-del" data-idx="${i}" title="ลบข้อความ"><i class="fa-solid fa-trash"></i></span>`;
+    const rows = msgs.map((m, i) => {
         if (m.from === "user") {
-            return `<div class="tinyfeed-msg tinyfeed-msg-user"><div class="tinyfeed-msg-bubble">${renderRich(m.text)}</div></div>`;
+            return `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
+                ${delBtn(i)}
+                <div class="tinyfeed-msg-bubble">${renderRich(m.text)}</div>
+            </div>`;
         }
         // แชตกลุ่ม: ใช้ avatar/ชื่อของสมาชิกที่พูด
         const who = group ? (m.author || group.name) : contact.name;
         const avaItem = group
             ? { author: who, avatar: getNpcAvatar(who), isMain: who === ((getCurrentCharacter() || {}).name || "") }
             : contactAvatarItem(contact);
-        return `<div class="tinyfeed-msg tinyfeed-msg-contact">
+        return `<div class="tinyfeed-msg tinyfeed-msg-contact" data-idx="${i}">
             ${makeAvatar(avaItem)}
             <div class="tinyfeed-msg-col">
                 ${group ? `<span class="tinyfeed-msg-author">${escapeText(who)}</span>` : ""}
                 <div class="tinyfeed-msg-bubble">${renderRich(m.text)}</div>
             </div>
+            ${delBtn(i)}
         </div>`;
     }).join("");
     const typing = isConnectReplying
@@ -509,6 +530,17 @@ function renderThread() {
     box.html(rows + typing);
     if (box[0]) box.scrollTop(box[0].scrollHeight);   // เลื่อนลงล่างสุด
     updateChatInjection();
+}
+
+// ลบบับเบิลแชท 1 อัน (อ้างตาม index ในเธรด)
+function deleteConnectMessage(idx) {
+    if (!activeThread || isNaN(idx)) return;
+    const msgs = getThread(activeThread);
+    if (idx < 0 || idx >= msgs.length) return;
+    if (!confirm("ต้องการลบข้อความนี้ใช่ไหม?")) return;
+    msgs.splice(idx, 1);
+    saveFeedData();
+    renderThread();
 }
 
 async function sendConnectMessage(text) {
@@ -883,17 +915,18 @@ function makeAvatar(item) {
     return makeAnonAvatar(item.author);
 }
 
-// คอมเมนต์: limit = จำนวนที่โชว์ (undefined = โชว์หมด)
-function renderComments(comments, limit) {
+// คอมเมนต์: limit = จำนวนที่โชว์ (undefined = โชว์หมด) · postId = ใส่ปุ่มลบ (slice จาก 0 → index ตรงกับ array จริง)
+function renderComments(comments, limit, postId) {
     if (!comments || comments.length === 0) return "";
     const list = limit ? comments.slice(0, limit) : comments;
-    const rows = list.map((c) => `
+    const rows = list.map((c, i) => `
         <div class="tinyfeed-comment">
             ${makeAvatar(c)}
             <div class="tinyfeed-comment-body">
                 <span class="tinyfeed-comment-author">${c.author}</span>
                 <span class="tinyfeed-comment-text">${renderRich(c.text)}</span>
             </div>
+            ${postId ? `<span class="tinyfeed-comment-del" data-post="${postId}" data-cidx="${i}" title="ลบคอมเมนต์"><i class="fa-solid fa-trash"></i></span>` : ""}
         </div>
     `).join("");
     const more = (limit && comments.length > limit)
@@ -908,8 +941,16 @@ function buildAppBlocks(want) {
     const count = Math.max(1, parseInt(want.count, 10) || 5);
     const blocks = [];
     if (want.feed) {
-        const posts = (data.feed || []).slice(0, count)
-            .map((p) => `- ${p.author}: ${htmlToPlain(p.text)}`);
+        const posts = (data.feed || []).slice(0, count).map((p) => {
+            let line = `- ${p.author}: ${htmlToPlain(p.text)}`;
+            // แนบคอมเมนต์ล่าสุด (สูงสุด count อัน/โพสต์) เมื่อเปิดโหมดรวมคอมเมนต์
+            if (want.comments && Array.isArray(p.comments) && p.comments.length) {
+                const cs = p.comments.slice(-count)
+                    .map((c) => `    · ${c.author}: ${htmlToPlain(c.text)}`);
+                line += `\n  คอมเมนต์:\n${cs.join("\n")}`;
+            }
+            return line;
+        });
         if (posts.length) blocks.push(`โพสต์ล่าสุดบนฟีด TinyFeed:\n${posts.join("\n")}`);
     }
     if (want.news) {
@@ -947,8 +988,17 @@ function buildAppBlocks(want) {
 function crossAppContext(exclude) {
     if (!getSetting("crossAppEnabled")) return "";
     const count = Math.max(1, parseInt(getSetting("crossAppCount"), 10) || 3);
-    const want = { feed: true, news: true, connect: true, stream: true, count };
+    const want = {
+        feed: Boolean(getSetting("crossAppFeed")),
+        comments: Boolean(getSetting("crossAppComments")),
+        news: Boolean(getSetting("crossAppNews")),
+        connect: Boolean(getSetting("crossAppConnect")),
+        stream: Boolean(getSetting("crossAppStream")),
+        count,
+    };
+    // ตัดแอปที่กำลัง generate ออก (คอมเมนต์ผูกกับฟีด → ตัดไปพร้อมกัน)
     if (exclude && Object.prototype.hasOwnProperty.call(want, exclude)) want[exclude] = false;
+    if (exclude === "feed") want.comments = false;
     const blocks = buildAppBlocks(want);
     if (!blocks.length) return "";
     return `\n[เนื้อหาจากแอปอื่นในโทรศัพท์ อ้างอิงถึงได้ถ้าเข้ากับสถานการณ์]\n${blocks.join("\n\n")}\n`;
@@ -959,18 +1009,23 @@ function updateChatInjection() {
     const ctx = getContext();
     if (typeof ctx.setExtensionPrompt !== "function") return;
     const mode = getSetting("injectMode") || "off";
+    // โหมด: off | posts | news | posts_comments | posts_comments_news  ("both" เก่า = โพสต์+ข่าว)
+    const wantFeed = ["posts", "posts_comments", "posts_comments_news", "both"].includes(mode);
+    const wantComments = ["posts_comments", "posts_comments_news"].includes(mode);
+    const wantNews = ["news", "posts_comments_news", "both"].includes(mode);
     const wantConnect = Boolean(getSetting("injectConnect"));
     const wantStream = Boolean(getSetting("injectStream"));
     const depth = Math.max(0, parseInt(getSetting("injectDepth"), 10) || 4);
     const count = Math.max(1, parseInt(getSetting("injectCount"), 10) || 5);
 
-    if (mode === "off" && !wantConnect && !wantStream) {
+    if (!wantFeed && !wantNews && !wantConnect && !wantStream) {
         ctx.setExtensionPrompt("tinyfeed_inject", "", 1, 0);   // เคลียร์
         return;
     }
     const blocks = buildAppBlocks({
-        feed: mode !== "off",
-        news: mode === "both",
+        feed: wantFeed,
+        comments: wantComments,
+        news: wantNews,
         connect: wantConnect,
         stream: wantStream,
         count,
@@ -1036,7 +1091,14 @@ function renderFeed() {
                     <i class="fa-solid fa-share"></i>
                 </span>
             </div>
-            ${renderComments(post.comments, 2)}
+            ${renderComments(post.comments, 2, post.id)}
+            ${post.comments.length === 0 ? `
+            <div class="tinyfeed-post-comment-tools">
+                <button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}">
+                    <i class="fa-solid fa-comment-medical"></i>
+                    <span>ให้ NPC คอมเมนต์</span>
+                </button>
+            </div>` : ""}
         </div>
     `).join("");
     $("#tinyfeed-feed-list").html(html);
@@ -1105,11 +1167,18 @@ function openPostDetail(postId) {
                 <span><span class="fa-solid fa-share"></span></span>
             </div>
         </div>
-        ${renderComments(post.comments)}
+        ${renderComments(post.comments, null, post.id)}
         ${isReplying === post.id ? `
             <div class="tinyfeed-comment tinyfeed-comment-typing">
                 <div class="tinyfeed-avatar tinyfeed-avatar-anon">…</div>
                 <div class="tinyfeed-comment-body"><span class="tinyfeed-comment-text">กำลังพิมพ์…</span></div>
+            </div>` : ""}
+        ${post.comments.length === 0 ? `
+            <div class="tinyfeed-post-comment-tools">
+                <button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}">
+                    <i class="fa-solid fa-comment-medical"></i>
+                    <span>ให้ NPC คอมเมนต์</span>
+                </button>
             </div>` : ""}
         ${getSetting("commentReplyMode") === "manual" && post.comments.length ? `
             <button class="tinyfeed-ai-reply tinyfeed-btn-generate" data-post="${post.id}">
@@ -1181,6 +1250,19 @@ function deleteUserPost(postId) {
     saveFeedData();
     renderFeed();
     console.log(`[${extensionName}] post deleted:`, postId);
+}
+
+// ลบคอมเมนต์ 1 อันใต้โพสต์ (อ้างตาม index ใน post.comments)
+function deleteComment(postId, cidx) {
+    const post = getFeedData().feed.find((p) => p.id === postId);
+    if (!post || !Array.isArray(post.comments)) return;
+    if (isNaN(cidx) || cidx < 0 || cidx >= post.comments.length) return;
+    if (!confirm("ต้องการลบคอมเมนต์นี้ใช่ไหม?")) return;
+    post.comments.splice(cidx, 1);
+    saveFeedData();
+    renderFeed();
+    // ถ้าหน้ารายละเอียดโพสต์เปิดอยู่ ให้รีเฟรชด้วย
+    if (!$("#tinyfeed-detail").hasClass("tinyfeed-hidden")) openPostDetail(postId);
 }
 
 // ===== Stage 6: ให้ AI สร้างโพสต์ฟีด =====
@@ -1533,12 +1615,10 @@ async function generateCommentReply(postId) {
     }
 }
 
-// สร้างคอมเมนต์ NPC ติดมากับโพสต์ AI ใหม่ (ตาม config)
-async function generateInitialComments(post) {
-    const mode = getSetting("initialCommentMode");
-    if (mode === "none") return;
+// แกนสร้างคอมเมนต์ NPC — ใช้ร่วมทั้งตอนโพสต์ใหม่ (auto) และปุ่มกดเอง (คืนจำนวนที่สร้างได้)
+async function runInitialComments(post, mode) {
     const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") return;
+    if (typeof ctx.generateQuietPrompt !== "function") return 0;
     const char = getCurrentCharacter();
     const charName = (char && char.name) || "ตัวละคร";
 
@@ -1554,17 +1634,50 @@ async function generateInitialComments(post) {
         `เขียนคอมเมนต์ใต้โพสต์นี้ให้สมจริง. ` + npcRosterLine(charName) + countLine +
         `ห้ามให้ ${post.author} คอมเมนต์โพสต์ตัวเอง ห้ามพูดแทนผู้ใช้. ` +
         `ตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+    const raw = await tinyGenerate(q, 300);
+    const comments = parseCommentLines(raw, charName)
+        .filter((c) => c.author.trim().toLowerCase() !== String(post.author).trim().toLowerCase());
+    if (comments.length) {
+        post.comments.push(...comments);
+        saveFeedData();
+        renderFeed();
+    }
+    return comments.length;
+}
+
+// auto: สร้างคอมเมนต์ NPC ติดมากับโพสต์ใหม่ (ตาม config; ปิดได้ด้วย mode "none")
+async function generateInitialComments(post) {
+    const mode = getSetting("initialCommentMode");
+    if (mode === "none") return;
     try {
-        const raw = await tinyGenerate(q, 300);
-        const comments = parseCommentLines(raw, charName)
-            .filter((c) => c.author.trim().toLowerCase() !== String(post.author).trim().toLowerCase());
-        if (comments.length) {
-            post.comments.push(...comments);
-            saveFeedData();
-            renderFeed();
-        }
+        await runInitialComments(post, mode);
     } catch (e) {
         console.error(`[${extensionName}] initial comments failed:`, e);
+    }
+}
+
+// ปุ่มกดเอง: บังคับให้ NPC มาคอมเมนต์โพสต์นี้เพิ่มเสมอ (แม้ config ตั้งไว้ none)
+let isGenCommentsBusy = false;
+async function generateCommentsForPost(postId) {
+    if (isGenCommentsBusy) return;
+    const post = getFeedData().feed.find((p) => p.id === postId);
+    if (!post) return;
+    const mode = getSetting("initialCommentMode") === "fixed" ? "fixed" : "ai";
+    isGenCommentsBusy = true;
+    const btns = $(`.tinyfeed-gen-comments[data-post="${postId}"]`);
+    btns.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const n = await runInitialComments(post, mode);
+        if (!n) toastr.info("รอบนี้ยังไม่มีใครคอมเมนต์ ลองกดใหม่ได้", "TinyFeed");
+        // ถ้าหน้ารายละเอียดโพสต์นี้เปิดอยู่ ให้รีเฟรชด้วย
+        if (!$("#tinyfeed-detail").hasClass("tinyfeed-hidden")) openPostDetail(postId);
+    } catch (e) {
+        console.error(`[${extensionName}] manual comments failed:`, e);
+        toastr.error("สร้างคอมเมนต์ไม่สำเร็จ ลองใหม่นะ", "TinyFeed");
+    } finally {
+        isGenCommentsBusy = false;
+        // เผื่อ DOM เดิมยังอยู่ (กรณีไม่มีคอมเมนต์ใหม่จึงไม่ได้ re-render)
+        $(`.tinyfeed-gen-comments[data-post="${postId}"]`).removeClass("tinyfeed-generating").prop("disabled", false);
     }
 }
 
@@ -1945,6 +2058,11 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-connect").prop("checked", Boolean(getSetting("injectConnect")));
     $("#tinyfeed-cfg-inject-stream").prop("checked", Boolean(getSetting("injectStream")));
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
+    $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
+    $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
+    $("#tinyfeed-cfg-crossapp-news").prop("checked", Boolean(getSetting("crossAppNews")));
+    $("#tinyfeed-cfg-crossapp-connect").prop("checked", Boolean(getSetting("crossAppConnect")));
+    $("#tinyfeed-cfg-crossapp-stream").prop("checked", Boolean(getSetting("crossAppStream")));
     $("#tinyfeed-cfg-crossapp-count").val(getSetting("crossAppCount"));
 }
 
@@ -2074,6 +2192,22 @@ jQuery(async () => {
             e.stopPropagation();
             deleteGroup($(this).data("key"));
         });
+        // ตั้ง/แก้รูปกลุ่มเดิม
+        $(document).on("click", ".tinyfeed-group-edit", function (e) {
+            e.stopPropagation();
+            const g = findGroup($(this).data("key"));
+            if (!g) return;
+            const url = prompt("วางลิงก์รูปกลุ่ม (เว้นว่าง = ลบรูป):", g.avatar || "");
+            if (url === null) return;   // กดยกเลิก
+            g.avatar = url.trim();
+            saveFeedData();
+            renderConnectList();
+        });
+        // ลบบับเบิลแชท
+        $(document).on("click", ".tinyfeed-msg-del", function (e) {
+            e.stopPropagation();
+            deleteConnectMessage(parseInt($(this).data("idx"), 10));
+        });
         $(document).on("click", "#tinyfeed-connect-send", function () {
             sendConnectMessage($("#tinyfeed-connect-input").val());
         });
@@ -2175,6 +2309,16 @@ jQuery(async () => {
         });
         $(document).on("click", ".tinyfeed-ai-reply", function () {
             generateCommentReply($(this).data("post"));
+        });
+        // ปุ่มให้ NPC มาคอมเมนต์โพสต์ (โผล่เฉพาะโพสต์ที่ยังไม่มีคอมเมนต์)
+        $(document).on("click", ".tinyfeed-gen-comments", function (e) {
+            e.stopPropagation();   // กันเด้งเข้าหน้ารายละเอียด
+            generateCommentsForPost($(this).data("post"));
+        });
+        // ลบคอมเมนต์ที่ไม่ต้องการ
+        $(document).on("click", ".tinyfeed-comment-del", function (e) {
+            e.stopPropagation();   // กันเด้งเข้าหน้ารายละเอียด (ตอนกดในการ์ดฟีด)
+            deleteComment($(this).data("post"), parseInt($(this).data("cidx"), 10));
         });
 
         // Stage 5: หน้า settings ในโทรศัพท์
@@ -2357,6 +2501,21 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp", function () {
             setSetting("crossAppEnabled", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-feed", function () {
+            setSetting("crossAppFeed", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-comments", function () {
+            setSetting("crossAppComments", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-news", function () {
+            setSetting("crossAppNews", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-connect", function () {
+            setSetting("crossAppConnect", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-stream", function () {
+            setSetting("crossAppStream", $(this).prop("checked"));
         });
         $(document).on("input", "#tinyfeed-cfg-crossapp-count", function () {
             let v = parseInt($(this).val(), 10);

@@ -4,7 +4,8 @@
     top: 0;
     left: 0;
     width: 100vw;
-    height: 100vh;          /* บังคับเต็มจอด้วยหน่วย viewport ไม่พึ่ง top/bottom */
+    height: 100vh;          /* fallback สำหรับเบราว์เซอร์เก่า */
+    height: 100dvh;         /* เต็มจอที่มองเห็นจริง อัปเดตตามแถบ URL ที่ยืด/หด */
     background: rgba(0, 0, 0, 0.5);
     z-index: 100000;
     display: flex;
@@ -28,7 +29,8 @@
     width: 360px;
     height: 720px;
     max-width: 92vw;
-    max-height: calc(100vh - 40px);   /* คุมด้วย vh ไม่พึ่ง containing block */
+    max-height: calc(100vh - 40px);   /* fallback สำหรับเบราว์เซอร์เก่า */
+    max-height: calc(100dvh - 40px);  /* คุมด้วย dvh ไม่พึ่ง containing block */
     background: var(--tf-bg);
     color: var(--tf-text);
     border-radius: 32px;
@@ -99,9 +101,11 @@
     }
     #tinyfeed-phone {
         width: 100vw;
-        height: 100vh;         /* เต็มจอด้วย viewport unit ตรงๆ */
+        height: 100vh;         /* fallback สำหรับเบราว์เซอร์เก่า */
+        height: 100dvh;        /* เต็มจอที่มองเห็นจริง */
         max-width: 100vw;
-        max-height: 100vh;
+        max-height: 100vh;     /* fallback สำหรับเบราว์เซอร์เก่า */
+        max-height: 100dvh;
         margin: 0;
         border-radius: 0;
     }
@@ -329,6 +333,13 @@
     margin-top: 8px;
 }
 
+/* ปุ่มให้ NPC คอมเมนต์ใต้โพสต์ — ชิดขวา */
+.tinyfeed-post-comment-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 10px;
+}
+
 .tinyfeed-btn-generate {
     display: inline-flex;
     align-items: center;
@@ -467,6 +478,28 @@
     display: flex;
     gap: 8px;
     align-items: flex-start;
+}
+
+/* ปุ่มลบคอมเมนต์ — จางไว้ให้แตะได้บนมือถือ เข้มขึ้นตอน hover */
+.tinyfeed-comment-del {
+    flex-shrink: 0;
+    margin-left: auto;
+    align-self: center;
+    padding: 2px 6px;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    opacity: 0.35;
+    font-size: 0.85em;
+    transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.tinyfeed-comment:hover .tinyfeed-comment-del {
+    opacity: 0.8;
+}
+
+.tinyfeed-comment-del:hover {
+    color: #f4212e;
+    opacity: 1;
 }
 
 .tinyfeed-comment .tinyfeed-avatar {
@@ -1047,7 +1080,8 @@
     background: var(--tf-border-soft);
 }
 
-#tinyfeed-group-name {
+#tinyfeed-group-name,
+#tinyfeed-group-avatar {
     box-sizing: border-box;
     width: 100%;
     background: var(--tf-bg);
@@ -1088,7 +1122,8 @@
     font-size: 0.85em;
 }
 
-.tinyfeed-group-del {
+.tinyfeed-group-del,
+.tinyfeed-group-edit {
     flex-shrink: 0;
     padding: 4px 6px;
     color: var(--tf-text-muted);
@@ -1099,6 +1134,11 @@
 
 .tinyfeed-group-del:hover {
     color: #f4212e;
+    opacity: 1;
+}
+
+.tinyfeed-group-edit:hover {
+    color: var(--tf-accent);
     opacity: 1;
 }
 
@@ -1187,6 +1227,27 @@
 .tinyfeed-msg-typing {
     opacity: 0.7;
     font-style: italic;
+}
+
+/* ปุ่มลบบับเบิลแชท — จางไว้ให้แตะได้บนมือถือ เข้มขึ้นตอน hover บนเดสก์ท็อป */
+.tinyfeed-msg-del {
+    flex-shrink: 0;
+    align-self: center;
+    padding: 2px 6px;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    opacity: 0.35;
+    font-size: 0.85em;
+    transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.tinyfeed-msg:hover .tinyfeed-msg-del {
+    opacity: 0.8;
+}
+
+.tinyfeed-msg-del:hover {
+    color: #f4212e;
+    opacity: 1;
 }
 
 /* ช่องพิมพ์แชต */
@@ -1353,7 +1414,9 @@
     background: var(--tf-border-soft);
     padding: 3px 12px;
     border-radius: 999px;
-    white-space: nowrap;
+    white-space: normal;         /* ตัดบรรทัดได้เมื่อชื่อไลฟ์ยาว */
+    overflow-wrap: anywhere;
+    min-width: 0;
 }
 
 .tinyfeed-stream-comment .tinyfeed-avatar {
