@@ -599,7 +599,7 @@ async function sendConnectMessage(text) {
     if (!clean || !activeThread) return;
     getThread(activeThread).push({ from: "user", text: escapeHtml(clean), ts: Date.now() });
     saveFeedData();
-    $("#tinyfeed-connect-input").val("");
+    $("#tinyfeed-connect-input").val("").css("height", "");   // เคลียร์ + คืนความสูงเริ่มต้น
     renderThread();
     await generateConnectReply();
 }
@@ -3276,10 +3276,14 @@ jQuery(async () => {
             sendConnectMessage($("#tinyfeed-connect-input").val());
         });
         $(document).on("keydown", "#tinyfeed-connect-input", function (e) {
-            if (e.key === "Enter") {
+            // Enter = ส่ง, Shift+Enter = ขึ้นบรรทัดใหม่
+            if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 sendConnectMessage($(this).val());
             }
+        });
+        $(document).on("input", "#tinyfeed-connect-input", function () {
+            autoGrowCompose(this);
         });
 
         // TinyStream: เริ่ม/จบไลฟ์ + โหลดคอมเมนต์ + ส่งคอมเมนต์
