@@ -6,7 +6,7 @@
     width: 100vw;
     height: 100vh;          /* fallback สำหรับเบราว์เซอร์เก่า */
     height: 100dvh;         /* เต็มจอที่มองเห็นจริง อัปเดตตามแถบ URL ที่ยืด/หด */
-    background: rgba(0, 0, 0, 0.5);
+    background: rgba(0, 0, 0, var(--tf-overlay-alpha, 0.5));   /* ปรับความทึบได้จาก settings */
     z-index: 100000;
     display: flex;
     align-items: center;
@@ -115,13 +115,17 @@
 }
 
 /* แท็บ */
-.tinyfeed-tabs {
+.tinyfeed-tabs,
+.tinyfeed-memo-tabs,
+.tinyfeed-forum-tabs {
     display: flex;
     border-bottom: 1px solid var(--tf-border);
     flex-shrink: 0;
 }
 
-.tinyfeed-tab {
+.tinyfeed-tab,
+.tinyfeed-memo-tab,
+.tinyfeed-forum-tab {
     flex: 1;
     text-align: center;
     padding: 12px 0;
@@ -132,11 +136,15 @@
     border-bottom: 2px solid transparent;
 }
 
-.tinyfeed-tab:hover {
+.tinyfeed-tab:hover,
+.tinyfeed-memo-tab:hover,
+.tinyfeed-forum-tab:hover {
     color: var(--tf-text);
 }
 
-.tinyfeed-tab-active {
+.tinyfeed-tab-active,
+.tinyfeed-memo-tab-active,
+.tinyfeed-forum-tab-active {
     color: var(--tf-text-strong);
     border-bottom: 2px solid var(--tf-accent);
 }
@@ -1211,6 +1219,17 @@
     word-break: break-word;
 }
 
+/* กองบับเบิล (หลายบรรทัด → หลายบับเบิลซ้อน) */
+.tinyfeed-msg-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.tinyfeed-msg-user .tinyfeed-msg-stack { align-items: flex-end; max-width: 74%; }
+.tinyfeed-msg-contact .tinyfeed-msg-stack { align-items: flex-start; }
+.tinyfeed-msg-stack .tinyfeed-msg-bubble { max-width: 100%; }
+
 .tinyfeed-msg-user .tinyfeed-msg-bubble {
     background: linear-gradient(135deg, #22c55e, #15a34a);
     color: #fff;
@@ -1267,11 +1286,15 @@
     background: var(--tf-topbar);
     color: var(--tf-text);
     border: 1px solid var(--tf-border);
-    border-radius: 999px;
+    border-radius: 18px;
     padding: 9px 15px;
     font: inherit;
     font-size: 0.92em;
     outline: none;
+    resize: none;
+    line-height: 1.4;
+    max-height: 110px;
+    overflow-y: auto;
     transition: border-color 0.2s ease;
 }
 
@@ -1673,3 +1696,604 @@
     color: var(--tf-accent);
     margin-top: -4px;
 }
+
+/* ===== TinyMemo: กำหนดการ + โน้ต/ความจำ ===== */
+.tinyfeed-memo-panel:not(.tinyfeed-hidden) {
+    animation: tinyfeed-fade 0.25s ease;
+}
+
+/* แถวเพิ่มเอง (input + ปุ่มบวก) */
+.tinyfeed-memo-compose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+#tinyfeed-agenda-input,
+#tinyfeed-note-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 9px 15px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+#tinyfeed-agenda-input:focus,
+#tinyfeed-note-input:focus {
+    border-color: var(--tf-accent);
+}
+
+.tinyfeed-memo-add {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--tf-accent);
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.tinyfeed-memo-add:hover {
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+}
+
+.tinyfeed-memo-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+}
+
+/* หัวข้อคั่นเซกชัน (ค้างอยู่ / เสร็จแล้ว) */
+.tinyfeed-memo-section {
+    font-size: 0.78em;
+    font-weight: 600;
+    color: var(--tf-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 14px 0 8px;
+}
+
+/* แถวกำหนดการ */
+.tinyfeed-agenda-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+    animation: tinyfeed-rise 0.3s ease backwards;
+}
+
+.tinyfeed-agenda-check {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    border-radius: 50%;
+    border: 2px solid var(--tf-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 0.7em;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.tinyfeed-agenda-check:hover {
+    border-color: var(--tf-accent);
+}
+
+.tinyfeed-agenda-item-done .tinyfeed-agenda-check {
+    background: var(--tf-accent);
+    border-color: var(--tf-accent);
+    color: #fff;
+}
+
+.tinyfeed-agenda-item-cancelled .tinyfeed-agenda-check {
+    color: var(--tf-text-muted);
+    border-color: var(--tf-text-muted);
+}
+
+.tinyfeed-agenda-body {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4;
+}
+
+.tinyfeed-agenda-when {
+    display: block;
+    font-size: 0.76em;
+    color: var(--tf-accent);
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.tinyfeed-agenda-title {
+    color: var(--tf-text);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+/* เสร็จแล้ว / ยกเลิก = ขีดฆ่า + จาง */
+.tinyfeed-agenda-item-done .tinyfeed-agenda-title,
+.tinyfeed-agenda-item-cancelled .tinyfeed-agenda-title {
+    text-decoration: line-through;
+    color: var(--tf-text-muted);
+}
+
+.tinyfeed-agenda-item-cancelled {
+    opacity: 0.6;
+}
+
+.tinyfeed-agenda-tag {
+    font-size: 0.7em;
+    color: var(--tf-text-muted);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 0 7px;
+    margin-left: 6px;
+    white-space: nowrap;
+}
+
+/* ปุ่มกู้คืน/ลบ ในแถวกำหนดการ + โน้ต */
+.tinyfeed-agenda-restore,
+.tinyfeed-agenda-del,
+.tinyfeed-note-del {
+    flex-shrink: 0;
+    align-self: center;
+    padding: 2px 6px;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    opacity: 0.4;
+    font-size: 0.85em;
+    transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.tinyfeed-agenda-item:hover .tinyfeed-agenda-restore,
+.tinyfeed-agenda-item:hover .tinyfeed-agenda-del,
+.tinyfeed-note-card:hover .tinyfeed-note-del {
+    opacity: 0.8;
+}
+
+.tinyfeed-agenda-del:hover,
+.tinyfeed-note-del:hover {
+    color: #f4212e;
+    opacity: 1;
+}
+
+.tinyfeed-agenda-restore:hover {
+    color: var(--tf-accent);
+    opacity: 1;
+}
+
+/* การ์ดโน้ต/ความจำ */
+.tinyfeed-note-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+    animation: tinyfeed-rise 0.3s ease backwards;
+}
+
+.tinyfeed-note-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--tf-accent);
+    opacity: 0.85;
+}
+
+.tinyfeed-note-body {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.5;
+}
+
+.tinyfeed-note-text {
+    color: var(--tf-text);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.tinyfeed-note-time {
+    display: block;
+    font-size: 0.72em;
+    color: var(--tf-text-muted);
+    margin-top: 3px;
+}
+
+/* ===== TinyForum: เว็บบอร์ด/กระทู้ ===== */
+#tinyfeed-forum-list,
+#tinyfeed-forum-thread {
+    flex: 1;
+    min-height: 0;
+}
+#tinyfeed-forum-list:not(.tinyfeed-hidden),
+#tinyfeed-forum-thread:not(.tinyfeed-hidden) {
+    display: flex;
+    flex-direction: column;
+}
+
+.tinyfeed-forum-tools {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+/* ฟอร์มตั้งกระทู้ */
+.tinyfeed-forum-newform {
+    padding-bottom: 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--tf-border);
+}
+.tinyfeed-forum-newform select,
+.tinyfeed-forum-newform input,
+.tinyfeed-forum-newform textarea {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+    margin-bottom: 8px;
+    transition: border-color 0.2s ease;
+}
+.tinyfeed-forum-newform textarea { resize: vertical; line-height: 1.5; }
+.tinyfeed-forum-newform select:focus,
+.tinyfeed-forum-newform input:focus,
+.tinyfeed-forum-newform textarea:focus { border-color: var(--tf-accent); }
+
+/* แถวกระทู้ในลิสต์ */
+.tinyfeed-forum-thread-row {
+    padding: 13px 0;
+    border-bottom: 1px solid var(--tf-border);
+    cursor: pointer;
+    transition: background 0.15s ease;
+    border-radius: 8px;
+    animation: tinyfeed-rise 0.3s ease backwards;
+}
+.tinyfeed-forum-thread-row:hover { background: var(--tf-border-soft); }
+
+.tinyfeed-forum-room-chip {
+    display: inline-block;
+    font-size: 0.72em;
+    font-weight: 600;
+    color: var(--tf-accent);
+    border: 1px solid var(--tf-accent);
+    border-radius: 999px;
+    padding: 1px 9px;
+    margin-bottom: 6px;
+}
+.tinyfeed-forum-row-title {
+    font-weight: 600;
+    color: var(--tf-text-strong);
+    line-height: 1.4;
+    margin-bottom: 4px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+.tinyfeed-forum-row-snippet {
+    font-size: 0.86em;
+    color: var(--tf-text-soft);
+    line-height: 1.45;
+    margin-bottom: 6px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.tinyfeed-forum-row-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 0.8em;
+    color: var(--tf-text-muted);
+}
+
+/* หน้ากระทู้เต็ม */
+.tinyfeed-forum-detail-title {
+    font-size: 1.2em;
+    font-weight: 700;
+    color: var(--tf-text-strong);
+    line-height: 1.35;
+    margin: 8px 0 10px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+.tinyfeed-forum-detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--tf-text-muted);
+    font-size: 0.82em;
+    margin-bottom: 12px;
+}
+.tinyfeed-forum-detail-body {
+    color: var(--tf-text-soft);
+    line-height: 1.65;
+    margin-bottom: 14px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+.tinyfeed-forum-detail-actions {
+    display: flex;
+    gap: 20px;
+    color: var(--tf-text-muted);
+    font-size: 0.9em;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--tf-border);
+    margin-bottom: 10px;
+}
+.tinyfeed-forum-detail-actions span { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s ease; }
+.tinyfeed-forum-detail-actions span:hover { color: var(--tf-text); }
+.tinyfeed-forum-thread-like.tinyfeed-liked,
+.tinyfeed-forum-thread-like.tinyfeed-liked:hover { color: #f91880; }
+.tinyfeed-forum-thread-del:hover { color: #f4212e; }
+.tinyfeed-forum-count {
+    font-size: 0.85em;
+    color: var(--tf-text-muted);
+    margin: 6px 0 10px;
+}
+
+/* ปุ่มไลก์/ตอบกลับ ใต้คอมเมนต์ */
+.tinyfeed-forum-cmt-actions {
+    display: flex;
+    gap: 16px;
+    margin-top: 5px;
+    font-size: 0.8em;
+    color: var(--tf-text-muted);
+}
+.tinyfeed-forum-cmt-actions span { cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: color 0.2s ease; }
+.tinyfeed-forum-cmt-actions span:hover { color: var(--tf-accent); }
+.tinyfeed-forum-cmt-like.tinyfeed-liked,
+.tinyfeed-forum-cmt-like.tinyfeed-liked:hover { color: #f91880; }
+.tinyfeed-forum-cmt-del:hover,
+.tinyfeed-forum-reply-del:hover { color: #f4212e; }
+
+/* แถบ "กำลังตอบกลับ" เหนือช่องพิมพ์ */
+.tinyfeed-forum-reply-banner {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 14px;
+    font-size: 0.82em;
+    color: var(--tf-text-muted);
+    background: var(--tf-border-soft);
+    border-top: 1px solid var(--tf-border);
+}
+.tinyfeed-forum-reply-banner b { color: var(--tf-accent); }
+#tinyfeed-forum-reply-cancel { cursor: pointer; padding: 2px 6px; opacity: 0.7; transition: opacity 0.2s ease; }
+#tinyfeed-forum-reply-cancel:hover { opacity: 1; color: var(--tf-text); }
+
+/* ตอบกลับซ้อน (1 ชั้น) — เยื้องซ้าย + เส้นข้าง */
+.tinyfeed-forum-replies {
+    margin-left: 38px;
+    margin-top: 10px;
+    padding-left: 10px;
+    border-left: 2px solid var(--tf-border);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* ช่องคอมเมนต์ล่างหน้ากระทู้ */
+.tinyfeed-forum-compose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--tf-border);
+    flex-shrink: 0;
+}
+#tinyfeed-forum-comment-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 9px 15px;
+    font: inherit;
+    font-size: 0.92em;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+#tinyfeed-forum-comment-input:focus { border-color: var(--tf-accent); }
+#tinyfeed-forum-comment-send {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--tf-accent);
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+#tinyfeed-forum-comment-send:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+
+/* กล่องตอบกลับแบบ inline (เมื่อกด "ตอบ") */
+.tinyfeed-forum-reply-box {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.tinyfeed-forum-reply-box input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 7px 13px;
+    font: inherit;
+    font-size: 0.88em;
+    outline: none;
+}
+.tinyfeed-forum-reply-box input:focus { border-color: var(--tf-accent); }
+
+/* ตัวแก้ห้อง (ในหน้า settings) — โครงเดียวกับ NPC row */
+.tinyfeed-room-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.tinyfeed-room-row input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 0.88em;
+    outline: none;
+}
+.tinyfeed-room-row input:focus { border-color: var(--tf-accent); }
+.tinyfeed-room-del {
+    flex-shrink: 0;
+    padding: 4px 6px;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    opacity: 0.6;
+    transition: color 0.2s ease, opacity 0.2s ease;
+}
+.tinyfeed-room-del:hover { color: #f4212e; opacity: 1; }
+#tinyfeed-room-add { margin-top: 4px; }
+
+/* ===== ปรับแต่งหน้าตา: สีไอคอน/พื้นหลังตามธีม ===== */
+#tinyfeed-phone.tinyfeed-themed-icons .tinyfeed-app-tile {
+    background: linear-gradient(135deg, var(--tf-accent), color-mix(in srgb, var(--tf-accent) 55%, #000));
+}
+#tinyfeed-phone.tinyfeed-themed-home #tinyfeed-home:not(.tinyfeed-has-wallpaper) {
+    background:
+        radial-gradient(120% 80% at 50% 0%,
+            hsl(var(--tf-home-hue, 210) 60% 55% / 0.55),
+            transparent 70%),
+        var(--tf-bg);
+}
+
+/* ===== ปรับแต่งสี: swatch + picker + slider ===== */
+.tinyfeed-accent-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.tinyfeed-accent-swatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+    transition: transform 0.15s ease;
+}
+.tinyfeed-accent-swatch:hover { transform: scale(1.12); }
+.tinyfeed-accent-swatch.tinyfeed-accent-active {
+    box-shadow: 0 0 0 2px var(--tf-bg), 0 0 0 4px var(--tf-accent);
+}
+.tinyfeed-accent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.tinyfeed-accent-row input[type="color"] {
+    width: 44px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+}
+#tinyfeed-settings-screen input[type="range"] {
+    width: 100%;
+    accent-color: var(--tf-accent);
+    cursor: pointer;
+}
+
+/* ===== วิดเจ็ตหน้าโฮม ===== */
+#tinyfeed-home-widgets {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+.tinyfeed-widget {
+    background: color-mix(in srgb, var(--tf-topbar) 82%, transparent);
+    border: 1px solid var(--tf-border);
+    border-radius: 16px;
+    padding: 14px 16px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+.tinyfeed-widget-clock {
+    text-align: center;
+}
+.tinyfeed-widget-time {
+    font-size: 2.6em;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--tf-text-strong);
+    letter-spacing: 0.02em;
+}
+.tinyfeed-widget-date {
+    font-size: 0.85em;
+    color: var(--tf-text-muted);
+    margin-top: 6px;
+}
+.tinyfeed-widget-agenda { cursor: pointer; transition: transform 0.15s ease; }
+.tinyfeed-widget-agenda:active { transform: scale(0.98); }
+.tinyfeed-widget-head {
+    font-size: 0.8em;
+    font-weight: 600;
+    color: var(--tf-accent);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.tinyfeed-widget-agenda-item {
+    font-size: 0.9em;
+    color: var(--tf-text);
+    line-height: 1.5;
+    padding: 3px 0;
+    border-top: 1px solid var(--tf-border-soft);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+.tinyfeed-widget-agenda-item:first-of-type { border-top: none; }
+.tinyfeed-widget-agenda-when { color: var(--tf-accent); font-weight: 600; font-size: 0.85em; }
+.tinyfeed-widget-agenda-empty {
+    font-size: 0.85em;
+    color: var(--tf-text-muted);
+}
+/* มีวอลเปเปอร์: วิดเจ็ตอ่านง่ายขึ้น */
+#tinyfeed-home.tinyfeed-has-wallpaper .tinyfeed-widget {
+    background: rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+#tinyfeed-home.tinyfeed-has-wallpaper .tinyfeed-widget-time { color: #fff; }
