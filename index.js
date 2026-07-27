@@ -60,6 +60,13 @@ const defaultSettings = {
     injectCount: 5,
     injectConnect: false,   // แทรกแชต TinyConnect เข้า RP
     injectStream: false,    // แทรกไลฟ์ TinyStream เข้า RP
+    // TinyMemo (กำหนดการ + โน้ต/ความจำ)
+    memoAutoGenerate: false,      // สแกนกำหนดการ/ความจำอัตโนมัติ
+    memoAutoMode: "interval",     // "interval" | "ai"
+    memoAutoInterval: 15,
+    memoTokens: 350,
+    memoExtraPrompt: "",
+    injectMemo: false,            // แทรกกำหนดการ/โน้ต เข้า RP หลัก
     // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
     crossAppEnabled: false,       // master switch
     crossAppCount: 3,
@@ -69,6 +76,7 @@ const defaultSettings = {
     crossAppNews: true,           // ข่าว
     crossAppConnect: false,       // แชต TinyConnect (ส่วนตัว)
     crossAppStream: true,         // ไลฟ์ TinyStream
+    crossAppMemo: false,          // กำหนดการ/โน้ต TinyMemo
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -148,7 +156,7 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (app !== "feed" && app !== "connect" && app !== "stream") {
+    if (app !== "feed" && app !== "connect" && app !== "stream" && app !== "memo") {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
@@ -169,6 +177,11 @@ function openApp(app) {
         $("#tinyfeed-app-connect").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyConnect");
         openConnectList();
+    } else if (app === "memo") {
+        currentApp = "memo";
+        $("#tinyfeed-app-memo").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyMemo");
+        switchMemoTab(memoTab);
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -672,6 +685,8 @@ function getSeedData() {
         feed: [],
         news: [],
         npcs: [],   // รายชื่อ NPC ประจำของแชทนี้ [{ name, avatar }]
+        agenda: [], // TinyMemo กำหนดการ [{ id, when, title, status, isAI, ts }]
+        notes: [],  // TinyMemo โน้ต/ความจำ [{ id, text, kind, isAI, ts }]
     };
 }
 
@@ -706,6 +721,19 @@ function getNpcs() {
     const data = getFeedData();
     if (!Array.isArray(data.npcs)) data.npcs = [];
     return data.npcs;
+}
+
+// TinyMemo: กำหนดการ + โน้ต/ความจำ (ensure array สำหรับแชทเก่า)
+function getAgenda() {
+    const data = getFeedData();
+    if (!Array.isArray(data.agenda)) data.agenda = [];
+    return data.agenda;
+}
+
+function getNotes() {
+    const data = getFeedData();
+    if (!Array.isArray(data.notes)) data.notes = [];
+    return data.notes;
 }
 
 // หา URL รูปของ NPC จากรายชื่อประจำ (ตามชื่อ) ไม่เจอคืน ""
@@ -981,6 +1009,15 @@ function buildAppBlocks(want) {
             if (parts.length) blocks.push(`ไลฟ์สตรีมในแอป TinyStream:\n${parts.join("\n")}`);
         }
     }
+    if (want.memo) {
+        const parts = [];
+        const agenda = (data.agenda || []).filter((a) => a.status === "pending").slice(0, count)
+            .map((a) => `- ${a.when ? "(" + htmlToPlain(a.when) + ") " : ""}${htmlToPlain(a.title)}`);
+        if (agenda.length) parts.push(`กำหนดการที่ยังไม่ถึง:\n${agenda.join("\n")}`);
+        const notes = (data.notes || []).slice(-count).map((n) => `- ${htmlToPlain(n.text)}`);
+        if (notes.length) parts.push(`เรื่องที่จำไว้:\n${notes.join("\n")}`);
+        if (parts.length) blocks.push(`บันทึกในแอป TinyMemo:\n${parts.join("\n")}`);
+    }
     return blocks;
 }
 
@@ -994,6 +1031,7 @@ function crossAppContext(exclude) {
         news: Boolean(getSetting("crossAppNews")),
         connect: Boolean(getSetting("crossAppConnect")),
         stream: Boolean(getSetting("crossAppStream")),
+        memo: Boolean(getSetting("crossAppMemo")),
         count,
     };
     // ตัดแอปที่กำลัง generate ออก (คอมเมนต์ผูกกับฟีด → ตัดไปพร้อมกัน)
@@ -1015,10 +1053,11 @@ function updateChatInjection() {
     const wantNews = ["news", "posts_comments_news", "both"].includes(mode);
     const wantConnect = Boolean(getSetting("injectConnect"));
     const wantStream = Boolean(getSetting("injectStream"));
+    const wantMemo = Boolean(getSetting("injectMemo"));
     const depth = Math.max(0, parseInt(getSetting("injectDepth"), 10) || 4);
     const count = Math.max(1, parseInt(getSetting("injectCount"), 10) || 5);
 
-    if (!wantFeed && !wantNews && !wantConnect && !wantStream) {
+    if (!wantFeed && !wantNews && !wantConnect && !wantStream && !wantMemo) {
         ctx.setExtensionPrompt("tinyfeed_inject", "", 1, 0);   // เคลียร์
         return;
     }
@@ -1028,6 +1067,7 @@ function updateChatInjection() {
         news: wantNews,
         connect: wantConnect,
         stream: wantStream,
+        memo: wantMemo,
         count,
     });
 
@@ -1779,9 +1819,265 @@ function deleteNews(newsId) {
     console.log(`[${extensionName}] news deleted:`, newsId);
 }
 
+// ===== TinyMemo: กำหนดการ + โน้ต/ความจำ =====
+let memoTab = "agenda";
+let isMemoBusy = false;
+
+function switchMemoTab(tab) {
+    memoTab = (tab === "notes") ? "notes" : "agenda";
+    $(".tinyfeed-memo-tab").removeClass("tinyfeed-memo-tab-active");
+    $(`.tinyfeed-memo-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-memo-tab-active");
+    $("#tinyfeed-memo-agenda, #tinyfeed-memo-notes").addClass("tinyfeed-hidden");
+    $(`#tinyfeed-memo-${memoTab}`).removeClass("tinyfeed-hidden");
+    if (memoTab === "agenda") renderAgenda(); else renderNotes();
+}
+
+function agendaItemHtml(a) {
+    const cls = a.status === "done" ? " tinyfeed-agenda-item-done"
+        : (a.status === "cancelled" ? " tinyfeed-agenda-item-cancelled" : "");
+    const icon = a.status === "done" ? '<i class="fa-solid fa-check"></i>'
+        : (a.status === "cancelled" ? '<i class="fa-solid fa-xmark"></i>' : "");
+    const tag = a.status === "cancelled" ? `<span class="tinyfeed-agenda-tag">ยกเลิก</span>` : "";
+    return `<div class="tinyfeed-agenda-item${cls}">
+        <span class="tinyfeed-agenda-check" data-id="${escapeAttr(a.id)}" title="ติ๊ก/ยกเลิกติ๊ก">${icon}</span>
+        <div class="tinyfeed-agenda-body">
+            ${a.when ? `<span class="tinyfeed-agenda-when">${renderRich(a.when)}</span>` : ""}
+            <span class="tinyfeed-agenda-title">${renderRich(a.title)}</span>${tag}
+        </div>
+        <span class="tinyfeed-agenda-del" data-id="${escapeAttr(a.id)}" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+    </div>`;
+}
+
+function renderAgenda() {
+    const agenda = getAgenda();
+    const box = $("#tinyfeed-agenda-list");
+    if (!agenda.length) {
+        box.html(emptyStateHtml("fa-calendar-day", "ยังไม่มีกำหนดการ",
+            "เพิ่มเอง หรือกด “สแกนกำหนดการจากเรื่อง” ให้ AI ดึงนัดหมายจากเนื้อเรื่อง"));
+        return;
+    }
+    const pending = agenda.filter((a) => a.status === "pending");
+    const closed = agenda.filter((a) => a.status !== "pending");
+    let html = pending.length
+        ? pending.map(agendaItemHtml).join("")
+        : `<div class="tinyfeed-memo-section">ไม่มีรายการค้างอยู่</div>`;
+    if (closed.length) {
+        html += `<div class="tinyfeed-memo-section">เสร็จแล้ว / ผ่านไปแล้ว</div>`;
+        html += closed.map(agendaItemHtml).join("");
+    }
+    box.html(html);
+}
+
+function renderNotes() {
+    const notes = getNotes();
+    const box = $("#tinyfeed-notes-list");
+    if (!notes.length) {
+        box.html(emptyStateHtml("fa-note-sticky", "ยังไม่มีโน้ต",
+            "เพิ่มเอง หรือกด “สแกนความจำจากเรื่อง” ให้ AI จดเหตุการณ์สำคัญไว้"));
+        return;
+    }
+    const html = notes.slice().reverse().map((n) => {
+        const icon = n.kind === "event" ? "fa-bookmark" : "fa-lightbulb";
+        return `<div class="tinyfeed-note-card">
+            <span class="tinyfeed-note-icon"><i class="fa-solid ${icon}"></i></span>
+            <div class="tinyfeed-note-body">
+                <span class="tinyfeed-note-text">${renderRich(n.text)}</span>
+                <span class="tinyfeed-note-time">${displayTime(n)}</span>
+            </div>
+            <span class="tinyfeed-note-del" data-id="${escapeAttr(n.id)}" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+        </div>`;
+    }).join("");
+    box.html(html);
+}
+
+// เพิ่มกำหนดการเอง — รองรับรูปแบบ "เมื่อไร | อะไร"
+function addAgendaManual(text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    let when = "", title = clean;
+    const bar = clean.indexOf("|");
+    if (bar >= 0) { when = clean.slice(0, bar).trim(); title = clean.slice(bar + 1).trim(); }
+    if (!title) return;
+    getAgenda().push({ id: "a" + Date.now(), when: escapeHtml(when), title: escapeHtml(title), status: "pending", isAI: false, ts: Date.now() });
+    saveFeedData();
+    $("#tinyfeed-agenda-input").val("");
+    renderAgenda();
+    updateChatInjection();
+}
+
+function addNoteManual(text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    getNotes().push({ id: "n" + Date.now(), text: escapeHtml(clean), kind: "fact", isAI: false, ts: Date.now() });
+    saveFeedData();
+    $("#tinyfeed-note-input").val("");
+    renderNotes();
+    updateChatInjection();
+}
+
+// ติ๊ก/ยกเลิกติ๊ก (pending <-> done, และ cancelled -> pending)
+function toggleAgenda(id) {
+    const a = getAgenda().find((x) => x.id === id);
+    if (!a) return;
+    a.status = a.status === "pending" ? "done" : "pending";
+    saveFeedData();
+    renderAgenda();
+    updateChatInjection();
+}
+
+function deleteAgenda(id) {
+    const agenda = getAgenda();
+    const a = agenda.find((x) => x.id === id);
+    if (!a) return;
+    if (!confirm("ต้องการลบกำหนดการนี้ใช่ไหม?")) return;
+    agenda.splice(agenda.indexOf(a), 1);
+    saveFeedData();
+    renderAgenda();
+    updateChatInjection();
+}
+
+function deleteNote(id) {
+    const notes = getNotes();
+    const n = notes.find((x) => x.id === id);
+    if (!n) return;
+    if (!confirm("ต้องการลบโน้ตนี้ใช่ไหม?")) return;
+    notes.splice(notes.indexOf(n), 1);
+    saveFeedData();
+    renderNotes();
+    updateChatInjection();
+}
+
+function memoNotifAvatar() {
+    return `<div class="tinyfeed-avatar tinyfeed-avatar-anon" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><i class="fa-solid fa-calendar-check"></i></div>`;
+}
+
+// ถาม AI สั้นๆ ว่ามีอะไรควรจด/ปิดไหม (โหมด ai — ประหยัด token)
+async function aiDecidesMemo() {
+    try {
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `พิจารณาสถานการณ์ล่าสุด: มีกำหนดการ/นัดหมายใหม่ที่ควรจด, มีนัดเดิมที่เพิ่งเกิดขึ้น/ถูกยกเลิก, ` +
+            `หรือมีเหตุการณ์สำคัญที่ควรบันทึกเป็นความจำไหม ถ้ามีตอบ YES ถ้ายังไม่มีตอบ NO ` +
+            `ตอบคำเดียว: YES หรือ NO`;
+        const res = await tinyGenerate(q, 120);
+        const s = stripReasoning(res).toLowerCase();
+        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
+        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("มี")) return true;
+        return false;
+    } catch (e) {
+        console.error(`[${extensionName}] aiDecidesMemo failed:`, e);
+        return false;
+    }
+}
+
+function parseMemoLines(raw) {
+    const text = stripReasoning(raw);
+    const out = { adds: [], dones: [], cancels: [], notes: [] };
+    for (const line of text.split("\n")) {
+        const l = line.trim();
+        if (!l) continue;
+        let m;
+        if ((m = l.match(/^ADD:\s*(.+)$/i))) {
+            const rest = m[1];
+            const bar = rest.indexOf("|");
+            const when = bar >= 0 ? rest.slice(0, bar).trim() : "";
+            const title = (bar >= 0 ? rest.slice(bar + 1) : rest).trim();
+            if (title) out.adds.push({ when, title });
+        } else if ((m = l.match(/^DONE:\s*(\d+)/i))) {
+            out.dones.push(parseInt(m[1], 10));
+        } else if ((m = l.match(/^CANCEL:\s*(\d+)/i))) {
+            out.cancels.push(parseInt(m[1], 10));
+        } else if ((m = l.match(/^NOTE:\s*(.+)$/i))) {
+            out.notes.push(m[1].trim());
+        }
+    }
+    return out;
+}
+
+// สแกนครั้งเดียว: หากำหนดการใหม่ + ปิด/ยกเลิกอันเดิม + จดความจำ
+async function scanMemo(opts) {
+    opts = opts || {};
+    if (isMemoBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        if (!opts.silent) toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyMemo");
+        return;
+    }
+    if (!getCurrentCharacter()) {
+        if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyMemo");
+        return;
+    }
+    isMemoBusy = true;
+    const scanBtns = $("#tinyfeed-agenda-scan, #tinyfeed-note-scan");
+    scanBtns.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const pending = getAgenda().filter((a) => a.status === "pending");
+        const pendingLines = pending.length
+            ? pending.map((a, i) => `[${i + 1}] ${a.when ? htmlToPlain(a.when) + " — " : ""}${htmlToPlain(a.title)}`).join("\n")
+            : "(ยังไม่มี)";
+        const recentNotes = getNotes().slice(-8).map((n) => `- ${htmlToPlain(n.text)}`).join("\n");
+        const extra = String(getSetting("memoExtraPrompt") || "").trim();
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `คุณคือผู้ช่วยจดกำหนดการและความจำจากเนื้อเรื่อง RP ปัจจุบัน ทำ 3 อย่าง:\n` +
+            `1) หากำหนดการ/นัดหมาย/เหตุการณ์ที่ "กำลังจะเกิดในอนาคต" ที่ยังไม่มีในรายการ แล้วเพิ่มด้วย ADD\n` +
+            `2) ดูรายการที่ค้างอยู่ อันไหนเกิดขึ้นแล้วใช้ DONE อันไหนยกเลิก/ไม่เกิดแล้วใช้ CANCEL (อ้างด้วยหมายเลข)\n` +
+            `3) จดเหตุการณ์สำคัญที่เพิ่งเกิด หรือข้อเท็จจริงที่ควรจำ ที่ยังไม่มีในโน้ต ด้วย NOTE\n` +
+            `ใช้ภาษาเดียวกับเนื้อเรื่อง กระชับ ห้ามพูดแทนผู้ใช้ ห้ามแต่งเกินจริง ถ้าไม่มีรายการไหนก็ไม่ต้องตอบบรรทัดนั้น\n` +
+            (extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "") +
+            crossAppContext("memo") +
+            `\nรายการกำหนดการที่ค้างอยู่:\n${pendingLines}\n` +
+            (recentNotes ? `\nโน้ตที่มีอยู่แล้ว (อย่าจดซ้ำ):\n${recentNotes}\n` : "") +
+            `\nตอบบรรทัดละรายการในรูปแบบนี้เท่านั้น (ตอบเฉพาะที่มีจริง):\n` +
+            `ADD: <เมื่อไร> | <กำหนดการ>\nDONE: <หมายเลข>\nCANCEL: <หมายเลข>\nNOTE: <ข้อความ>`;
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("memoTokens"), 10) || 350));
+        const parsed = parseMemoLines(raw);
+
+        let added = 0, changed = 0, noted = 0;
+        const agenda = getAgenda();
+        for (const a of parsed.adds) {
+            agenda.push({
+                id: "a" + Date.now() + Math.random().toString(36).slice(2, 6),
+                when: escapeHtml(a.when), title: escapeHtml(a.title),
+                status: "pending", isAI: true, ts: Date.now(),
+            });
+            added++;
+        }
+        for (const n of parsed.dones) { const it = pending[n - 1]; if (it && it.status === "pending") { it.status = "done"; changed++; } }
+        for (const n of parsed.cancels) { const it = pending[n - 1]; if (it && it.status === "pending") { it.status = "cancelled"; changed++; } }
+        const existing = new Set(getNotes().map((n) => htmlToPlain(n.text).trim().toLowerCase()));
+        for (const t of parsed.notes) {
+            const key = t.trim().toLowerCase();
+            if (!key || existing.has(key)) continue;
+            existing.add(key);
+            getNotes().push({ id: "n" + Date.now() + Math.random().toString(36).slice(2, 6), text: escapeHtml(t), kind: "event", isAI: true, ts: Date.now() });
+            noted++;
+        }
+
+        if (added || changed || noted) {
+            saveFeedData();
+            if (currentApp === "memo") { renderAgenda(); renderNotes(); }
+            updateChatInjection();
+            if (opts.notify) {
+                const summary = [added ? `กำหนดการใหม่ ${added}` : "", changed ? `อัปเดต ${changed}` : "", noted ? `โน้ต ${noted}` : ""].filter(Boolean).join(" · ");
+                showNotif(memoNotifAvatar(), "TinyMemo", summary || "อัปเดตบันทึก", "agenda", "memo");
+            }
+        } else if (opts.manual && !opts.silent) {
+            toastr.info("รอบนี้ยังไม่มีอะไรใหม่ให้จด", "TinyMemo");
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] scanMemo failed:`, e);
+        if (!opts.silent) toastr.error("สแกนไม่สำเร็จ ลองใหม่นะ", "TinyMemo");
+    } finally {
+        isMemoBusy = false;
+        scanBtns.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
 // ===== Stage 7: auto-generate เมื่อมีเหตุการณ์ในแชท =====
 let autoMsgCount = 0;    // ตัวนับข้อความสำหรับโพสต์ (รีเซ็ตเมื่อสลับแชท)
 let autoNewsCount = 0;   // ตัวนับข้อความสำหรับข่าว
+let autoMemoCount = 0;   // ตัวนับข้อความสำหรับ TinyMemo
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
 // ถาม AI แบบเงียบว่าควรมีโพสต์ใหม่ตอนนี้ไหม (โหมด ai)
@@ -1813,10 +2109,12 @@ async function onChatMessage() {
 
     const feedOn = getSetting("autoGenerate");
     const newsOn = getSetting("newsAutoGenerate");
+    const memoOn = getSetting("memoAutoGenerate");
     if (feedOn) autoMsgCount++;
     if (newsOn) autoNewsCount++;
+    if (memoOn) autoMemoCount++;
 
-    // โพสต์ฟีดก่อน (ถ้าถึงรอบ) — ข่าวรอรอบถัดไป กัน generate ซ้อนในทีเดียว
+    // โพสต์ฟีดก่อน (ถ้าถึงรอบ) — แอปอื่นรอรอบถัดไป กัน generate ซ้อนในทีเดียว
     const feedInterval = Math.max(1, parseInt(getSetting("autoGenerateInterval"), 10) || 10);
     if (feedOn && autoMsgCount >= feedInterval) {
         autoMsgCount = 0;
@@ -1826,6 +2124,20 @@ async function onChatMessage() {
                 if (!(await aiDecidesToPost())) return;
             }
             await generateFeedPost({ notify: true, silent: true });
+        } finally { isAutoBusy = false; }
+        return;
+    }
+
+    // TinyMemo (กำหนดการ + ความจำ)
+    const memoInterval = Math.max(1, parseInt(getSetting("memoAutoInterval"), 10) || 15);
+    if (memoOn && autoMemoCount >= memoInterval) {
+        autoMemoCount = 0;
+        isAutoBusy = true;
+        try {
+            if ((getSetting("memoAutoMode") || "interval") === "ai") {
+                if (!(await aiDecidesMemo())) return;
+            }
+            await scanMemo({ notify: true, silent: true });
         } finally { isAutoBusy = false; }
         return;
     }
@@ -1847,6 +2159,7 @@ async function onChatMessage() {
 // ===== แจ้งเตือนสไตล์โทรศัพท์ (push banner) =====
 let notifTimer = null;
 let notifTab = "feed";   // กดแจ้งเตือนแล้วไปแท็บไหน
+let notifApp = "feed";   // กดแจ้งเตือนแล้วเปิดแอปไหน
 
 // จำนวนแจ้งเตือนที่ยังไม่ได้ดู
 let unreadCount = 0;
@@ -1870,11 +2183,12 @@ function clearUnread() {
     $("#tinyfeed-menu-badge").text("").addClass("tinyfeed-hidden");
 }
 
-// แสดงแบนเนอร์แจ้งเตือน (ใช้ได้ทั้งโพสต์และข่าว)
-function showNotif(avatarHtml, author, text, tab) {
+// แสดงแบนเนอร์แจ้งเตือน (ใช้ได้ทุกแอป — ระบุ tab + app ที่จะเปิดเมื่อกด)
+function showNotif(avatarHtml, author, text, tab, app) {
     if (!getSetting("notificationsEnabled")) return;   // ปิดแจ้งเตือน = ไม่ทำอะไร
     markUnread();
     notifTab = tab || "feed";
+    notifApp = app || "feed";
     const notif = $("#tinyfeed-notif");
     notif.find(".tinyfeed-notif-avatar").html(avatarHtml);
     notif.find(".tinyfeed-notif-author").text(author || "");
@@ -1893,12 +2207,17 @@ function dismissNotif() {
     $("#tinyfeed-notif").removeClass("tinyfeed-notif-show");
 }
 
-// กดแจ้งเตือน → เปิดแอป Feed ไปที่แท็บที่เกี่ยวข้อง
+// กดแจ้งเตือน → เปิดแอปที่เกี่ยวข้องไปที่แท็บที่ถูกต้อง
 function openFeedFromNotif() {
     dismissNotif();
     openPhone();          // เปิดเครื่อง (ไปหน้าโฮมก่อน)
-    openApp("feed");      // เข้าแอป Feed
-    switchTab(notifTab);
+    if (notifApp === "memo") {
+        openApp("memo");
+        switchMemoTab(notifTab === "notes" ? "notes" : "agenda");
+    } else {
+        openApp("feed");
+        switchTab(notifTab);
+    }
 }
 
 // ขยายช่องเขียนโพสต์ (ช่องเดิมโตขึ้น + โชว์ปุ่ม)
@@ -1969,6 +2288,7 @@ const SETTINGS_LAYOUT = [
     },
     { head: "💬 TinyConnect", titles: ["TinyConnect (แชต)"] },
     { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
+    { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
 ];
 
 // เรียงกลุ่ม settings ใหม่ + ใส่หัวข้อใหญ่คั่น (ทำครั้งเดียว)
@@ -2057,12 +2377,20 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-depth").val(getSetting("injectDepth"));
     $("#tinyfeed-cfg-inject-connect").prop("checked", Boolean(getSetting("injectConnect")));
     $("#tinyfeed-cfg-inject-stream").prop("checked", Boolean(getSetting("injectStream")));
+    $("#tinyfeed-cfg-inject-memo").prop("checked", Boolean(getSetting("injectMemo")));
+
+    $("#tinyfeed-cfg-memo-auto").prop("checked", Boolean(getSetting("memoAutoGenerate")));
+    $("#tinyfeed-cfg-memo-mode").val(getSetting("memoAutoMode") || "interval");
+    $("#tinyfeed-cfg-memo-interval").val(getSetting("memoAutoInterval") || 15);
+    $("#tinyfeed-cfg-memo-tokens").val(getSetting("memoTokens"));
+    $("#tinyfeed-cfg-memo-extra").val(getSetting("memoExtraPrompt"));
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
     $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
     $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
     $("#tinyfeed-cfg-crossapp-news").prop("checked", Boolean(getSetting("crossAppNews")));
     $("#tinyfeed-cfg-crossapp-connect").prop("checked", Boolean(getSetting("crossAppConnect")));
     $("#tinyfeed-cfg-crossapp-stream").prop("checked", Boolean(getSetting("crossAppStream")));
+    $("#tinyfeed-cfg-crossapp-memo").prop("checked", Boolean(getSetting("crossAppMemo")));
     $("#tinyfeed-cfg-crossapp-count").val(getSetting("crossAppCount"));
 }
 
@@ -2151,11 +2479,13 @@ jQuery(async () => {
         context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
             autoMsgCount = 0;   // เริ่มนับใหม่ตามแชทที่เปิด
             autoNewsCount = 0;
+            autoMemoCount = 0;
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
             if (currentApp === "connect") openConnectList();   // contact/แชตเปลี่ยนตามแชท
             if (currentApp === "stream") { clearStreamTimer(); renderStream(); maybeStartStreamTimer(); }
+            if (currentApp === "memo") switchMemoTab(memoTab);   // กำหนดการ/โน้ตเปลี่ยนตามแชท
             console.log(`[${extensionName}] Chat changed, feed reloaded`);
         });
 
@@ -2231,6 +2561,35 @@ jQuery(async () => {
                 e.preventDefault();
                 sendStreamComment($(this).val());
             }
+        });
+
+        // TinyMemo: สลับแท็บ + เพิ่ม/ติ๊ก/ลบ + สแกน
+        $(document).on("click", ".tinyfeed-memo-tab", function () {
+            switchMemoTab($(this).data("mtab"));
+        });
+        $(document).on("click", "#tinyfeed-agenda-add", function () {
+            addAgendaManual($("#tinyfeed-agenda-input").val());
+        });
+        $(document).on("keydown", "#tinyfeed-agenda-input", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); addAgendaManual($(this).val()); }
+        });
+        $(document).on("click", "#tinyfeed-note-add", function () {
+            addNoteManual($("#tinyfeed-note-input").val());
+        });
+        $(document).on("keydown", "#tinyfeed-note-input", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); addNoteManual($(this).val()); }
+        });
+        $(document).on("click", ".tinyfeed-agenda-check", function () {
+            toggleAgenda($(this).data("id"));
+        });
+        $(document).on("click", ".tinyfeed-agenda-del", function () {
+            deleteAgenda($(this).data("id"));
+        });
+        $(document).on("click", ".tinyfeed-note-del", function () {
+            deleteNote($(this).data("id"));
+        });
+        $(document).on("click", "#tinyfeed-agenda-scan, #tinyfeed-note-scan", function () {
+            scanMemo({ manual: true });
         });
 
         // Stage 2: render mock + ผูกแท็บ
@@ -2499,6 +2858,10 @@ jQuery(async () => {
             setSetting("injectStream", $(this).prop("checked"));
             updateChatInjection();
         });
+        $(document).on("change", "#tinyfeed-cfg-inject-memo", function () {
+            setSetting("injectMemo", $(this).prop("checked"));
+            updateChatInjection();
+        });
         $(document).on("change", "#tinyfeed-cfg-crossapp", function () {
             setSetting("crossAppEnabled", $(this).prop("checked"));
         });
@@ -2517,6 +2880,9 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-crossapp-stream", function () {
             setSetting("crossAppStream", $(this).prop("checked"));
         });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-memo", function () {
+            setSetting("crossAppMemo", $(this).prop("checked"));
+        });
         $(document).on("input", "#tinyfeed-cfg-crossapp-count", function () {
             let v = parseInt($(this).val(), 10);
             setSetting("crossAppCount", Number.isFinite(v) && v > 0 ? v : 3);
@@ -2530,6 +2896,25 @@ jQuery(async () => {
             let v = parseInt($(this).val(), 10);
             setSetting("injectDepth", Number.isFinite(v) && v >= 0 ? v : 4);
             updateChatInjection();
+        });
+
+        // TinyMemo settings
+        $(document).on("change", "#tinyfeed-cfg-memo-auto", function () {
+            setSetting("memoAutoGenerate", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-memo-mode", function () {
+            setSetting("memoAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-memo-interval", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("memoAutoInterval", Number.isFinite(v) && v > 0 ? v : 15);
+        });
+        $(document).on("input", "#tinyfeed-cfg-memo-tokens", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("memoTokens", Number.isFinite(v) && v > 0 ? v : 350);
+        });
+        $(document).on("input", "#tinyfeed-cfg-memo-extra", function () {
+            setSetting("memoExtraPrompt", $(this).val());
         });
 
         // โหลดค่าที่บันทึกไว้

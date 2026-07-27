@@ -121,7 +121,8 @@
     flex-shrink: 0;
 }
 
-.tinyfeed-tab {
+.tinyfeed-tab,
+.tinyfeed-memo-tab {
     flex: 1;
     text-align: center;
     padding: 12px 0;
@@ -132,11 +133,13 @@
     border-bottom: 2px solid transparent;
 }
 
-.tinyfeed-tab:hover {
+.tinyfeed-tab:hover,
+.tinyfeed-memo-tab:hover {
     color: var(--tf-text);
 }
 
-.tinyfeed-tab-active {
+.tinyfeed-tab-active,
+.tinyfeed-memo-tab-active {
     color: var(--tf-text-strong);
     border-bottom: 2px solid var(--tf-accent);
 }
@@ -1672,4 +1675,220 @@
     font-size: 0.62em;
     color: var(--tf-accent);
     margin-top: -4px;
+}
+
+/* ===== TinyMemo: กำหนดการ + โน้ต/ความจำ ===== */
+.tinyfeed-memo-panel:not(.tinyfeed-hidden) {
+    animation: tinyfeed-fade 0.25s ease;
+}
+
+/* แถวเพิ่มเอง (input + ปุ่มบวก) */
+.tinyfeed-memo-compose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+#tinyfeed-agenda-input,
+#tinyfeed-note-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 9px 15px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+#tinyfeed-agenda-input:focus,
+#tinyfeed-note-input:focus {
+    border-color: var(--tf-accent);
+}
+
+.tinyfeed-memo-add {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--tf-accent);
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.tinyfeed-memo-add:hover {
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+}
+
+.tinyfeed-memo-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+}
+
+/* หัวข้อคั่นเซกชัน (ค้างอยู่ / เสร็จแล้ว) */
+.tinyfeed-memo-section {
+    font-size: 0.78em;
+    font-weight: 600;
+    color: var(--tf-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin: 14px 0 8px;
+}
+
+/* แถวกำหนดการ */
+.tinyfeed-agenda-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+    animation: tinyfeed-rise 0.3s ease backwards;
+}
+
+.tinyfeed-agenda-check {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    border-radius: 50%;
+    border: 2px solid var(--tf-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-size: 0.7em;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.tinyfeed-agenda-check:hover {
+    border-color: var(--tf-accent);
+}
+
+.tinyfeed-agenda-item-done .tinyfeed-agenda-check {
+    background: var(--tf-accent);
+    border-color: var(--tf-accent);
+    color: #fff;
+}
+
+.tinyfeed-agenda-item-cancelled .tinyfeed-agenda-check {
+    color: var(--tf-text-muted);
+    border-color: var(--tf-text-muted);
+}
+
+.tinyfeed-agenda-body {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.4;
+}
+
+.tinyfeed-agenda-when {
+    display: block;
+    font-size: 0.76em;
+    color: var(--tf-accent);
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.tinyfeed-agenda-title {
+    color: var(--tf-text);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+/* เสร็จแล้ว / ยกเลิก = ขีดฆ่า + จาง */
+.tinyfeed-agenda-item-done .tinyfeed-agenda-title,
+.tinyfeed-agenda-item-cancelled .tinyfeed-agenda-title {
+    text-decoration: line-through;
+    color: var(--tf-text-muted);
+}
+
+.tinyfeed-agenda-item-cancelled {
+    opacity: 0.6;
+}
+
+.tinyfeed-agenda-tag {
+    font-size: 0.7em;
+    color: var(--tf-text-muted);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 0 7px;
+    margin-left: 6px;
+    white-space: nowrap;
+}
+
+/* ปุ่มกู้คืน/ลบ ในแถวกำหนดการ + โน้ต */
+.tinyfeed-agenda-restore,
+.tinyfeed-agenda-del,
+.tinyfeed-note-del {
+    flex-shrink: 0;
+    align-self: center;
+    padding: 2px 6px;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    opacity: 0.4;
+    font-size: 0.85em;
+    transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.tinyfeed-agenda-item:hover .tinyfeed-agenda-restore,
+.tinyfeed-agenda-item:hover .tinyfeed-agenda-del,
+.tinyfeed-note-card:hover .tinyfeed-note-del {
+    opacity: 0.8;
+}
+
+.tinyfeed-agenda-del:hover,
+.tinyfeed-note-del:hover {
+    color: #f4212e;
+    opacity: 1;
+}
+
+.tinyfeed-agenda-restore:hover {
+    color: var(--tf-accent);
+    opacity: 1;
+}
+
+/* การ์ดโน้ต/ความจำ */
+.tinyfeed-note-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+    animation: tinyfeed-rise 0.3s ease backwards;
+}
+
+.tinyfeed-note-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--tf-accent);
+    opacity: 0.85;
+}
+
+.tinyfeed-note-body {
+    flex: 1;
+    min-width: 0;
+    line-height: 1.5;
+}
+
+.tinyfeed-note-text {
+    color: var(--tf-text);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+}
+
+.tinyfeed-note-time {
+    display: block;
+    font-size: 0.72em;
+    color: var(--tf-text-muted);
+    margin-top: 3px;
 }

@@ -43,6 +43,10 @@
                     <div class="tinyfeed-app-tile" style="--app-a:#a855f7; --app-b:#7e22ce;"><i class="fa-solid fa-video"></i></div>
                     <span class="tinyfeed-app-name">TinyStream</span>
                 </div>
+                <div class="tinyfeed-app-icon" data-app="memo">
+                    <div class="tinyfeed-app-tile" style="--app-a:#f59e0b; --app-b:#d97706;"><i class="fa-solid fa-calendar-check"></i></div>
+                    <span class="tinyfeed-app-name">TinyMemo</span>
+                </div>
             </div>
         </div>
 
@@ -294,6 +298,10 @@
                         <span>แทรกไลฟ์ TinyStream ด้วย</span>
                         <input id="tinyfeed-cfg-inject-stream" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกกำหนดการ/โน้ต TinyMemo ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-memo" type="checkbox" />
+                    </label>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
                             <span class="tinyfeed-field-label">จำนวนล่าสุดที่แทรก</span>
@@ -329,6 +337,10 @@
                         <span>· ไลฟ์ TinyStream</span>
                         <input id="tinyfeed-cfg-crossapp-stream" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· กำหนดการ/โน้ต (TinyMemo)</span>
+                        <input id="tinyfeed-cfg-crossapp-memo" type="checkbox" />
+                    </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">จำนวนที่แนบข้ามแอป</span>
                         <input id="tinyfeed-cfg-crossapp-count" type="number" min="1" />
@@ -361,6 +373,34 @@
                         <input id="tinyfeed-cfg-initcomment-count" type="number" min="1" />
                     </label>
                     <small class="tinyfeed-field-hint">ตอนสร้างโพสต์ใหม่ (ทั้ง AI สร้างและเราโพสต์เอง) จะมีคอมเมนต์ NPC ติดมาตามนี้ · โพสต์เราจะได้ยอดไลค์สุ่มด้วย (ใช้ generation เพิ่ม = เปลือง token ขึ้น)</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">TinyMemo (กำหนดการ + โน้ต)</div>
+                    <label class="tinyfeed-field-row">
+                        <span>สแกนกำหนดการ/ความจำอัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-memo-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-memo-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สแกนทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-memo-interval" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวคำตอบสูงสุด (token)</span>
+                        <input id="tinyfeed-cfg-memo-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมสำหรับสแกน (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-memo-extra" rows="2" placeholder="เช่น: เน้นนัดหมายสำคัญ, จดเฉพาะเหตุการณ์ใหญ่, ใช้โทนย่อสั้น..."></textarea>
+                    </label>
+                    <small class="tinyfeed-field-hint">สแกนครั้งเดียวได้ทั้ง 2 แท็บ: หา "กำหนดการที่กำลังจะเกิด" มาเรียงไทม์ไลน์ + ขีดฆ่าอันที่ผ่านไปแล้ว และจด "เหตุการณ์สำคัญ/สิ่งที่ควรจำ" ลงโน้ต · โหมด "ให้ AI ตัดสินใจ" จะเช็คก่อนว่ามีอะไรควรจดไหม (ประหยัด token) · เปิด auto แล้วจะมีแจ้งเตือนเมื่อมีรายการใหม่</small>
                 </div>
             </div>
         </div>
@@ -412,6 +452,43 @@
             <div class="tinyfeed-stream-compose tinyfeed-hidden">
                 <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
                 <span id="tinyfeed-stream-send"><i class="fa-solid fa-paper-plane"></i></span>
+            </div>
+        </div>
+
+        <div id="tinyfeed-app-memo" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-tabs">
+                <div class="tinyfeed-memo-tab tinyfeed-memo-tab-active" data-mtab="agenda">
+                    <span class="fa-solid fa-calendar-day"></span> กำหนดการ
+                </div>
+                <div class="tinyfeed-memo-tab" data-mtab="notes">
+                    <span class="fa-solid fa-note-sticky"></span> โน้ต
+                </div>
+            </div>
+            <div class="tinyfeed-screen">
+                <div id="tinyfeed-memo-agenda" class="tinyfeed-memo-panel">
+                    <div class="tinyfeed-memo-compose">
+                        <input id="tinyfeed-agenda-input" type="text" placeholder="เพิ่มกำหนดการเอง เช่น: พรุ่งนี้เช้า | ไปตลาด" />
+                        <span id="tinyfeed-agenda-add" class="tinyfeed-memo-add" title="เพิ่ม"><i class="fa-solid fa-plus"></i></span>
+                    </div>
+                    <div class="tinyfeed-memo-tools">
+                        <button id="tinyfeed-agenda-scan" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> <span>สแกนกำหนดการจากเรื่อง</span>
+                        </button>
+                    </div>
+                    <div id="tinyfeed-agenda-list"></div>
+                </div>
+                <div id="tinyfeed-memo-notes" class="tinyfeed-memo-panel tinyfeed-hidden">
+                    <div class="tinyfeed-memo-compose">
+                        <input id="tinyfeed-note-input" type="text" placeholder="เพิ่มโน้ต/สิ่งที่อยากให้จำ..." />
+                        <span id="tinyfeed-note-add" class="tinyfeed-memo-add" title="เพิ่ม"><i class="fa-solid fa-plus"></i></span>
+                    </div>
+                    <div class="tinyfeed-memo-tools">
+                        <button id="tinyfeed-note-scan" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> <span>สแกนความจำจากเรื่อง</span>
+                        </button>
+                    </div>
+                    <div id="tinyfeed-notes-list"></div>
+                </div>
             </div>
         </div>
     </div>
