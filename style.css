@@ -115,7 +115,8 @@
 }
 
 /* แท็บ */
-.tinyfeed-tabs {
+.tinyfeed-tabs,
+.tinyfeed-memo-tabs {
     display: flex;
     border-bottom: 1px solid var(--tf-border);
     flex-shrink: 0;
