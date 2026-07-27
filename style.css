@@ -1219,6 +1219,17 @@
     word-break: break-word;
 }
 
+/* กองบับเบิล (หลายบรรทัด → หลายบับเบิลซ้อน) */
+.tinyfeed-msg-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.tinyfeed-msg-user .tinyfeed-msg-stack { align-items: flex-end; max-width: 74%; }
+.tinyfeed-msg-contact .tinyfeed-msg-stack { align-items: flex-start; }
+.tinyfeed-msg-stack .tinyfeed-msg-bubble { max-width: 100%; }
+
 .tinyfeed-msg-user .tinyfeed-msg-bubble {
     background: linear-gradient(135deg, #22c55e, #15a34a);
     color: #fff;

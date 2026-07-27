@@ -47,6 +47,7 @@ const defaultSettings = {
     // TinyConnect
     connectTokens: 200,
     connectExtraPrompt: "",
+    connectSplitBubbles: true,    // แยกข้อความหลายบรรทัดเป็นหลายบับเบิล
     // TinyStream
     streamStreamer: "char",       // "char" | "user"
     streamCommentMode: "manual",  // "manual" | "auto" | "onupdate"
@@ -540,11 +541,19 @@ function renderThread() {
         || { name: activeThreadName, isMain: false, avatar: "" };
     const group = findGroup(activeThread);
     const delBtn = (i) => `<span class="tinyfeed-msg-del" data-idx="${i}" title="ลบข้อความ"><i class="fa-solid fa-trash"></i></span>`;
+    // แยกข้อความหลายบรรทัด → หลายบับเบิล (ปิดได้จาก settings)
+    const bubblesHtml = (text) => {
+        const segs = getSetting("connectSplitBubbles")
+            ? String(text || "").split(/\n+/).map((s) => s.trim()).filter(Boolean)
+            : [String(text || "")];
+        const list = segs.length ? segs : [String(text || "")];
+        return list.map((s) => `<div class="tinyfeed-msg-bubble">${renderRich(s)}</div>`).join("");
+    };
     const rows = msgs.map((m, i) => {
         if (m.from === "user") {
             return `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
                 ${delBtn(i)}
-                <div class="tinyfeed-msg-bubble">${renderRich(m.text)}</div>
+                <div class="tinyfeed-msg-stack">${bubblesHtml(m.text)}</div>
             </div>`;
         }
         // แชตกลุ่ม: ใช้ avatar/ชื่อของสมาชิกที่พูด
@@ -556,7 +565,7 @@ function renderThread() {
             ${makeAvatar(avaItem)}
             <div class="tinyfeed-msg-col">
                 ${group ? `<span class="tinyfeed-msg-author">${escapeText(who)}</span>` : ""}
-                <div class="tinyfeed-msg-bubble">${renderRich(m.text)}</div>
+                <div class="tinyfeed-msg-stack">${bubblesHtml(m.text)}</div>
             </div>
             ${delBtn(i)}
         </div>`;
@@ -3011,6 +3020,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-stream-extra").val(getSetting("streamExtraPrompt"));
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
+    $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
 
     populateApiProfiles();
     $("#tinyfeed-cfg-api-context").val(getSetting("apiContextMessages"));
@@ -3598,6 +3608,10 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-connect-extra", function () {
             setSetting("connectExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-connect-split", function () {
+            setSetting("connectSplitBubbles", $(this).prop("checked"));
+            if (currentApp === "connect" && isConnectThreadOpen()) renderThread();
         });
 
         // Phase 2: token + คำสั่งเสริม
