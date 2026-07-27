@@ -3276,8 +3276,9 @@ jQuery(async () => {
             sendConnectMessage($("#tinyfeed-connect-input").val());
         });
         $(document).on("keydown", "#tinyfeed-connect-input", function (e) {
-            // Enter = ส่ง, Shift+Enter = ขึ้นบรรทัดใหม่
-            if (e.key === "Enter" && !e.shiftKey) {
+            // เดสก์ท็อป: Enter=ส่ง, Shift+Enter=บรรทัดใหม่ · มือถือ (จอสัมผัส): Enter=บรรทัดใหม่ ส่งด้วยปุ่ม ✈
+            const isTouch = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+            if (e.key === "Enter" && !e.shiftKey && !isTouch) {
                 e.preventDefault();
                 sendConnectMessage($(this).val());
             }
@@ -3759,6 +3760,11 @@ jQuery(async () => {
             setSetting("forumRooms", rooms);
             renderForumRooms();
         });
+
+        // เดสก์ท็อป (มีเมาส์/คีย์บอร์ด): ใบ้ว่ากด Shift+Enter ขึ้นบรรทัดใหม่ได้
+        if (!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches)) {
+            $("#tinyfeed-connect-input").attr("placeholder", "พิมพ์ข้อความ... (Shift+Enter ขึ้นบรรทัดใหม่)");
+        }
 
         // โหลดค่าที่บันทึกไว้
         loadSettings();
