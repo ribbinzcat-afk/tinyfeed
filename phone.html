@@ -47,6 +47,10 @@
                     <div class="tinyfeed-app-tile" style="--app-a:#f59e0b; --app-b:#d97706;"><i class="fa-solid fa-calendar-check"></i></div>
                     <span class="tinyfeed-app-name">TinyMemo</span>
                 </div>
+                <div class="tinyfeed-app-icon" data-app="forum">
+                    <div class="tinyfeed-app-tile" style="--app-a:#ef4444; --app-b:#b91c1c;"><i class="fa-solid fa-comments"></i></div>
+                    <span class="tinyfeed-app-name">TinyForum</span>
+                </div>
             </div>
         </div>
 
@@ -302,6 +306,10 @@
                         <span>แทรกกำหนดการ/โน้ต TinyMemo ด้วย</span>
                         <input id="tinyfeed-cfg-inject-memo" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกกระทู้ TinyForum ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-forum" type="checkbox" />
+                    </label>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
                             <span class="tinyfeed-field-label">จำนวนล่าสุดที่แทรก</span>
@@ -340,6 +348,10 @@
                     <label class="tinyfeed-field-row">
                         <span>· กำหนดการ/โน้ต (TinyMemo)</span>
                         <input id="tinyfeed-cfg-crossapp-memo" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· กระทู้ (TinyForum)</span>
+                        <input id="tinyfeed-cfg-crossapp-forum" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">จำนวนที่แนบข้ามแอป</span>
@@ -401,6 +413,43 @@
                         <textarea id="tinyfeed-cfg-memo-extra" rows="2" placeholder="เช่น: เน้นนัดหมายสำคัญ, จดเฉพาะเหตุการณ์ใหญ่, ใช้โทนย่อสั้น..."></textarea>
                     </label>
                     <small class="tinyfeed-field-hint">สแกนครั้งเดียวได้ทั้ง 2 แท็บ: หา "กำหนดการที่กำลังจะเกิด" มาเรียงไทม์ไลน์ + ขีดฆ่าอันที่ผ่านไปแล้ว และจด "เหตุการณ์สำคัญ/สิ่งที่ควรจำ" ลงโน้ต · โหมด "ให้ AI ตัดสินใจ" จะเช็คก่อนว่ามีอะไรควรจดไหม (ประหยัด token) · เปิด auto แล้วจะมีแจ้งเตือนเมื่อมีรายการใหม่</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">TinyForum (เว็บบอร์ด)</div>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้ชาวเน็ตตั้งกระทู้อัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-forum-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-forum-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สร้างกระทู้ทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-forum-interval" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวกระทู้สูงสุด (token)</span>
+                        <input id="tinyfeed-cfg-forum-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">จำนวนคอมเมนต์ต่อการโหลด 1 ครั้ง</span>
+                        <input id="tinyfeed-cfg-forum-batch" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมสำหรับกระทู้/คอมเมนต์ (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-forum-extra" rows="2" placeholder="เช่น: โทนดราม่า, ชาวเน็ตปากจัด, มีทั้งเชียร์และแขวน..."></textarea>
+                    </label>
+                    <div class="tinyfeed-field-label">ห้อง/หมวด (AI เลือกจากรายการนี้)</div>
+                    <div id="tinyfeed-room-list"></div>
+                    <button id="tinyfeed-room-add" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-plus"></i> <span>เพิ่มห้อง</span>
+                    </button>
+                    <small class="tinyfeed-field-hint">ตอน AI ตั้งกระทู้จะเลือกห้องจากรายการนี้ · ห้องใช้ร่วมทุกแชท · โหลดคอมเมนต์เพิ่มได้เรื่อยๆ ในหน้ากระทู้ (ยิ่งเยอะยิ่งเปลือง token)</small>
                 </div>
             </div>
         </div>
@@ -488,6 +537,46 @@
                         </button>
                     </div>
                     <div id="tinyfeed-notes-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-app-forum" class="tinyfeed-app tinyfeed-hidden">
+            <div id="tinyfeed-forum-list" class="tinyfeed-forum-list">
+                <div class="tinyfeed-forum-tabs">
+                    <div class="tinyfeed-forum-tab tinyfeed-forum-tab-active" data-fsort="latest">
+                        <span class="fa-solid fa-clock"></span> ล่าสุด
+                    </div>
+                    <div class="tinyfeed-forum-tab" data-fsort="hot">
+                        <span class="fa-solid fa-fire"></span> มาแรง
+                    </div>
+                </div>
+                <div class="tinyfeed-screen">
+                    <div class="tinyfeed-forum-tools">
+                        <button id="tinyfeed-forum-new" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-pen-to-square"></i> <span>ตั้งกระทู้</span>
+                        </button>
+                        <button id="tinyfeed-forum-generate" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ชาวเน็ตตั้งกระทู้</span>
+                        </button>
+                    </div>
+                    <div id="tinyfeed-forum-newform" class="tinyfeed-forum-newform tinyfeed-hidden">
+                        <select id="tinyfeed-forum-room"></select>
+                        <input id="tinyfeed-forum-title" type="text" placeholder="หัวข้อกระทู้..." />
+                        <textarea id="tinyfeed-forum-body" rows="3" placeholder="เนื้อหากระทู้..."></textarea>
+                        <div class="tinyfeed-compose-actions">
+                            <button id="tinyfeed-forum-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                            <button id="tinyfeed-forum-post" class="tinyfeed-btn-primary">ตั้งกระทู้</button>
+                        </div>
+                    </div>
+                    <div id="tinyfeed-forum-threads"></div>
+                </div>
+            </div>
+            <div id="tinyfeed-forum-thread" class="tinyfeed-forum-thread tinyfeed-hidden">
+                <div id="tinyfeed-forum-thread-body" class="tinyfeed-screen"></div>
+                <div class="tinyfeed-forum-compose">
+                    <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
+                    <span id="tinyfeed-forum-comment-send"><i class="fa-solid fa-paper-plane"></i></span>
                 </div>
             </div>
         </div>

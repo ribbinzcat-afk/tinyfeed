@@ -67,6 +67,15 @@ const defaultSettings = {
     memoTokens: 350,
     memoExtraPrompt: "",
     injectMemo: false,            // แทรกกำหนดการ/โน้ต เข้า RP หลัก
+    // TinyForum (เว็บบอร์ด/กระทู้)
+    forumAutoGenerate: false,     // สร้างกระทู้อัตโนมัติ
+    forumAutoMode: "interval",    // "interval" | "ai"
+    forumAutoInterval: 20,
+    forumTokens: 500,
+    forumExtraPrompt: "",
+    forumCommentBatch: 8,         // จำนวนคอมเมนต์ต่อการโหลด 1 ครั้ง
+    forumRooms: ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"],
+    injectForum: false,           // แทรกกระทู้ เข้า RP หลัก
     // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
     crossAppEnabled: false,       // master switch
     crossAppCount: 3,
@@ -77,6 +86,7 @@ const defaultSettings = {
     crossAppConnect: false,       // แชต TinyConnect (ส่วนตัว)
     crossAppStream: true,         // ไลฟ์ TinyStream
     crossAppMemo: false,          // กำหนดการ/โน้ต TinyMemo
+    crossAppForum: false,         // กระทู้ TinyForum
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -156,7 +166,7 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (app !== "feed" && app !== "connect" && app !== "stream" && app !== "memo") {
+    if (app !== "feed" && app !== "connect" && app !== "stream" && app !== "memo" && app !== "forum") {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
@@ -182,6 +192,10 @@ function openApp(app) {
         $("#tinyfeed-app-memo").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyMemo");
         switchMemoTab(memoTab);
+    } else if (app === "forum") {
+        currentApp = "forum";
+        $("#tinyfeed-app-forum").removeClass("tinyfeed-hidden");
+        openForumList();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -687,6 +701,7 @@ function getSeedData() {
         npcs: [],   // รายชื่อ NPC ประจำของแชทนี้ [{ name, avatar }]
         agenda: [], // TinyMemo กำหนดการ [{ id, when, title, status, isAI, ts }]
         notes: [],  // TinyMemo โน้ต/ความจำ [{ id, text, kind, isAI, ts }]
+        forum: [],  // TinyForum กระทู้ [{ id, room, title, body, author, likes, comments:[] }]
     };
 }
 
@@ -734,6 +749,20 @@ function getNotes() {
     const data = getFeedData();
     if (!Array.isArray(data.notes)) data.notes = [];
     return data.notes;
+}
+
+// TinyForum: กระทู้ (ensure array สำหรับแชทเก่า)
+function getForum() {
+    const data = getFeedData();
+    if (!Array.isArray(data.forum)) data.forum = [];
+    return data.forum;
+}
+
+// รายชื่อห้อง (global setting) — ensure array + seed default
+function getForumRooms() {
+    const r = getSetting("forumRooms");
+    if (!Array.isArray(r) || !r.length) return ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"];
+    return r;
 }
 
 // หา URL รูปของ NPC จากรายชื่อประจำ (ตามชื่อ) ไม่เจอคืน ""
@@ -1018,6 +1047,15 @@ function buildAppBlocks(want) {
         if (notes.length) parts.push(`เรื่องที่จำไว้:\n${notes.join("\n")}`);
         if (parts.length) blocks.push(`บันทึกในแอป TinyMemo:\n${parts.join("\n")}`);
     }
+    if (want.forum) {
+        const threads = (data.forum || []).slice(0, count).map((t) => {
+            const top = (t.comments || []).slice(0, 2).map((c) => `    · ${c.author}: ${htmlToPlain(c.text)}`);
+            let line = `- [${htmlToPlain(t.room)}] ${htmlToPlain(t.title)} (${forumCommentCount(t)} คอมเมนต์)`;
+            if (top.length) line += `\n${top.join("\n")}`;
+            return line;
+        });
+        if (threads.length) blocks.push(`กระทู้ล่าสุดบนเว็บบอร์ด TinyForum:\n${threads.join("\n")}`);
+    }
     return blocks;
 }
 
@@ -1032,6 +1070,7 @@ function crossAppContext(exclude) {
         connect: Boolean(getSetting("crossAppConnect")),
         stream: Boolean(getSetting("crossAppStream")),
         memo: Boolean(getSetting("crossAppMemo")),
+        forum: Boolean(getSetting("crossAppForum")),
         count,
     };
     // ตัดแอปที่กำลัง generate ออก (คอมเมนต์ผูกกับฟีด → ตัดไปพร้อมกัน)
@@ -1054,10 +1093,11 @@ function updateChatInjection() {
     const wantConnect = Boolean(getSetting("injectConnect"));
     const wantStream = Boolean(getSetting("injectStream"));
     const wantMemo = Boolean(getSetting("injectMemo"));
+    const wantForum = Boolean(getSetting("injectForum"));
     const depth = Math.max(0, parseInt(getSetting("injectDepth"), 10) || 4);
     const count = Math.max(1, parseInt(getSetting("injectCount"), 10) || 5);
 
-    if (!wantFeed && !wantNews && !wantConnect && !wantStream && !wantMemo) {
+    if (!wantFeed && !wantNews && !wantConnect && !wantStream && !wantMemo && !wantForum) {
         ctx.setExtensionPrompt("tinyfeed_inject", "", 1, 0);   // เคลียร์
         return;
     }
@@ -1068,6 +1108,7 @@ function updateChatInjection() {
         connect: wantConnect,
         stream: wantStream,
         memo: wantMemo,
+        forum: wantForum,
         count,
     });
 
@@ -2074,10 +2115,398 @@ async function scanMemo(opts) {
     }
 }
 
+// ===== TinyForum: เว็บบอร์ด/กระทู้ =====
+let activeForumThread = null;
+let forumSort = "latest";        // "latest" | "hot"
+let forumReplyingTo = null;      // comment id ที่กำลังเปิดกล่องตอบกลับ
+let isForumBusy = false;
+
+function forumId(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function forumCommentCount(t) {
+    return (t.comments || []).reduce((s, c) => s + 1 + ((c.replies || []).length), 0);
+}
+function forumScore(t) { return forumCommentCount(t) + (Number(t.likes) || 0); }
+
+function isForumThreadOpen() {
+    return !$("#tinyfeed-forum-thread").hasClass("tinyfeed-hidden");
+}
+
+function openForumList() {
+    activeForumThread = null;
+    forumReplyingTo = null;
+    $("#tinyfeed-forum-newform").addClass("tinyfeed-hidden");
+    $("#tinyfeed-forum-thread").addClass("tinyfeed-hidden");
+    $("#tinyfeed-forum-list").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-back").addClass("tinyfeed-hidden");
+    $(".tinyfeed-title").text("TinyForum");
+    renderForumList();
+}
+
+function openForumThread(id) {
+    activeForumThread = id;
+    forumReplyingTo = null;
+    $("#tinyfeed-forum-list").addClass("tinyfeed-hidden");
+    $("#tinyfeed-forum-thread").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
+    $("#tinyfeed-back").removeClass("tinyfeed-hidden");
+    const t = getForum().find((x) => x.id === id);
+    $(".tinyfeed-title").text(t ? t.room : "กระทู้");
+    renderForumThread(id);
+}
+
+function switchForumSort(sort) {
+    forumSort = sort === "hot" ? "hot" : "latest";
+    $(".tinyfeed-forum-tab").removeClass("tinyfeed-forum-tab-active");
+    $(`.tinyfeed-forum-tab[data-fsort="${forumSort}"]`).addClass("tinyfeed-forum-tab-active");
+    renderForumList();
+}
+
+function populateForumRoomSelect() {
+    const sel = $("#tinyfeed-forum-room");
+    sel.html(getForumRooms().map((r) => `<option value="${escapeAttr(r)}">${escapeText(r)}</option>`).join(""));
+}
+
+function renderForumList() {
+    const box = $("#tinyfeed-forum-threads");
+    const threads = getForum();
+    if (!threads.length) {
+        box.html(emptyStateHtml("fa-comments", "ยังไม่มีกระทู้",
+            "ตั้งกระทู้เอง หรือกด “ให้ชาวเน็ตตั้งกระทู้” ให้ AI สร้างจากเนื้อเรื่อง"));
+        return;
+    }
+    const arr = threads.slice();
+    if (forumSort === "hot") arr.sort((a, b) => forumScore(b) - forumScore(a));
+    box.html(arr.map((t) => `
+        <div class="tinyfeed-forum-thread-row" data-id="${escapeAttr(t.id)}">
+            <span class="tinyfeed-forum-room-chip">${escapeText(t.room)}</span>
+            <div class="tinyfeed-forum-row-title">${renderRich(t.title)}</div>
+            <div class="tinyfeed-forum-row-snippet">${escapeText(htmlToPlain(t.body))}</div>
+            <div class="tinyfeed-forum-row-meta">
+                <span>${escapeText(t.author)}</span>
+                <span><i class="fa-solid fa-comment"></i> ${formatCount(forumCommentCount(t))}</span>
+                <span><i class="fa-solid fa-heart"></i> ${formatCount(t.likes || 0)}</span>
+                <span>${displayTime(t)}</span>
+            </div>
+        </div>`).join(""));
+}
+
+function renderForumCommentRow(t, c) {
+    const replies = (c.replies || []).map((r) => `
+        <div class="tinyfeed-forum-cmt">
+            <div class="tinyfeed-comment">
+                ${makeAvatar(r)}
+                <div class="tinyfeed-comment-body">
+                    <span class="tinyfeed-comment-author">${escapeText(r.author)}</span>
+                    <span class="tinyfeed-comment-text">${renderRich(r.text)}</span>
+                    <div class="tinyfeed-forum-cmt-actions">
+                        <span class="tinyfeed-forum-cmt-like ${r.liked ? "tinyfeed-liked" : ""}" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}" data-rid="${escapeAttr(r.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(r.likes || 0)}</span>
+                    </div>
+                </div>
+            </div>
+        </div>`).join("");
+    const replyBox = forumReplyingTo === c.id ? `
+        <div class="tinyfeed-forum-reply-box">
+            <input class="tinyfeed-forum-reply-input" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}" type="text" placeholder="ตอบกลับ ${escapeAttr(c.author)}... (Enter ส่ง)" />
+        </div>` : "";
+    return `<div class="tinyfeed-forum-cmt" data-cid="${escapeAttr(c.id)}">
+        <div class="tinyfeed-comment">
+            ${makeAvatar(c)}
+            <div class="tinyfeed-comment-body">
+                <span class="tinyfeed-comment-author">${escapeText(c.author)}</span>
+                <span class="tinyfeed-comment-text">${renderRich(c.text)}</span>
+                <div class="tinyfeed-forum-cmt-actions">
+                    <span class="tinyfeed-forum-cmt-like ${c.liked ? "tinyfeed-liked" : ""}" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(c.likes || 0)}</span>
+                    <span class="tinyfeed-forum-cmt-reply" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}"><i class="fa-solid fa-reply"></i> ตอบกลับ</span>
+                </div>
+            </div>
+        </div>
+        ${replies ? `<div class="tinyfeed-forum-replies">${replies}</div>` : ""}
+        ${replyBox}
+    </div>`;
+}
+
+function renderForumThread(id) {
+    const t = getForum().find((x) => x.id === id);
+    const box = $("#tinyfeed-forum-thread-body");
+    if (!t) { box.html(""); return; }
+    const cnt = forumCommentCount(t);
+    const bodyHtml = String(t.body || "").split(/\n+/).filter(Boolean).map((p) => `<p>${renderRich(p)}</p>`).join("");
+    const comments = t.comments.map((c) => renderForumCommentRow(t, c)).join("");
+    box.html(`
+        <span class="tinyfeed-forum-room-chip">${escapeText(t.room)}</span>
+        <div class="tinyfeed-forum-detail-title">${renderRich(t.title)}</div>
+        <div class="tinyfeed-forum-detail-meta">
+            ${makeAvatar({ author: t.author, isUser: Boolean(t.isUser), isMain: Boolean(t.isMain) })}
+            <span>${escapeText(t.author)}</span> · <span>${displayTime(t)}</span>
+        </div>
+        <div class="tinyfeed-forum-detail-body">${bodyHtml}</div>
+        <div class="tinyfeed-forum-detail-actions">
+            <span class="tinyfeed-forum-thread-like ${t.liked ? "tinyfeed-liked" : ""}" data-id="${escapeAttr(t.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(t.likes || 0)}</span>
+            <span><i class="fa-solid fa-comment"></i> ${formatCount(cnt)}</span>
+            ${(t.isUser || t.isAI) ? `<span class="tinyfeed-forum-thread-del" data-id="${escapeAttr(t.id)}"><i class="fa-solid fa-trash"></i> ลบ</span>` : ""}
+        </div>
+        <div class="tinyfeed-forum-count">ความคิดเห็น ${cnt} รายการ</div>
+        ${comments || `<div class="tinyfeed-empty-sub" style="opacity:.6;padding:8px 0">ยังไม่มีความเห็น — ร่วมแสดงความเห็น หรือกดโหลดคอมเมนต์</div>`}
+        <div class="tinyfeed-forum-tools" style="justify-content:center;margin-top:14px">
+            <button class="tinyfeed-btn-generate tinyfeed-forum-loadmore" data-id="${escapeAttr(t.id)}">
+                <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์เพิ่ม</span>
+            </button>
+        </div>
+    `);
+}
+
+// ===== ตัวแก้ห้อง (settings) =====
+function renderForumRooms() {
+    const rows = getForumRooms().map((r, i) => `
+        <div class="tinyfeed-room-row" data-index="${i}">
+            <input class="tinyfeed-room-name" type="text" value="${escapeAttr(r)}" placeholder="ชื่อห้อง" />
+            <span class="tinyfeed-room-del" title="ลบห้อง"><i class="fa-solid fa-trash"></i></span>
+        </div>`).join("");
+    $("#tinyfeed-room-list").html(rows);
+}
+
+// ===== ผู้ใช้ทำเอง =====
+function openForumNewForm() {
+    const form = $("#tinyfeed-forum-newform");
+    const show = form.hasClass("tinyfeed-hidden");
+    if (show) {
+        populateForumRoomSelect();
+        $("#tinyfeed-forum-title").val("");
+        $("#tinyfeed-forum-body").val("");
+        form.removeClass("tinyfeed-hidden");
+    } else {
+        form.addClass("tinyfeed-hidden");
+    }
+}
+
+async function addForumThread() {
+    const room = String($("#tinyfeed-forum-room").val() || getForumRooms()[0] || "ทั่วไป");
+    const title = String($("#tinyfeed-forum-title").val() || "").trim();
+    const body = String($("#tinyfeed-forum-body").val() || "").trim();
+    if (!title) { toastr.info("ใส่หัวข้อกระทู้ก่อนนะ", "TinyForum"); return; }
+    const thread = {
+        id: forumId("ft"), room: escapeText(room), title: escapeHtml(title), body: escapeHtml(body || title),
+        author: getUserName(), isUser: true, likes: 0, liked: false, ts: Date.now(), comments: [],
+    };
+    getForum().unshift(thread);
+    saveFeedData();
+    $("#tinyfeed-forum-newform").addClass("tinyfeed-hidden");
+    openForumThread(thread.id);
+    updateChatInjection();
+    await loadForumComments(thread.id, { silent: true });   // ให้ชาวเน็ตแห่มาคอมเมนต์
+}
+
+async function addForumComment(threadId, text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    const t = getForum().find((x) => x.id === threadId);
+    if (!t) return;
+    t.comments.push({ id: forumId("fc"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: 0, liked: false, ts: Date.now(), replies: [] });
+    saveFeedData();
+    $("#tinyfeed-forum-comment-input").val("");
+    renderForumThread(threadId);
+    updateChatInjection();
+}
+
+function addForumReply(threadId, cid, text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    const t = getForum().find((x) => x.id === threadId);
+    const c = t && t.comments.find((x) => x.id === cid);
+    if (!c) return;
+    if (!Array.isArray(c.replies)) c.replies = [];
+    c.replies.push({ id: forumId("fr"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: 0, liked: false, ts: Date.now() });
+    forumReplyingTo = null;
+    saveFeedData();
+    renderForumThread(threadId);
+    updateChatInjection();
+}
+
+function toggleForumReplyBox(cid) {
+    forumReplyingTo = (forumReplyingTo === cid) ? null : cid;
+    renderForumThread(activeForumThread);
+    if (forumReplyingTo) $(`.tinyfeed-forum-reply-input[data-cid="${cid}"]`).trigger("focus");
+}
+
+function toggleForumThreadLike(id) {
+    const t = getForum().find((x) => x.id === id);
+    if (!t) return;
+    t.liked = !t.liked;
+    t.likes = (Number(t.likes) || 0) + (t.liked ? 1 : -1);
+    saveFeedData();
+    renderForumThread(id);
+}
+
+function toggleForumCommentLike(tid, cid, rid) {
+    const t = getForum().find((x) => x.id === tid);
+    const c = t && t.comments.find((x) => x.id === cid);
+    if (!c) return;
+    const target = rid ? (c.replies || []).find((x) => x.id === rid) : c;
+    if (!target) return;
+    target.liked = !target.liked;
+    target.likes = (Number(target.likes) || 0) + (target.liked ? 1 : -1);
+    saveFeedData();
+    renderForumThread(tid);
+}
+
+function deleteForumThread(id) {
+    const forum = getForum();
+    const t = forum.find((x) => x.id === id);
+    if (!t || !(t.isUser || t.isAI)) return;
+    if (!confirm("ต้องการลบกระทู้นี้ใช่ไหม?")) return;
+    const i = forum.indexOf(t);
+    forum.splice(i, 1);
+    saveFeedData();
+    openForumList();
+    updateChatInjection();
+}
+
+// ===== AI: ตั้งกระทู้ + โหลดคอมเมนต์ =====
+function parseForumComments(raw, charName) {
+    const s = stripReasoning(raw);
+    const clean = (name) => String(name || "").replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || charName;
+    const tops = [], replies = [];
+    for (const line of s.split("\n")) {
+        const l = line.trim();
+        let m;
+        if ((m = l.match(/^COMMENT:\s*(.+)$/i))) {
+            const parts = m[1].split("|");
+            if (parts.length >= 2) tops.push({ author: clean(parts[0]), text: parts.slice(1).join("|").trim() });
+            else tops.push({ author: charName, text: parts[0].trim() });
+        } else if ((m = l.match(/^REPLY:\s*(.+)$/i))) {
+            const parts = m[1].split("|");
+            if (parts.length >= 3) {
+                const n = parseInt(parts[0], 10);
+                if (Number.isFinite(n)) replies.push({ n, author: clean(parts[1]), text: parts.slice(2).join("|").trim() });
+            }
+        }
+    }
+    return { tops: tops.filter((t) => t.text), replies: replies.filter((r) => r.text && r.n) };
+}
+
+function makeForumComment(author, text, charName) {
+    return { ...makeCommentObj(author, text, charName), id: forumId("fc"), likes: randomInitialLikes(), liked: false, ts: Date.now(), replies: [] };
+}
+
+async function generateForumThread(opts) {
+    opts = opts || {};
+    if (isForumBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        if (!opts.silent) toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyForum");
+        return;
+    }
+    const char = getCurrentCharacter();
+    if (!char) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyForum"); return; }
+    const charName = char.name || "ตัวละคร";
+    isForumBusy = true;
+    const btn = $("#tinyfeed-forum-generate");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const rooms = getForumRooms();
+        const extra = String(getSetting("forumExtraPrompt") || "").trim();
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งกระทู้เว็บบอร์ด 1 กระทู้ที่คนในโลกของเรื่องน่าจะตั้ง ` +
+            `สะท้อนสถานการณ์/ดราม่า/ประเด็นตอนนี้. เลือกห้องจากรายการนี้เท่านั้น: ${rooms.join(", ")}. ` +
+            npcRosterLine(charName) +
+            `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. ` +
+            (extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "") +
+            crossAppContext("forum") +
+            `\nตอบตามรูปแบบนี้:\nROOM: <ห้องจากรายการ>\nAUTHOR: <ชื่อคนตั้งกระทู้>\nTITLE: <หัวข้อ>\nBODY: <เนื้อหากระทู้>\n` +
+            `แล้วต่อด้วยคอมเมนต์ชาวเน็ต 3-5 อัน บรรทัดละอัน:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
+        const s = stripReasoning(raw);
+        const grab = (re) => { const m = s.match(re); return m ? m[1].trim() : ""; };
+        let room = grab(/ROOM:\s*(.+)/i);
+        let author = grab(/AUTHOR:\s*(.+)/i);
+        let title = grab(/TITLE:\s*(.+)/i);
+        const bodyM = s.match(/BODY:\s*([\s\S]+?)(?:\nCOMMENT:|$)/i);
+        let body = bodyM ? bodyM[1].trim() : "";
+        if (!title) { if (!opts.silent) toastr.warning("AI ไม่ได้ส่งกระทู้กลับมา ลองใหม่นะ", "TinyForum"); return; }
+        if (!rooms.some((r) => r.toLowerCase() === room.toLowerCase())) room = rooms[0] || "ทั่วไป";
+        author = author.replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || charName;
+        const seeds = parseForumComments(s, charName).tops.slice(0, 6).map((c) => makeForumComment(c.author, c.text, charName));
+        const thread = {
+            id: forumId("ft"), room: escapeText(room), title: escapeHtml(title), body: escapeHtml(body || title),
+            author, isAI: true, likes: randomInitialLikes(), liked: false, ts: Date.now(), comments: seeds,
+        };
+        getForum().unshift(thread);
+        saveFeedData();
+        if (currentApp === "forum" && !isForumThreadOpen()) renderForumList();
+        updateChatInjection();
+        if (opts.notify) showNotif(makeAnonAvatar(thread.room), thread.room, htmlToPlain(thread.title), "list", "forum");
+    } catch (e) {
+        console.error(`[${extensionName}] generate forum thread failed:`, e);
+        if (!opts.silent) toastr.error("สร้างกระทู้ไม่สำเร็จ ลองใหม่นะ", "TinyForum");
+    } finally {
+        isForumBusy = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+async function loadForumComments(threadId, opts) {
+    opts = opts || {};
+    if (isForumBusy) return;
+    const t = getForum().find((x) => x.id === threadId);
+    if (!t) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        if (!opts.silent) toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyForum");
+        return;
+    }
+    const char = getCurrentCharacter();
+    const charName = (char && char.name) || "ตัวละคร";
+    isForumBusy = true;
+    const btn = $(`.tinyfeed-forum-loadmore[data-id="${threadId}"]`);
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const batch = Math.max(1, parseInt(getSetting("forumCommentBatch"), 10) || 8);
+        const existing = t.comments.map((c, i) => `[${i + 1}] ${c.author}: ${htmlToPlain(c.text)}`).join("\n");
+        const extra = String(getSetting("forumExtraPrompt") || "").trim();
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "${htmlToPlain(t.room)}" หัวข้อ "${htmlToPlain(t.title)}": ${htmlToPlain(t.body)}\n` +
+            `เขียนคอมเมนต์ชาวเน็ตประมาณ ${batch} อัน ให้หลากหลายคน สมจริงเหมือนเว็บบอร์ด (เห็นด้วย/เถียง/แซว/เล่าประสบการณ์/ถาม). ` +
+            npcRosterLine(charName) +
+            `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.` +
+            (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") +
+            crossAppContext("forum") +
+            (existing ? `\nคอมเมนต์ที่มีอยู่แล้ว (อ้างเลขเพื่อตอบกลับได้ อย่าเขียนซ้ำ):\n${existing}\n` : "") +
+            `\nตอบบรรทัดละอันในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>   (คอมเมนต์ใหม่)\nREPLY: <เลข> | <ชื่อ> | <ข้อความ>   (ตอบกลับคอมเมนต์เลขนั้น)`;
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
+        const { tops, replies } = parseForumComments(raw, charName);
+        let n = 0;
+        for (const c of tops) { t.comments.push(makeForumComment(c.author, c.text, charName)); n++; }
+        for (const r of replies) {
+            const target = t.comments[r.n - 1];
+            if (target) {
+                if (!Array.isArray(target.replies)) target.replies = [];
+                target.replies.push({ ...makeCommentObj(r.author, r.text, charName), id: forumId("fr"), likes: randomInitialLikes(), liked: false, ts: Date.now() });
+                n++;
+            }
+        }
+        if (n) {
+            saveFeedData();
+            if (activeForumThread === threadId) renderForumThread(threadId);
+            if (currentApp === "forum" && !isForumThreadOpen()) renderForumList();
+            updateChatInjection();
+        } else if (!opts.silent) {
+            toastr.info("ยังไม่มีคอมเมนต์เพิ่ม ลองใหม่ได้", "TinyForum");
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] load forum comments failed:`, e);
+        if (!opts.silent) toastr.error("โหลดคอมเมนต์ไม่สำเร็จ ลองใหม่นะ", "TinyForum");
+    } finally {
+        isForumBusy = false;
+        $(`.tinyfeed-forum-loadmore[data-id="${threadId}"]`).removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
 // ===== Stage 7: auto-generate เมื่อมีเหตุการณ์ในแชท =====
 let autoMsgCount = 0;    // ตัวนับข้อความสำหรับโพสต์ (รีเซ็ตเมื่อสลับแชท)
 let autoNewsCount = 0;   // ตัวนับข้อความสำหรับข่าว
 let autoMemoCount = 0;   // ตัวนับข้อความสำหรับ TinyMemo
+let autoForumCount = 0;  // ตัวนับข้อความสำหรับ TinyForum
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
 // ถาม AI แบบเงียบว่าควรมีโพสต์ใหม่ตอนนี้ไหม (โหมด ai)
@@ -2110,9 +2539,11 @@ async function onChatMessage() {
     const feedOn = getSetting("autoGenerate");
     const newsOn = getSetting("newsAutoGenerate");
     const memoOn = getSetting("memoAutoGenerate");
+    const forumOn = getSetting("forumAutoGenerate");
     if (feedOn) autoMsgCount++;
     if (newsOn) autoNewsCount++;
     if (memoOn) autoMemoCount++;
+    if (forumOn) autoForumCount++;
 
     // โพสต์ฟีดก่อน (ถ้าถึงรอบ) — แอปอื่นรอรอบถัดไป กัน generate ซ้อนในทีเดียว
     const feedInterval = Math.max(1, parseInt(getSetting("autoGenerateInterval"), 10) || 10);
@@ -2138,6 +2569,20 @@ async function onChatMessage() {
                 if (!(await aiDecidesMemo())) return;
             }
             await scanMemo({ notify: true, silent: true });
+        } finally { isAutoBusy = false; }
+        return;
+    }
+
+    // TinyForum (กระทู้)
+    const forumInterval = Math.max(1, parseInt(getSetting("forumAutoInterval"), 10) || 20);
+    if (forumOn && autoForumCount >= forumInterval) {
+        autoForumCount = 0;
+        isAutoBusy = true;
+        try {
+            if ((getSetting("forumAutoMode") || "interval") === "ai") {
+                if (!(await aiDecidesToPost())) return;
+            }
+            await generateForumThread({ notify: true, silent: true });
         } finally { isAutoBusy = false; }
         return;
     }
@@ -2214,6 +2659,8 @@ function openFeedFromNotif() {
     if (notifApp === "memo") {
         openApp("memo");
         switchMemoTab(notifTab === "notes" ? "notes" : "agenda");
+    } else if (notifApp === "forum") {
+        openApp("forum");
     } else {
         openApp("feed");
         switchTab(notifTab);
@@ -2289,6 +2736,7 @@ const SETTINGS_LAYOUT = [
     { head: "💬 TinyConnect", titles: ["TinyConnect (แชต)"] },
     { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
     { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
+    { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
 ];
 
 // เรียงกลุ่ม settings ใหม่ + ใส่หัวข้อใหญ่คั่น (ทำครั้งเดียว)
@@ -2378,12 +2826,21 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-connect").prop("checked", Boolean(getSetting("injectConnect")));
     $("#tinyfeed-cfg-inject-stream").prop("checked", Boolean(getSetting("injectStream")));
     $("#tinyfeed-cfg-inject-memo").prop("checked", Boolean(getSetting("injectMemo")));
+    $("#tinyfeed-cfg-inject-forum").prop("checked", Boolean(getSetting("injectForum")));
 
     $("#tinyfeed-cfg-memo-auto").prop("checked", Boolean(getSetting("memoAutoGenerate")));
     $("#tinyfeed-cfg-memo-mode").val(getSetting("memoAutoMode") || "interval");
     $("#tinyfeed-cfg-memo-interval").val(getSetting("memoAutoInterval") || 15);
     $("#tinyfeed-cfg-memo-tokens").val(getSetting("memoTokens"));
     $("#tinyfeed-cfg-memo-extra").val(getSetting("memoExtraPrompt"));
+
+    $("#tinyfeed-cfg-forum-auto").prop("checked", Boolean(getSetting("forumAutoGenerate")));
+    $("#tinyfeed-cfg-forum-mode").val(getSetting("forumAutoMode") || "interval");
+    $("#tinyfeed-cfg-forum-interval").val(getSetting("forumAutoInterval") || 20);
+    $("#tinyfeed-cfg-forum-tokens").val(getSetting("forumTokens"));
+    $("#tinyfeed-cfg-forum-batch").val(getSetting("forumCommentBatch") || 8);
+    $("#tinyfeed-cfg-forum-extra").val(getSetting("forumExtraPrompt"));
+    renderForumRooms();
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
     $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
     $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
@@ -2391,6 +2848,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-crossapp-connect").prop("checked", Boolean(getSetting("crossAppConnect")));
     $("#tinyfeed-cfg-crossapp-stream").prop("checked", Boolean(getSetting("crossAppStream")));
     $("#tinyfeed-cfg-crossapp-memo").prop("checked", Boolean(getSetting("crossAppMemo")));
+    $("#tinyfeed-cfg-crossapp-forum").prop("checked", Boolean(getSetting("crossAppForum")));
     $("#tinyfeed-cfg-crossapp-count").val(getSetting("crossAppCount"));
 }
 
@@ -2437,6 +2895,8 @@ function closeSettings() {
 function handleBack() {
     if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
+    } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
+        openForumList();     // จากหน้ากระทู้ → กลับรายการกระทู้
     } else if (isSettingsOpen()) {
         closeSettings();
     } else {
@@ -2480,12 +2940,14 @@ jQuery(async () => {
             autoMsgCount = 0;   // เริ่มนับใหม่ตามแชทที่เปิด
             autoNewsCount = 0;
             autoMemoCount = 0;
+            autoForumCount = 0;
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
             if (currentApp === "connect") openConnectList();   // contact/แชตเปลี่ยนตามแชท
             if (currentApp === "stream") { clearStreamTimer(); renderStream(); maybeStartStreamTimer(); }
             if (currentApp === "memo") switchMemoTab(memoTab);   // กำหนดการ/โน้ตเปลี่ยนตามแชท
+            if (currentApp === "forum") openForumList();   // กระทู้เปลี่ยนตามแชท
             console.log(`[${extensionName}] Chat changed, feed reloaded`);
         });
 
@@ -2590,6 +3052,52 @@ jQuery(async () => {
         });
         $(document).on("click", "#tinyfeed-agenda-scan, #tinyfeed-note-scan", function () {
             scanMemo({ manual: true });
+        });
+
+        // TinyForum
+        $(document).on("click", ".tinyfeed-forum-tab", function () {
+            switchForumSort($(this).data("fsort"));
+        });
+        $(document).on("click", "#tinyfeed-forum-new", openForumNewForm);
+        $(document).on("click", "#tinyfeed-forum-cancel", function () {
+            $("#tinyfeed-forum-newform").addClass("tinyfeed-hidden");
+        });
+        $(document).on("click", "#tinyfeed-forum-post", addForumThread);
+        $(document).on("click", "#tinyfeed-forum-generate", function () {
+            generateForumThread({ notify: false, silent: false });
+        });
+        $(document).on("click", ".tinyfeed-forum-thread-row", function () {
+            openForumThread($(this).data("id"));
+        });
+        $(document).on("click", ".tinyfeed-forum-loadmore", function () {
+            loadForumComments($(this).data("id"), {});
+        });
+        $(document).on("click", ".tinyfeed-forum-thread-like", function () {
+            toggleForumThreadLike($(this).data("id"));
+        });
+        $(document).on("click", ".tinyfeed-forum-thread-del", function () {
+            deleteForumThread($(this).data("id"));
+        });
+        $(document).on("click", ".tinyfeed-forum-cmt-like", function () {
+            toggleForumCommentLike($(this).data("tid"), $(this).data("cid"), $(this).data("rid"));
+        });
+        $(document).on("click", ".tinyfeed-forum-cmt-reply", function () {
+            toggleForumReplyBox($(this).data("cid"));
+        });
+        $(document).on("keydown", ".tinyfeed-forum-reply-input", function (e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                addForumReply($(this).data("tid"), $(this).data("cid"), $(this).val());
+            }
+        });
+        $(document).on("click", "#tinyfeed-forum-comment-send", function () {
+            addForumComment(activeForumThread, $("#tinyfeed-forum-comment-input").val());
+        });
+        $(document).on("keydown", "#tinyfeed-forum-comment-input", function (e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                addForumComment(activeForumThread, $(this).val());
+            }
         });
 
         // Stage 2: render mock + ผูกแท็บ
@@ -2862,6 +3370,10 @@ jQuery(async () => {
             setSetting("injectMemo", $(this).prop("checked"));
             updateChatInjection();
         });
+        $(document).on("change", "#tinyfeed-cfg-inject-forum", function () {
+            setSetting("injectForum", $(this).prop("checked"));
+            updateChatInjection();
+        });
         $(document).on("change", "#tinyfeed-cfg-crossapp", function () {
             setSetting("crossAppEnabled", $(this).prop("checked"));
         });
@@ -2882,6 +3394,9 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp-memo", function () {
             setSetting("crossAppMemo", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-forum", function () {
+            setSetting("crossAppForum", $(this).prop("checked"));
         });
         $(document).on("input", "#tinyfeed-cfg-crossapp-count", function () {
             let v = parseInt($(this).val(), 10);
@@ -2915,6 +3430,49 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-memo-extra", function () {
             setSetting("memoExtraPrompt", $(this).val());
+        });
+
+        // TinyForum settings
+        $(document).on("change", "#tinyfeed-cfg-forum-auto", function () {
+            setSetting("forumAutoGenerate", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-forum-mode", function () {
+            setSetting("forumAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-forum-interval", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("forumAutoInterval", Number.isFinite(v) && v > 0 ? v : 20);
+        });
+        $(document).on("input", "#tinyfeed-cfg-forum-tokens", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("forumTokens", Number.isFinite(v) && v > 0 ? v : 500);
+        });
+        $(document).on("input", "#tinyfeed-cfg-forum-batch", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("forumCommentBatch", Number.isFinite(v) && v > 0 ? v : 8);
+        });
+        $(document).on("input", "#tinyfeed-cfg-forum-extra", function () {
+            setSetting("forumExtraPrompt", $(this).val());
+        });
+        // ตัวแก้ห้อง (global setting forumRooms)
+        $(document).on("input", ".tinyfeed-room-name", function () {
+            const i = $(this).closest(".tinyfeed-room-row").data("index");
+            const rooms = getForumRooms().slice();
+            rooms[i] = $(this).val();
+            setSetting("forumRooms", rooms);
+        });
+        $(document).on("click", ".tinyfeed-room-del", function () {
+            const i = $(this).closest(".tinyfeed-room-row").data("index");
+            const rooms = getForumRooms().slice();
+            rooms.splice(i, 1);
+            setSetting("forumRooms", rooms);
+            renderForumRooms();
+        });
+        $(document).on("click", "#tinyfeed-room-add", function () {
+            const rooms = getForumRooms().slice();
+            rooms.push("");
+            setSetting("forumRooms", rooms);
+            renderForumRooms();
         });
 
         // โหลดค่าที่บันทึกไว้
