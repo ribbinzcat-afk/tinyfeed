@@ -11,6 +11,15 @@ let stScriptModule = null;
 const defaultSettings = {
     enabled: true,
     theme: "dark",
+    // ปรับแต่งหน้าตา (Appearance)
+    accentColor: "",          // hex; "" = ใช้ค่าเริ่มจากธีม
+    overlayOpacity: 50,       // 0–90 (%) ความทึบฟิลเตอร์ดำที่คลุมจอ
+    themedIcons: false,       // สีไอคอนแอปตามธีม
+    themedHomeBg: false,      // พื้นหลังโฮมตามธีม (เมื่อไม่มีวอลเปเปอร์)
+    homeBgHue: 210,           // hue พื้นหลังโฮม (สุ่มได้)
+    widgetClock: true,        // วิดเจ็ตนาฬิกา+วันที่
+    widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
+    customCss: "",            // CSS snippet ของผู้ใช้
     // Stage 5: override รูปโปรไฟล์ด้วยลิงก์ภายนอก
     wallpaperUrl: "",           // ลิงก์วอลเปเปอร์หน้าโฮม
     userAvatarUrl: "",          // รูปผู้ใช้ (global)
@@ -76,6 +85,7 @@ const defaultSettings = {
     forumCommentBatch: 8,         // จำนวนคอมเมนต์ต่อการโหลด 1 ครั้ง
     forumRooms: ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"],
     injectForum: false,           // แทรกกระทู้ เข้า RP หลัก
+    injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
     // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
     crossAppEnabled: false,       // master switch
     crossAppCount: 3,
@@ -116,6 +126,8 @@ function loadSettings() {
     applyMenuVisibility(enabled);
     applyTheme(extension_settings[extensionName].theme || "dark");
     applyWallpaper();
+    applyAppearance();
+    applyCustomCss();
 }
 
 // ใส่วอลเปเปอร์หน้าโฮม (ลิงก์ภายนอก)
@@ -163,6 +175,7 @@ function goHome() {
     $("#tinyfeed-home-btn, #tinyfeed-back").addClass("tinyfeed-hidden");
     $("#tinyfeed-settings-btn").removeClass("tinyfeed-hidden");   // เฟืองเข้าถึงได้จากโฮม
     try { $("#tinyfeed-home .tinyfeed-home-hello").text(`สวัสดี, ${getUserName()}`); } catch (e) { /* ข้าม */ }
+    renderHomeWidgets();
 }
 
 function openApp(app) {
@@ -171,6 +184,7 @@ function openApp(app) {
         return;
     }
     clearStreamTimer();   // ออกจากแอปอื่น = หยุด timer stream
+    clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
@@ -663,6 +677,7 @@ async function generateConnectReply() {
 function closePhone() {
     $("#tinyfeed-overlay").removeClass("tinyfeed-visible");
     clearStreamTimer();   // ปิดเครื่อง = หยุด timer สตรีม
+    clearHomeClock();     // หยุดนาฬิกาหน้าโฮม
     console.log(`[${extensionName}] Phone closed`);
 }
 
@@ -688,6 +703,113 @@ function toggleTheme() {
     saveSettingsDebounced();
     applyTheme(next);
     console.log(`[${extensionName}] theme:`, next);
+}
+
+// ===== ปรับแต่งหน้าตา (Appearance) =====
+const ACCENT_PRESETS = [
+    { name: "ฟ้า", color: "#1d9bf0", hue: 205 },
+    { name: "ชมพู", color: "#ec4899", hue: 330 },
+    { name: "ม่วง", color: "#a855f7", hue: 270 },
+    { name: "เขียว", color: "#22c55e", hue: 140 },
+    { name: "ส้ม", color: "#f59e0b", hue: 35 },
+    { name: "แดง", color: "#ef4444", hue: 0 },
+];
+
+// ใช้ค่าปรับแต่งทั้งหมดกับ DOM (เรียกตอนโหลด + ทุกครั้งที่แก้)
+function applyAppearance() {
+    const phone = document.getElementById("tinyfeed-phone");
+    const notif = document.getElementById("tinyfeed-notif");
+    const accent = String(getSetting("accentColor") || "").trim();
+    [phone, notif].forEach((el) => {
+        if (!el) return;
+        if (accent) el.style.setProperty("--tf-accent", accent);
+        else el.style.removeProperty("--tf-accent");
+    });
+    // ฟิลเตอร์พื้นหลัง (0–90% → 0.0–0.9)
+    let op = parseInt(getSetting("overlayOpacity"), 10);
+    if (!Number.isFinite(op)) op = 50;
+    op = Math.min(90, Math.max(0, op));
+    const overlay = document.getElementById("tinyfeed-overlay");
+    if (overlay) overlay.style.setProperty("--tf-overlay-alpha", String(op / 100));
+    // สีไอคอน/พื้นหลังโฮมตามธีม
+    if (phone) {
+        phone.classList.toggle("tinyfeed-themed-icons", Boolean(getSetting("themedIcons")));
+        phone.classList.toggle("tinyfeed-themed-home", Boolean(getSetting("themedHomeBg")));
+        let hue = parseInt(getSetting("homeBgHue"), 10);
+        if (!Number.isFinite(hue)) hue = 210;
+        phone.style.setProperty("--tf-home-hue", String(hue));
+    }
+}
+
+// วาด swatch สีสำเร็จรูปในหน้า settings + ไฮไลต์อันที่เลือกอยู่
+function renderAccentSwatches() {
+    const cur = String(getSetting("accentColor") || "").trim().toLowerCase();
+    const html = ACCENT_PRESETS.map((p) =>
+        `<div class="tinyfeed-accent-swatch${cur === p.color.toLowerCase() ? " tinyfeed-accent-active" : ""}" data-color="${p.color}" data-hue="${p.hue}" style="background:${p.color}" title="${p.name}"></div>`
+    ).join("");
+    $("#tinyfeed-accent-presets").html(html);
+}
+
+// ใส่ CSS ของผู้ใช้ลง <style> เฉพาะ (สร้างครั้งเดียว อัปเดตทุกครั้งที่แก้)
+function applyCustomCss() {
+    let el = document.getElementById("tinyfeed-custom-css");
+    if (!el) {
+        el = document.createElement("style");
+        el.id = "tinyfeed-custom-css";
+        document.head.appendChild(el);
+    }
+    el.textContent = String(getSetting("customCss") || "");
+}
+
+// ===== วิดเจ็ตหน้าโฮม =====
+let homeClockTimer = null;
+
+function clearHomeClock() {
+    if (homeClockTimer) { clearInterval(homeClockTimer); homeClockTimer = null; }
+}
+
+function updateHomeClock() {
+    const box = document.querySelector("#tinyfeed-widget-clock .tinyfeed-widget-time");
+    if (!box) return;
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mm = String(now.getMinutes()).padStart(2, "0");
+    box.textContent = `${hh}:${mm}`;
+    const dateEl = document.querySelector("#tinyfeed-widget-clock .tinyfeed-widget-date");
+    if (dateEl) {
+        try {
+            dateEl.textContent = now.toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long" });
+        } catch (e) { dateEl.textContent = now.toDateString(); }
+    }
+}
+
+function renderHomeWidgets() {
+    const box = $("#tinyfeed-home-widgets");
+    if (!box.length) return;
+    const parts = [];
+    if (getSetting("widgetClock")) {
+        parts.push(`<div id="tinyfeed-widget-clock" class="tinyfeed-widget tinyfeed-widget-clock">
+            <div class="tinyfeed-widget-time">--:--</div>
+            <div class="tinyfeed-widget-date"></div>
+        </div>`);
+    }
+    if (getSetting("widgetAgenda")) {
+        const pending = getAgenda().filter((a) => a.status === "pending").slice(0, 3);
+        const rows = pending.length
+            ? pending.map((a) => `<div class="tinyfeed-widget-agenda-item">${a.when ? `<span class="tinyfeed-widget-agenda-when">${renderRich(a.when)}</span> ` : ""}${renderRich(a.title)}</div>`).join("")
+            : `<div class="tinyfeed-widget-agenda-empty">ยังไม่มีกำหนดการ</div>`;
+        parts.push(`<div id="tinyfeed-widget-agenda" class="tinyfeed-widget tinyfeed-widget-agenda" data-app="memo">
+            <div class="tinyfeed-widget-head"><i class="fa-solid fa-calendar-day"></i> กำหนดการ</div>
+            ${rows}
+        </div>`);
+    }
+    box.html(parts.join(""));
+    box.toggleClass("tinyfeed-hidden", parts.length === 0);
+    clearHomeClock();
+    if (getSetting("widgetClock")) {
+        updateHomeClock();
+        homeClockTimer = setInterval(updateHomeClock, 30000);   // อัปเดตทุก 30 วิ (คลาดไม่เกิน 1 นาที)
+    }
 }
 
 // ===== ข้อมูลผูกกับแชท (chat_metadata) =====
@@ -1049,9 +1171,20 @@ function buildAppBlocks(want) {
     }
     if (want.forum) {
         const threads = (data.forum || []).slice(0, count).map((t) => {
-            const top = (t.comments || []).slice(0, 2).map((c) => `    · ${c.author}: ${htmlToPlain(c.text)}`);
-            let line = `- [${htmlToPlain(t.room)}] ${htmlToPlain(t.title)} (${forumCommentCount(t)} คอมเมนต์)`;
-            if (top.length) line += `\n${top.join("\n")}`;
+            let line = `- [${htmlToPlain(t.room)}] ${htmlToPlain(t.title)} (${forumCommentCount(t)} คอมเมนต์): ${htmlToPlain(t.body)}`;
+            if (want.forumComments) {
+                // แนบคอมเมนต์ + รีพลายซ้อน (จำกัดด้วย count)
+                const cs = (t.comments || []).slice(0, count).map((c) => {
+                    let cl = `    · ${c.author}: ${htmlToPlain(c.text)}`;
+                    const rs = (c.replies || []).slice(0, count).map((r) => `        ↳ ${r.author}: ${htmlToPlain(r.text)}`);
+                    if (rs.length) cl += `\n${rs.join("\n")}`;
+                    return cl;
+                });
+                if (cs.length) line += `\n${cs.join("\n")}`;
+            } else {
+                const top = (t.comments || []).slice(0, 2).map((c) => `    · ${c.author}: ${htmlToPlain(c.text)}`);
+                if (top.length) line += `\n${top.join("\n")}`;
+            }
             return line;
         });
         if (threads.length) blocks.push(`กระทู้ล่าสุดบนเว็บบอร์ด TinyForum:\n${threads.join("\n")}`);
@@ -1094,6 +1227,7 @@ function updateChatInjection() {
     const wantStream = Boolean(getSetting("injectStream"));
     const wantMemo = Boolean(getSetting("injectMemo"));
     const wantForum = Boolean(getSetting("injectForum"));
+    const wantForumComments = Boolean(getSetting("injectForumComments"));
     const depth = Math.max(0, parseInt(getSetting("injectDepth"), 10) || 4);
     const count = Math.max(1, parseInt(getSetting("injectCount"), 10) || 5);
 
@@ -1109,6 +1243,7 @@ function updateChatInjection() {
         stream: wantStream,
         memo: wantMemo,
         forum: wantForum,
+        forumComments: wantForumComments,
         count,
     });
 
@@ -2133,7 +2268,7 @@ function isForumThreadOpen() {
 
 function openForumList() {
     activeForumThread = null;
-    forumReplyingTo = null;
+    cancelForumReply();
     $("#tinyfeed-forum-newform").addClass("tinyfeed-hidden");
     $("#tinyfeed-forum-thread").addClass("tinyfeed-hidden");
     $("#tinyfeed-forum-list").removeClass("tinyfeed-hidden");
@@ -2145,7 +2280,7 @@ function openForumList() {
 
 function openForumThread(id) {
     activeForumThread = id;
-    forumReplyingTo = null;
+    cancelForumReply();
     $("#tinyfeed-forum-list").addClass("tinyfeed-hidden");
     $("#tinyfeed-forum-thread").removeClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
@@ -2201,14 +2336,11 @@ function renderForumCommentRow(t, c) {
                     <span class="tinyfeed-comment-text">${renderRich(r.text)}</span>
                     <div class="tinyfeed-forum-cmt-actions">
                         <span class="tinyfeed-forum-cmt-like ${r.liked ? "tinyfeed-liked" : ""}" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}" data-rid="${escapeAttr(r.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(r.likes || 0)}</span>
+                        <span class="tinyfeed-forum-reply-del" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}" data-rid="${escapeAttr(r.id)}"><i class="fa-solid fa-trash"></i></span>
                     </div>
                 </div>
             </div>
         </div>`).join("");
-    const replyBox = forumReplyingTo === c.id ? `
-        <div class="tinyfeed-forum-reply-box">
-            <input class="tinyfeed-forum-reply-input" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}" type="text" placeholder="ตอบกลับ ${escapeAttr(c.author)}... (Enter ส่ง)" />
-        </div>` : "";
     return `<div class="tinyfeed-forum-cmt" data-cid="${escapeAttr(c.id)}">
         <div class="tinyfeed-comment">
             ${makeAvatar(c)}
@@ -2218,11 +2350,11 @@ function renderForumCommentRow(t, c) {
                 <div class="tinyfeed-forum-cmt-actions">
                     <span class="tinyfeed-forum-cmt-like ${c.liked ? "tinyfeed-liked" : ""}" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(c.likes || 0)}</span>
                     <span class="tinyfeed-forum-cmt-reply" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}"><i class="fa-solid fa-reply"></i> ตอบกลับ</span>
+                    <span class="tinyfeed-forum-cmt-del" data-tid="${escapeAttr(t.id)}" data-cid="${escapeAttr(c.id)}"><i class="fa-solid fa-trash"></i></span>
                 </div>
             </div>
         </div>
         ${replies ? `<div class="tinyfeed-forum-replies">${replies}</div>` : ""}
-        ${replyBox}
     </div>`;
 }
 
@@ -2287,7 +2419,7 @@ async function addForumThread() {
     if (!title) { toastr.info("ใส่หัวข้อกระทู้ก่อนนะ", "TinyForum"); return; }
     const thread = {
         id: forumId("ft"), room: escapeText(room), title: escapeHtml(title), body: escapeHtml(body || title),
-        author: getUserName(), isUser: true, likes: 0, liked: false, ts: Date.now(), comments: [],
+        author: getUserName(), isUser: true, likes: randomInitialLikes(), liked: false, ts: Date.now(), comments: [],
     };
     getForum().unshift(thread);
     saveFeedData();
@@ -2302,7 +2434,7 @@ async function addForumComment(threadId, text) {
     if (!clean) return;
     const t = getForum().find((x) => x.id === threadId);
     if (!t) return;
-    t.comments.push({ id: forumId("fc"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: 0, liked: false, ts: Date.now(), replies: [] });
+    t.comments.push({ id: forumId("fc"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: randomInitialLikes(), liked: false, ts: Date.now(), replies: [] });
     saveFeedData();
     $("#tinyfeed-forum-comment-input").val("");
     renderForumThread(threadId);
@@ -2316,17 +2448,67 @@ function addForumReply(threadId, cid, text) {
     const c = t && t.comments.find((x) => x.id === cid);
     if (!c) return;
     if (!Array.isArray(c.replies)) c.replies = [];
-    c.replies.push({ id: forumId("fr"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: 0, liked: false, ts: Date.now() });
-    forumReplyingTo = null;
+    c.replies.push({ id: forumId("fr"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: randomInitialLikes(), liked: false, ts: Date.now() });
+    cancelForumReply();
     saveFeedData();
     renderForumThread(threadId);
     updateChatInjection();
 }
 
-function toggleForumReplyBox(cid) {
-    forumReplyingTo = (forumReplyingTo === cid) ? null : cid;
-    renderForumThread(activeForumThread);
-    if (forumReplyingTo) $(`.tinyfeed-forum-reply-input[data-cid="${cid}"]`).trigger("focus");
+// เริ่มตอบกลับคอมเมนต์ → โชว์แถบ "กำลังตอบกลับ" เหนือช่องพิมพ์ + โฟกัสช่องพิมพ์ล่าง
+function startForumReply(cid) {
+    const t = getForum().find((x) => x.id === activeForumThread);
+    const c = t && t.comments.find((x) => x.id === cid);
+    if (!c) return;
+    forumReplyingTo = cid;
+    $("#tinyfeed-forum-reply-name").text(c.author);
+    $("#tinyfeed-forum-reply-banner").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-forum-comment-input").attr("placeholder", `ตอบกลับ ${c.author}...`).trigger("focus");
+}
+
+function cancelForumReply() {
+    forumReplyingTo = null;
+    $("#tinyfeed-forum-reply-banner").addClass("tinyfeed-hidden");
+    $("#tinyfeed-forum-comment-input").attr("placeholder", "ร่วมแสดงความเห็น...");
+}
+
+// ส่งจากช่องพิมพ์ล่าง — ถ้ากำลังตอบกลับก็ลงเป็น reply ไม่งั้นเป็นคอมเมนต์ชั้นบน
+function sendForumFromComposer(text) {
+    const clean = String(text || "").trim();
+    if (!clean || !activeForumThread) return;
+    if (forumReplyingTo) {
+        const cid = forumReplyingTo;
+        $("#tinyfeed-forum-comment-input").val("");
+        addForumReply(activeForumThread, cid, clean);
+    } else {
+        addForumComment(activeForumThread, clean);
+    }
+}
+
+function deleteForumComment(tid, cid) {
+    const t = getForum().find((x) => x.id === tid);
+    if (!t) return;
+    const c = t.comments.find((x) => x.id === cid);
+    if (!c) return;
+    if (!confirm("ต้องการลบความคิดเห็นนี้ใช่ไหม?")) return;
+    t.comments.splice(t.comments.indexOf(c), 1);
+    if (forumReplyingTo === cid) cancelForumReply();
+    saveFeedData();
+    renderForumThread(tid);
+    updateChatInjection();
+}
+
+function deleteForumReply(tid, cid, rid) {
+    const t = getForum().find((x) => x.id === tid);
+    const c = t && t.comments.find((x) => x.id === cid);
+    if (!c || !Array.isArray(c.replies)) return;
+    const r = c.replies.find((x) => x.id === rid);
+    if (!r) return;
+    if (!confirm("ต้องการลบการตอบกลับนี้ใช่ไหม?")) return;
+    c.replies.splice(c.replies.indexOf(r), 1);
+    saveFeedData();
+    renderForumThread(tid);
+    updateChatInjection();
 }
 
 function toggleForumThreadLike(id) {
@@ -2462,7 +2644,13 @@ async function loadForumComments(threadId, opts) {
     btn.addClass("tinyfeed-generating").prop("disabled", true);
     try {
         const batch = Math.max(1, parseInt(getSetting("forumCommentBatch"), 10) || 8);
-        const existing = t.comments.map((c, i) => `[${i + 1}] ${c.author}: ${htmlToPlain(c.text)}`).join("\n");
+        // แนบทั้งคอมเมนต์ชั้นบน (มีเลข) + การตอบกลับ (เยื้อง) เพื่อให้ AI เห็นครบ ไม่ข้าม/ซ้ำ
+        const existing = t.comments.map((c, i) => {
+            let block = `[${i + 1}] ${c.author}: ${htmlToPlain(c.text)}`;
+            const rs = (c.replies || []).map((r) => `      ↳ ${r.author}: ${htmlToPlain(r.text)}`);
+            if (rs.length) block += `\n${rs.join("\n")}`;
+            return block;
+        }).join("\n");
         const extra = String(getSetting("forumExtraPrompt") || "").trim();
         const q =
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "${htmlToPlain(t.room)}" หัวข้อ "${htmlToPlain(t.title)}": ${htmlToPlain(t.body)}\n` +
@@ -2727,7 +2915,7 @@ function closeDetail() {
 const SETTINGS_LAYOUT = [
     {
         head: "⚙️ ตั้งค่าเครื่อง",
-        titles: ["การแจ้งเตือน", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
+        titles: ["ปรับแต่งหน้าตา", "การแจ้งเตือน", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
     },
     {
         head: "📱 TinyFeed",
@@ -2774,6 +2962,18 @@ function isSettingsOpen() {
 function populateSettings() {
     $("#tinyfeed-cfg-wallpaper").val(getSetting("wallpaperUrl") || "");
     $("#tinyfeed-cfg-user-avatar").val(getSetting("userAvatarUrl") || "");
+
+    // ปรับแต่งหน้าตา
+    renderAccentSwatches();
+    $("#tinyfeed-cfg-accent").val(String(getSetting("accentColor") || "").trim() || "#1d9bf0");
+    const op = parseInt(getSetting("overlayOpacity"), 10);
+    $("#tinyfeed-cfg-overlay").val(Number.isFinite(op) ? op : 50);
+    $("#tinyfeed-overlay-val").text(`${Number.isFinite(op) ? op : 50}%`);
+    $("#tinyfeed-cfg-themed-icons").prop("checked", Boolean(getSetting("themedIcons")));
+    $("#tinyfeed-cfg-themed-home").prop("checked", Boolean(getSetting("themedHomeBg")));
+    $("#tinyfeed-cfg-widget-clock").prop("checked", Boolean(getSetting("widgetClock")));
+    $("#tinyfeed-cfg-widget-agenda").prop("checked", Boolean(getSetting("widgetAgenda")));
+    $("#tinyfeed-cfg-customcss").val(getSetting("customCss") || "");
 
     const char = getCurrentCharacter();
     const charInput = $("#tinyfeed-cfg-char-avatar");
@@ -2827,6 +3027,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-stream").prop("checked", Boolean(getSetting("injectStream")));
     $("#tinyfeed-cfg-inject-memo").prop("checked", Boolean(getSetting("injectMemo")));
     $("#tinyfeed-cfg-inject-forum").prop("checked", Boolean(getSetting("injectForum")));
+    $("#tinyfeed-cfg-inject-forum-comments").prop("checked", Boolean(getSetting("injectForumComments")));
 
     $("#tinyfeed-cfg-memo-auto").prop("checked", Boolean(getSetting("memoAutoGenerate")));
     $("#tinyfeed-cfg-memo-mode").val(getSetting("memoAutoMode") || "interval");
@@ -2969,6 +3170,66 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-app-icon", function () {
             openApp($(this).data("app"));
         });
+        // วิดเจ็ตมินิกำหนดการ → เปิด TinyMemo
+        $(document).on("click", "#tinyfeed-widget-agenda", function () {
+            openApp("memo");
+        });
+
+        // ===== ปรับแต่งหน้าตา (Appearance) =====
+        $(document).on("click", ".tinyfeed-accent-swatch", function () {
+            setSetting("accentColor", $(this).data("color"));
+            setSetting("homeBgHue", parseInt($(this).data("hue"), 10) || 210);
+            $("#tinyfeed-cfg-accent").val($(this).data("color"));
+            applyAppearance();
+            applyWallpaper();
+            renderAccentSwatches();
+        });
+        $(document).on("input", "#tinyfeed-cfg-accent", function () {
+            setSetting("accentColor", $(this).val());
+            applyAppearance();
+            renderAccentSwatches();
+        });
+        $(document).on("click", "#tinyfeed-accent-reset", function () {
+            setSetting("accentColor", "");
+            $("#tinyfeed-cfg-accent").val("#1d9bf0");
+            applyAppearance();
+            renderAccentSwatches();
+        });
+        $(document).on("input", "#tinyfeed-cfg-overlay", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 50;
+            setSetting("overlayOpacity", v);
+            $("#tinyfeed-overlay-val").text(`${v}%`);
+            applyAppearance();
+        });
+        $(document).on("change", "#tinyfeed-cfg-themed-icons", function () {
+            setSetting("themedIcons", $(this).prop("checked"));
+            applyAppearance();
+        });
+        $(document).on("change", "#tinyfeed-cfg-themed-home", function () {
+            setSetting("themedHomeBg", $(this).prop("checked"));
+            applyAppearance();
+            applyWallpaper();
+        });
+        $(document).on("click", "#tinyfeed-home-randomize", function () {
+            setSetting("homeBgHue", Math.floor(Math.random() * 360));
+            setSetting("themedHomeBg", true);
+            $("#tinyfeed-cfg-themed-home").prop("checked", true);
+            applyAppearance();
+            applyWallpaper();
+        });
+        $(document).on("change", "#tinyfeed-cfg-widget-clock", function () {
+            setSetting("widgetClock", $(this).prop("checked"));
+            if (currentApp === "home") renderHomeWidgets();
+        });
+        $(document).on("change", "#tinyfeed-cfg-widget-agenda", function () {
+            setSetting("widgetAgenda", $(this).prop("checked"));
+            if (currentApp === "home") renderHomeWidgets();
+        });
+        $(document).on("input", "#tinyfeed-cfg-customcss", function () {
+            setSetting("customCss", $(this).val());
+            applyCustomCss();
+        });
 
         // TinyConnect: เข้าห้องแชต + ส่งข้อความ
         $(document).on("click", ".tinyfeed-connect-contact", function () {
@@ -3082,21 +3343,22 @@ jQuery(async () => {
             toggleForumCommentLike($(this).data("tid"), $(this).data("cid"), $(this).data("rid"));
         });
         $(document).on("click", ".tinyfeed-forum-cmt-reply", function () {
-            toggleForumReplyBox($(this).data("cid"));
+            startForumReply($(this).data("cid"));
         });
-        $(document).on("keydown", ".tinyfeed-forum-reply-input", function (e) {
-            if (e.key === "Enter") {
-                e.preventDefault();
-                addForumReply($(this).data("tid"), $(this).data("cid"), $(this).val());
-            }
+        $(document).on("click", ".tinyfeed-forum-cmt-del", function () {
+            deleteForumComment($(this).data("tid"), $(this).data("cid"));
         });
+        $(document).on("click", ".tinyfeed-forum-reply-del", function () {
+            deleteForumReply($(this).data("tid"), $(this).data("cid"), $(this).data("rid"));
+        });
+        $(document).on("click", "#tinyfeed-forum-reply-cancel", cancelForumReply);
         $(document).on("click", "#tinyfeed-forum-comment-send", function () {
-            addForumComment(activeForumThread, $("#tinyfeed-forum-comment-input").val());
+            sendForumFromComposer($("#tinyfeed-forum-comment-input").val());
         });
         $(document).on("keydown", "#tinyfeed-forum-comment-input", function (e) {
             if (e.key === "Enter") {
                 e.preventDefault();
-                addForumComment(activeForumThread, $(this).val());
+                sendForumFromComposer($(this).val());
             }
         });
 
@@ -3372,6 +3634,10 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-inject-forum", function () {
             setSetting("injectForum", $(this).prop("checked"));
+            updateChatInjection();
+        });
+        $(document).on("change", "#tinyfeed-cfg-inject-forum-comments", function () {
+            setSetting("injectForumComments", $(this).prop("checked"));
             updateChatInjection();
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp", function () {
