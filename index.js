@@ -543,8 +543,9 @@ function renderThread() {
     const delBtn = (i) => `<span class="tinyfeed-msg-del" data-idx="${i}" title="ลบข้อความ"><i class="fa-solid fa-trash"></i></span>`;
     // แยกข้อความหลายบรรทัด → หลายบับเบิล (ปิดได้จาก settings)
     const bubblesHtml = (text) => {
+        // ข้อความถูกเก็บโดยแปลง \n เป็น <br> แล้ว (escapeHtml) → แยกตาม <br> และ \n
         const segs = getSetting("connectSplitBubbles")
-            ? String(text || "").split(/\n+/).map((s) => s.trim()).filter(Boolean)
+            ? String(text || "").split(/(?:<br\s*\/?>|\n)+/i).map((s) => s.trim()).filter(Boolean)
             : [String(text || "")];
         const list = segs.length ? segs : [String(text || "")];
         return list.map((s) => `<div class="tinyfeed-msg-bubble">${renderRich(s)}</div>`).join("");
