@@ -28,7 +28,13 @@ const defaultSettings = {
     proactiveQuietTo: 7,          // ช่วงเงียบ ถึง (ชม. 0-23)
     proactiveTokens: 120,         // ความยาวข้อความทัก
     groupAutoChat: false,         // ให้กลุ่มคุยกันเองเป็นระยะ
-    osNotifEnabled: false,        // แจ้งเตือน OS/desktop จริง
+    osNotifEnabled: false,        // แจ้งเตือน OS/desktop จริง (default ปิด — ระวังเนื้อหา 18+)
+    proactiveIdleMin: 0,          // ทักเฉพาะเมื่อผู้ใช้เงียบ RP เกิน N นาที (0 = ปิด)
+    proactiveTimeAware: false,    // ใส่บริบทช่วงเวลาจริง (เช้า/บ่าย/ดึก) ลง prompt
+    proactiveViaFeed: false,      // บางครั้งทักผ่านการโพสต์ฟีดแทน DM
+    notifLog: [],                 // ประวัติแจ้งเตือน (cap 30) — persist ลิ้นชัก
+    notifSeenTs: 0,               // เวลาเปิดดูลิ้นชักล่าสุด (คำนวณ badge)
+    promptOverrides: {},          // id → template override ("" / ไม่มี = ใช้ default)
     // Stage 5: override รูปโปรไฟล์ด้วยลิงก์ภายนอก
     wallpaperUrl: "",           // ลิงก์วอลเปเปอร์หน้าโฮม
     userAvatarUrl: "",          // รูปผู้ใช้ (global)
@@ -1527,6 +1533,93 @@ function stripReasoning(raw) {
     return s.trim();
 }
 
+// ===== Prompt แก้ไขได้ (template registry) =====
+// default = template ที่ใช้ {{token}} แทนส่วน dynamic · marker = ข้อความที่ parser ต้องใช้ (ห้ามลบ)
+const PROMPT_DEFS = {
+    feedPost: {
+        label: "โพสต์ฟีด (TinyFeed)", marker: "POST:", tokens: ["roster", "extra", "history", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนโพสต์โซเชียลมีเดียสั้นๆ 1 โพสต์ (1-3 ประโยค) ที่จะปรากฏบนฟีด สะท้อนอารมณ์หรือสถานการณ์ในเนื้อเรื่องตอนนี้. {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนหรือกระทำแทนผู้ใช้. {{extra}}{{history}}{{context}}\n` +
+            `ตอบกลับตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\nNAME: <ชื่อผู้โพสต์>\nPOST: <ข้อความโพสต์>`,
+    },
+    feedInitialComments: {
+        label: "คอมเมนต์ติดโพสต์ใหม่ (TinyFeed)", marker: "COMMENT:", tokens: ["postText", "author", "roster", "count"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] มีโพสต์บนฟีดว่า: "{{postText}}" (โดย {{author}}). เขียนคอมเมนต์ใต้โพสต์นี้ให้สมจริง. {{roster}}{{count}}ห้ามให้ {{author}} คอมเมนต์โพสต์ตัวเอง ห้ามพูดแทนผู้ใช้. ` +
+            `ตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อ> | <ข้อความ>`,
+    },
+    feedCommentReply: {
+        label: "AI ตอบคอมเมนต์ (TinyFeed)", marker: "COMMENT:", tokens: ["postText", "author", "thread", "roster"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาทตอบยาว] มีโพสต์บนฟีดว่า: "{{postText}}" (โดย {{author}}). คอมเมนต์ในโพสต์ล่าสุด:\n{{thread}}\n` +
+            `เขียนคอมเมนต์ตอบกลับสั้นๆ 1 อัน จะเป็น {{author}} หรือ NPC ที่เกี่ยวข้องก็ได้ (เลือกเอง). {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้. ` +
+            `ตอบรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>`,
+    },
+    news: {
+        label: "ข่าว (TinyFeed)", marker: "TITLE:", tokens: ["extra", "history", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนข่าว/บทความสั้น 1 ชิ้นที่จะปรากฏบนหน้าข่าวสาร สะท้อนสถานการณ์บ้านเมืองหรือเหตุการณ์รอบข้างในโลกของเนื้อเรื่อง เสริมบรรยากาศ worldbuilding ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.{{extra}}{{history}}{{context}}\n` +
+            `ตอบตามรูปแบบนี้เท่านั้น:\nSOURCE: <ชื่อสำนักข่าว>\nTITLE: <หัวข้อข่าว>\nSUMMARY: <สรุปสั้น 1-2 ประโยค>\nBODY: <เนื้อหาเต็ม หลายย่อหน้าได้>`,
+    },
+    forumThread: {
+        label: "ตั้งกระทู้ (TinyForum)", marker: "TITLE:", tokens: ["rooms", "roster", "extra", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งกระทู้เว็บบอร์ด 1 กระทู้ที่คนในโลกของเรื่องน่าจะตั้ง สะท้อนสถานการณ์/ดราม่า/ประเด็นตอนนี้. เลือกห้องจากรายการนี้เท่านั้น: {{rooms}}. {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
+            `ตอบตามรูปแบบนี้:\nROOM: <ห้องจากรายการ>\nAUTHOR: <ชื่อคนตั้งกระทู้>\nTITLE: <หัวข้อ>\nBODY: <เนื้อหากระทู้>\n` +
+            `แล้วต่อด้วยคอมเมนต์ชาวเน็ต 3-5 อัน บรรทัดละอัน:\nCOMMENT: <ชื่อ> | <ข้อความ>`,
+    },
+    forumComments: {
+        label: "คอมเมนต์กระทู้ (TinyForum)", marker: "COMMENT:", tokens: ["room", "title", "body", "batch", "roster", "extra", "existing", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "{{room}}" หัวข้อ "{{title}}": {{body}}\n` +
+            `เขียนคอมเมนต์ชาวเน็ตประมาณ {{batch}} อัน ให้หลากหลายคน สมจริงเหมือนเว็บบอร์ด (เห็นด้วย/เถียง/แซว/เล่าประสบการณ์/ถาม). {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}{{existing}}\n` +
+            `ตอบบรรทัดละอันในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>   (คอมเมนต์ใหม่)\nREPLY: <เลข> | <ชื่อ> | <ข้อความ>   (ตอบกลับคอมเมนต์เลขนั้น)`,
+    },
+};
+
+function getPromptTemplate(id) {
+    const ov = (getSetting("promptOverrides") || {})[id];
+    return (ov && String(ov).trim()) ? String(ov) : (PROMPT_DEFS[id] ? PROMPT_DEFS[id].default : "");
+}
+
+// แทน {{token}} ด้วยค่าใน vars (แทนทุกตำแหน่ง) แล้วเคลียร์ token ที่เหลือ
+function buildPrompt(id, vars) {
+    let t = getPromptTemplate(id);
+    vars = vars || {};
+    for (const k of Object.keys(vars)) {
+        t = t.split(`{{${k}}}`).join(vars[k] == null ? "" : String(vars[k]));
+    }
+    return t.replace(/\{\{\w+\}\}/g, "");
+}
+
+// บันทึก/ลบ override ของ prompt แต่ละตัว
+function setPromptOverride(id, val) {
+    const o = Object.assign({}, getSetting("promptOverrides") || {});
+    if (val == null) delete o[id];
+    else o[id] = val;
+    setSetting("promptOverrides", o);
+}
+
+// วาดตัวแก้ prompt ในหน้า settings (loop จาก PROMPT_DEFS)
+function renderPromptEditors() {
+    const overrides = getSetting("promptOverrides") || {};
+    const html = Object.keys(PROMPT_DEFS).map((id) => {
+        const def = PROMPT_DEFS[id];
+        const val = getPromptTemplate(id);
+        const isCustom = overrides[id] && String(overrides[id]).trim();
+        const tokens = (def.tokens && def.tokens.length) ? def.tokens.map((t) => `{{${t}}}`).join(" ") : "—";
+        return `<div class="tinyfeed-prompt-item" data-id="${escapeAttr(id)}">
+            <div class="tinyfeed-prompt-head">
+                <span class="tinyfeed-prompt-label">${escapeText(def.label)}${isCustom ? ' <span class="tinyfeed-prompt-custom">(แก้ไขแล้ว)</span>' : ""}</span>
+                <span class="tinyfeed-prompt-reset" data-id="${escapeAttr(id)}">คืนค่าเริ่มต้น</span>
+            </div>
+            <textarea class="tinyfeed-prompt-text" data-id="${escapeAttr(id)}" rows="6">${escapeText(val)}</textarea>
+            <small class="tinyfeed-field-hint">ต้องมี marker: <code>${escapeText(def.marker || "—")}</code> · ช่องข้อมูลที่ใช้ได้: <code>${escapeText(tokens)}</code></small>
+        </div>`;
+    }).join("");
+    $("#tinyfeed-prompt-list").html(html);
+}
+
 // ===== Phase 2: ชั้น generation รองรับ API แยก =====
 
 // สร้าง context เนื้อเรื่อง (ใช้เฉพาะตอนยิงไป profile แยก เพราะไม่มี context RP ติดไปให้)
@@ -1714,17 +1807,9 @@ async function generateFeedPost(opts) {
     const extra = String(getSetting("postExtraPrompt") || "").trim();
     const extraLine = extra ? `คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}. ` : "";
 
-    const quietPrompt =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ` +
-        `เขียนโพสต์โซเชียลมีเดียสั้นๆ 1 โพสต์ (1-3 ประโยค) ที่จะปรากฏบนฟีด ` +
-        `สะท้อนอารมณ์หรือสถานการณ์ในเนื้อเรื่องตอนนี้. ` +
-        rosterLine +
-        `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนหรือกระทำแทนผู้ใช้. ` +
-        extraLine +
-        historyLine +
-        crossAppContext("feed") +
-        `ตอบกลับตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\n` +
-        `NAME: <ชื่อผู้โพสต์>\nPOST: <ข้อความโพสต์>`;
+    const quietPrompt = buildPrompt("feedPost", {
+        roster: rosterLine, extra: extraLine, history: historyLine, context: crossAppContext("feed"),
+    });
 
     try {
         const raw = await tinyGenerate(quietPrompt, Math.max(1, parseInt(getSetting("postTokens"), 10) || 400));
@@ -1828,14 +1913,9 @@ async function generateCommentReply(postId) {
 
     const thread = post.comments.slice(-6)
         .map((c) => `- ${c.author}: ${htmlToPlain(c.text)}`).join("\n");
-    const q =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาทตอบยาว] ` +
-        `มีโพสต์บนฟีดว่า: "${htmlToPlain(post.text)}" (โดย ${post.author}). ` +
-        `คอมเมนต์ในโพสต์ล่าสุด:\n${thread}\n` +
-        `เขียนคอมเมนต์ตอบกลับสั้นๆ 1 อัน จะเป็น ${post.author} หรือ NPC ที่เกี่ยวข้องก็ได้ (เลือกเอง). ` +
-        npcRosterLine(charName) +
-        `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้. ` +
-        `ตอบรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+    const q = buildPrompt("feedCommentReply", {
+        postText: htmlToPlain(post.text), author: post.author, thread: thread, roster: npcRosterLine(charName),
+    });
 
     isReplying = postId;
     openPostDetail(postId);   // โชว์ "กำลังพิมพ์…"
@@ -1869,11 +1949,9 @@ async function runInitialComments(post, mode) {
     } else {
         countLine = `เขียนคอมเมนต์ 0 ถึง 3 อันตามที่เหมาะสม (ถ้าไม่มีใครน่าคอมเมนต์ก็ไม่ต้องเขียน). `;
     }
-    const q =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] มีโพสต์บนฟีดว่า: "${htmlToPlain(post.text)}" (โดย ${post.author}). ` +
-        `เขียนคอมเมนต์ใต้โพสต์นี้ให้สมจริง. ` + npcRosterLine(charName) + countLine +
-        `ห้ามให้ ${post.author} คอมเมนต์โพสต์ตัวเอง ห้ามพูดแทนผู้ใช้. ` +
-        `ตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+    const q = buildPrompt("feedInitialComments", {
+        postText: htmlToPlain(post.text), author: post.author, roster: npcRosterLine(charName), count: countLine,
+    });
     const raw = await tinyGenerate(q, 300);
     const comments = parseCommentLines(raw, charName)
         .filter((c) => c.author.trim().toLowerCase() !== String(post.author).trim().toLowerCase());
@@ -1968,12 +2046,9 @@ async function generateNews(opts) {
     const extra = String(getSetting("newsExtraPrompt") || "").trim();
     const extraLine = extra ? ` คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}.` : "";
 
-    const q =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนข่าว/บทความสั้น 1 ชิ้นที่จะปรากฏบนหน้าข่าวสาร ` +
-        `สะท้อนสถานการณ์บ้านเมืองหรือเหตุการณ์รอบข้างในโลกของเนื้อเรื่อง เสริมบรรยากาศ worldbuilding ` +
-        `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.` + extraLine + historyLine + crossAppContext("news") +
-        `\nตอบตามรูปแบบนี้เท่านั้น:\n` +
-        `SOURCE: <ชื่อสำนักข่าว>\nTITLE: <หัวข้อข่าว>\nSUMMARY: <สรุปสั้น 1-2 ประโยค>\nBODY: <เนื้อหาเต็ม หลายย่อหน้าได้>`;
+    const q = buildPrompt("news", {
+        extra: extraLine, history: historyLine, context: crossAppContext("news"),
+    });
 
     try {
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("newsTokens"), 10) || 500));
@@ -2613,15 +2688,12 @@ async function generateForumThread(opts) {
     try {
         const rooms = getForumRooms();
         const extra = String(getSetting("forumExtraPrompt") || "").trim();
-        const q =
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งกระทู้เว็บบอร์ด 1 กระทู้ที่คนในโลกของเรื่องน่าจะตั้ง ` +
-            `สะท้อนสถานการณ์/ดราม่า/ประเด็นตอนนี้. เลือกห้องจากรายการนี้เท่านั้น: ${rooms.join(", ")}. ` +
-            npcRosterLine(charName) +
-            `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. ` +
-            (extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "") +
-            crossAppContext("forum") +
-            `\nตอบตามรูปแบบนี้:\nROOM: <ห้องจากรายการ>\nAUTHOR: <ชื่อคนตั้งกระทู้>\nTITLE: <หัวข้อ>\nBODY: <เนื้อหากระทู้>\n` +
-            `แล้วต่อด้วยคอมเมนต์ชาวเน็ต 3-5 อัน บรรทัดละอัน:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+        const q = buildPrompt("forumThread", {
+            rooms: rooms.join(", "),
+            roster: npcRosterLine(charName),
+            extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
+            context: crossAppContext("forum"),
+        });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
         const s = stripReasoning(raw);
         const grab = (re) => { const m = s.match(re); return m ? m[1].trim() : ""; };
@@ -2677,15 +2749,13 @@ async function loadForumComments(threadId, opts) {
             return block;
         }).join("\n");
         const extra = String(getSetting("forumExtraPrompt") || "").trim();
-        const q =
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "${htmlToPlain(t.room)}" หัวข้อ "${htmlToPlain(t.title)}": ${htmlToPlain(t.body)}\n` +
-            `เขียนคอมเมนต์ชาวเน็ตประมาณ ${batch} อัน ให้หลากหลายคน สมจริงเหมือนเว็บบอร์ด (เห็นด้วย/เถียง/แซว/เล่าประสบการณ์/ถาม). ` +
-            npcRosterLine(charName) +
-            `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.` +
-            (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") +
-            crossAppContext("forum") +
-            (existing ? `\nคอมเมนต์ที่มีอยู่แล้ว (อ้างเลขเพื่อตอบกลับได้ อย่าเขียนซ้ำ):\n${existing}\n` : "") +
-            `\nตอบบรรทัดละอันในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>   (คอมเมนต์ใหม่)\nREPLY: <เลข> | <ชื่อ> | <ข้อความ>   (ตอบกลับคอมเมนต์เลขนั้น)`;
+        const q = buildPrompt("forumComments", {
+            room: htmlToPlain(t.room), title: htmlToPlain(t.title), body: htmlToPlain(t.body), batch: batch,
+            roster: npcRosterLine(charName),
+            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            existing: existing ? `\nคอมเมนต์ที่มีอยู่แล้ว (อ้างเลขเพื่อตอบกลับได้ อย่าเขียนซ้ำ):\n${existing}\n` : "",
+            context: crossAppContext("forum"),
+        });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
         const { tops, replies } = parseForumComments(raw, charName);
         let n = 0;
@@ -2746,6 +2816,7 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 async function onChatMessage() {
+    lastRpMsgTs = Date.now();   // มี RP activity → รีเซ็ตตัวจับเวลา idle
     if (isAutoBusy || isGenerating || isGeneratingNews) return;
     if (!getCurrentCharacter()) return;
 
@@ -2840,6 +2911,23 @@ function clearUnread() {
     $("#tinyfeed-menu-badge").text("").addClass("tinyfeed-hidden");
 }
 
+// โหลด notifLog จาก settings ตอน init (persist ข้ามการ reload แท็บ)
+function loadNotifLog() {
+    try {
+        const saved = getSetting("notifLog");
+        if (Array.isArray(saved)) { notifLog.length = 0; notifLog.push(...saved.slice(0, 30)); }
+    } catch (e) { /* ข้าม */ }
+    recomputeBellUnread();
+}
+function persistNotifLog() {
+    setSetting("notifLog", notifLog.slice(0, 30));
+}
+function recomputeBellUnread() {
+    const seen = parseInt(getSetting("notifSeenTs"), 10) || 0;
+    notifBellUnread = notifLog.filter((e) => (e.ts || 0) > seen).length;
+    updateNotifBell();
+}
+
 function updateNotifBell() {
     const b = $("#tinyfeed-notif-bell-badge");
     if (notifBellUnread > 0) b.text(notifBellUnread > 99 ? "99+" : notifBellUnread).removeClass("tinyfeed-hidden");
@@ -2873,6 +2961,7 @@ function showNotif(avatarHtml, author, text, tab, app, key, name) {
     lastNotifEntry = entry;
     notifLog.unshift(entry);
     if (notifLog.length > 30) notifLog.length = 30;
+    persistNotifLog();
     notifBellUnread++;
     updateNotifBell();
     const notif = $("#tinyfeed-notif");
@@ -2942,6 +3031,7 @@ function toggleNotifDrawer(show) {
     if (willShow) {
         renderNotifDrawer();
         d.removeClass("tinyfeed-hidden");
+        setSetting("notifSeenTs", Date.now());   // เปิดดูแล้ว → เคลียร์ badge
         notifBellUnread = 0;
         updateNotifBell();
     } else {
@@ -2952,6 +3042,7 @@ function toggleNotifDrawer(show) {
 // ===== ทักเชิงรุก (proactive) + กลุ่มคุยกันเอง =====
 let proactiveTimer = null;
 let lastProactiveTs = 0;
+let lastRpMsgTs = Date.now();   // เวลาข้อความ RP ล่าสุด (สำหรับโหมด idle)
 
 // มีการ generate อื่นค้างอยู่ไหม (กันชนกับ RP/แอปอื่น)
 function proactiveBusy() {
@@ -2978,20 +3069,36 @@ function stopProactiveTimer() {
 async function proactiveTick() {
     if (!getSetting("proactiveEnabled")) return;
     if (proactiveBusy() || !getCurrentCharacter() || inQuietHours()) return;
+    // โหมด idle: ทักเฉพาะเมื่อผู้ใช้เงียบ RP นานพอ
+    const idleMin = parseInt(getSetting("proactiveIdleMin"), 10) || 0;
+    if (idleMin > 0 && (Date.now() - lastRpMsgTs) < idleMin * 60000) return;
     const gap = Math.max(1, parseInt(getSetting("proactiveIntervalMin"), 10) || 20) * 60000;
     if (Date.now() - lastProactiveTs < gap) return;
     lastProactiveTs = Date.now();   // นับเวลาใหม่ทุกครั้งที่ถึงรอบ (แม้พลาดโอกาส)
     const chance = Math.max(0, Math.min(100, parseInt(getSetting("proactiveChance"), 10) || 50));
     if (Math.random() * 100 >= chance) return;
-    // สุ่มงาน: กลุ่มคุยกันเอง (ถ้าเปิด + มีกลุ่มที่เริ่มคุยแล้ว) หรือ DM ทัก
+    // เลือก action จากสไตล์ที่เปิด: กลุ่มคุยกันเอง / โพสต์ฟีด / DM ทัก
     const groups = getSetting("groupAutoChat")
         ? getConnectGroups().filter((g) => (getThread("group:" + g.id) || []).length)
         : [];
-    if (groups.length && Math.random() < 0.5) {
+    if (groups.length && Math.random() < 0.4) {
         await groupSelfChat("group:" + groups[Math.floor(Math.random() * groups.length)].id, { notify: true, silent: true });
+    } else if (getSetting("proactiveViaFeed") && Math.random() < 0.5) {
+        await generateFeedPost({ notify: true, silent: true });   // ทักผ่านฟีดแทน DM
     } else {
         await proactiveDM();
     }
+}
+
+// บริบทช่วงเวลาจริง (สำหรับโหมด time-aware)
+function timeOfDayPhrase() {
+    const h = new Date().getHours();
+    if (h < 5) return "ตอนนี้ดึกมากแล้ว (หลังเที่ยงคืน)";
+    if (h < 11) return "ตอนนี้เป็นช่วงเช้า";
+    if (h < 14) return "ตอนนี้เป็นช่วงเที่ยง";
+    if (h < 18) return "ตอนนี้เป็นช่วงบ่าย";
+    if (h < 22) return "ตอนนี้เป็นช่วงเย็น/หัวค่ำ";
+    return "ตอนนี้เป็นช่วงกลางคืน";
 }
 
 // ตัวละคร/NPC ทักผู้ใช้ขึ้นมาเอง (DM)
@@ -3003,10 +3110,12 @@ async function proactiveDM() {
     const recent = getThread(c.key).slice(-6)
         .map((m) => `${m.from === "user" ? you : c.name}: ${htmlToPlain(m.text)}`).join("\n");
     const extra = String(getSetting("connectExtraPrompt") || "").trim();
+    const timeLine = getSetting("proactiveTimeAware") ? `${timeOfDayPhrase()} (อ้างอิงช่วงเวลาได้ตามเหมาะสม).\n` : "";
     const q =
         `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ในบทบาทของ ${c.name} ส่งข้อความแชตทักหา ${you} ขึ้นมาเอง ` +
         `(เหมือนส่งไลน์มาหาเฉยๆ) ให้เข้ากับความสัมพันธ์/สถานการณ์ในเนื้อเรื่องตอนนี้ สั้นเป็นธรรมชาติ 1-2 ประโยค ` +
         `ห้ามพูดหรือกระทำแทน ${you}.\n` +
+        timeLine +
         (extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "") +
         (recent ? `บทแชตล่าสุด:\n${recent}\n` : "") +
         `ตอบเฉพาะข้อความของ ${c.name} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`;
@@ -3168,6 +3277,7 @@ const SETTINGS_LAYOUT = [
     { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
     { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
     { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
+    { head: "🧩 Prompt (ขั้นสูง)", titles: ["Prompt (ขั้นสูง)"] },
 ];
 
 // เรียงกลุ่ม settings ใหม่ + ใส่หัวข้อใหญ่คั่น (ทำครั้งเดียว)
@@ -3255,6 +3365,10 @@ function populateSettings() {
     $("#tinyfeed-cfg-quiet-to").val(getSetting("proactiveQuietTo"));
     $("#tinyfeed-cfg-proactive-tokens").val(getSetting("proactiveTokens"));
     $("#tinyfeed-cfg-group-autochat").prop("checked", Boolean(getSetting("groupAutoChat")));
+    $("#tinyfeed-cfg-proactive-idle").val(getSetting("proactiveIdleMin") || 0);
+    $("#tinyfeed-cfg-proactive-timeaware").prop("checked", Boolean(getSetting("proactiveTimeAware")));
+    $("#tinyfeed-cfg-proactive-viafeed").prop("checked", Boolean(getSetting("proactiveViaFeed")));
+    renderPromptEditors();
 
     $("#tinyfeed-cfg-stream-streamer").val(getSetting("streamStreamer") || "char");
     $("#tinyfeed-cfg-stream-mode").val(getSetting("streamCommentMode") || "manual");
@@ -3484,6 +3598,27 @@ jQuery(async () => {
             applyCustomCss();
         });
 
+        // Prompt (ขั้นสูง) — แก้/validate marker/รีเซ็ต
+        $(document).on("input", ".tinyfeed-prompt-text", function () {
+            const id = $(this).data("id");
+            const def = PROMPT_DEFS[id];
+            const val = $(this).val();
+            const ok = !def || !def.marker || String(val).includes(def.marker);
+            $(this).toggleClass("tinyfeed-prompt-invalid", !ok);
+            if (ok) setPromptOverride(id, val);   // บันทึกเฉพาะเมื่อ marker ครบ
+        });
+        $(document).on("blur", ".tinyfeed-prompt-text", function () {
+            const def = PROMPT_DEFS[$(this).data("id")];
+            if (def && def.marker && !String($(this).val()).includes(def.marker)) {
+                toastr.warning(`ต้องมี marker "${def.marker}" ในเทมเพลต ไม่งั้นระบบแยกผลลัพธ์ไม่ได้ (ยังไม่บันทึกจนกว่าจะใส่กลับ)`, "TinyPhone");
+            }
+        });
+        $(document).on("click", ".tinyfeed-prompt-reset", function () {
+            const id = $(this).data("id");
+            setPromptOverride(id, null);
+            renderPromptEditors();
+        });
+
         // TinyConnect: เข้าห้องแชต + ส่งข้อความ
         $(document).on("click", ".tinyfeed-connect-contact", function () {
             openThread($(this).data("key"), $(this).data("name"));
@@ -3688,6 +3823,8 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-notif-drawer-close", function () { toggleNotifDrawer(false); });
         $(document).on("click", "#tinyfeed-notif-clear", function () {
             notifLog.length = 0;
+            persistNotifLog();
+            recomputeBellUnread();
             renderNotifDrawer();
         });
         $(document).on("click", ".tinyfeed-notif-item", function () {
@@ -3869,6 +4006,16 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-group-autochat", function () {
             setSetting("groupAutoChat", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-idle", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveIdleMin", Number.isFinite(v) && v >= 0 ? v : 0);
+        });
+        $(document).on("change", "#tinyfeed-cfg-proactive-timeaware", function () {
+            setSetting("proactiveTimeAware", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-proactive-viafeed", function () {
+            setSetting("proactiveViaFeed", $(this).prop("checked"));
         });
         // Phase 2: เลือกโมเดล/API
         $(document).on("change", "#tinyfeed-cfg-api-profile", function () {
@@ -4065,6 +4212,7 @@ jQuery(async () => {
 
         // โหลดค่าที่บันทึกไว้
         loadSettings();
+        loadNotifLog();   // ประวัติแจ้งเตือน (persist)
 
         // เริ่มตัวจับเวลาทักเชิงรุก (ถ้าเปิดไว้) — เดินตลอดแม้ปิดหน้าแอป
         if (getSetting("proactiveEnabled")) startProactiveTimer();

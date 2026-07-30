@@ -164,7 +164,7 @@
                         <span>แจ้งเตือนบนเดสก์ท็อป/OS จริง</span>
                         <input id="tinyfeed-cfg-osnotif" type="checkbox" />
                     </label>
-                    <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์</small>
+                    <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์ · ⚠️ <b>ข้อความจะโผล่บน lock screen/แถบ OS แบบเห็นได้</b> — ระวังถ้าเป็นเนื้อหา 18+ (แนะนำปิดถ้าไม่มั่นใจ)</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -198,6 +198,19 @@
                     <label class="tinyfeed-field-row">
                         <span>ให้กลุ่มแชตคุยกันเองเป็นระยะ</span>
                         <input id="tinyfeed-cfg-group-autochat" type="checkbox" />
+                    </label>
+                    <div class="tinyfeed-field-label" style="margin-top:6px">สไตล์การทัก (ผสมได้)</div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ทักเฉพาะตอนเงียบเกิน (นาที; 0 = ปิด)</span>
+                        <input id="tinyfeed-cfg-proactive-idle" type="number" min="0" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ทักตามช่วงเวลาจริง (เช้า/บ่าย/ดึก)</span>
+                        <input id="tinyfeed-cfg-proactive-timeaware" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>บางครั้งทักผ่านการโพสต์ฟีดแทน DM</span>
+                        <input id="tinyfeed-cfg-proactive-viafeed" type="checkbox" />
                     </label>
                     <small class="tinyfeed-field-hint">⚠️ ทำงานเฉพาะตอน<b>เปิดแท็บ SillyTavern ค้างไว้</b> (ย่อ/พับได้) · ต้องมีแชตที่มีตัวละครเปิดอยู่ · ยิง AI เป็นระยะ = เปลือง token ตั้งเว้นระยะ/โอกาส/ช่วงเงียบให้เหมาะ · ช่วงเงียบตั้งเริ่ม=ถึง = ไม่เงียบ</small>
                 </div>
@@ -555,6 +568,12 @@
                         <i class="fa-solid fa-plus"></i> <span>เพิ่มห้อง</span>
                     </button>
                     <small class="tinyfeed-field-hint">ตอน AI ตั้งกระทู้จะเลือกห้องจากรายการนี้ · ห้องใช้ร่วมทุกแชท · โหลดคอมเมนต์เพิ่มได้เรื่อยๆ ในหน้ากระทู้ (ยิ่งเยอะยิ่งเปลือง token)</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
+                    <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
+                    <div id="tinyfeed-prompt-list"></div>
                 </div>
             </div>
         </div>
