@@ -20,6 +20,15 @@ const defaultSettings = {
     widgetClock: true,        // วิดเจ็ตนาฬิกา+วันที่
     widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
     customCss: "",            // CSS snippet ของผู้ใช้
+    // ทักเชิงรุก (proactive) + แจ้งเตือน OS + กลุ่มคุยกันเอง
+    proactiveEnabled: false,      // ให้ตัวละครทักเองเป็นระยะ
+    proactiveIntervalMin: 20,     // ตรวจ/เว้นระยะขั้นต่ำ (นาที)
+    proactiveChance: 50,          // โอกาสทักในแต่ละรอบ (%)
+    proactiveQuietFrom: 0,        // ช่วงเงียบ เริ่ม (ชม. 0-23)
+    proactiveQuietTo: 7,          // ช่วงเงียบ ถึง (ชม. 0-23)
+    proactiveTokens: 120,         // ความยาวข้อความทัก
+    groupAutoChat: false,         // ให้กลุ่มคุยกันเองเป็นระยะ
+    osNotifEnabled: false,        // แจ้งเตือน OS/desktop จริง
     // Stage 5: override รูปโปรไฟล์ด้วยลิงก์ภายนอก
     wallpaperUrl: "",           // ลิงก์วอลเปเปอร์หน้าโฮม
     userAvatarUrl: "",          // รูปผู้ใช้ (global)
@@ -159,8 +168,8 @@ function onEnabledChange(event) {
 // เปิด/ปิด panel โทรศัพท์
 function openPhone() {
     $("#tinyfeed-overlay").addClass("tinyfeed-visible");
-    clearUnread();   // เปิดดูแล้ว เคลียร์จุดแดง
-    goHome();        // เปิดเครื่องมาที่หน้าโฮมเสมอ
+    clearUnread();          // เปิดดูแล้ว เคลียร์จุดแดง
+    restoreLastScreen();    // กลับไปหน้าจอล่าสุด (ไม่งั้นไปโฮม)
     console.log(`[${extensionName}] Phone opened`);
 }
 
@@ -177,6 +186,7 @@ function goHome() {
     $("#tinyfeed-settings-btn").removeClass("tinyfeed-hidden");   // เฟืองเข้าถึงได้จากโฮม
     try { $("#tinyfeed-home .tinyfeed-home-hello").text(`สวัสดี, ${getUserName()}`); } catch (e) { /* ข้าม */ }
     renderHomeWidgets();
+    saveLastScreen();
 }
 
 function openApp(app) {
@@ -218,6 +228,7 @@ function openApp(app) {
         renderStream();
         maybeStartStreamTimer();
     }
+    saveLastScreen();
 }
 
 // ===== TinyStream: ไลฟ์สตรีม + คอมเมนต์สด =====
@@ -530,7 +541,10 @@ function openThread(key, name) {
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
     $("#tinyfeed-back").removeClass("tinyfeed-hidden");
     $(".tinyfeed-title").text(name);
+    // ปุ่ม "ให้กลุ่มคุยกันต่อ" โชว์เฉพาะห้องกลุ่ม
+    $("#tinyfeed-group-chat-tools").toggleClass("tinyfeed-hidden", !findGroup(key));
     renderThread();
+    saveLastScreen();
     $("#tinyfeed-connect-input").trigger("focus");
 }
 
@@ -2298,6 +2312,7 @@ function openForumThread(id) {
     const t = getForum().find((x) => x.id === id);
     $(".tinyfeed-title").text(t ? t.room : "กระทู้");
     renderForumThread(id);
+    saveLastScreen();
 }
 
 function switchForumSort(sort) {
@@ -2799,13 +2814,12 @@ async function onChatMessage() {
     }
 }
 
-// ===== แจ้งเตือนสไตล์โทรศัพท์ (push banner) =====
+// ===== แจ้งเตือนสไตล์โทรศัพท์ (push banner + ลิ้นชัก + OS) =====
 let notifTimer = null;
-let notifTab = "feed";   // กดแจ้งเตือนแล้วไปแท็บไหน
-let notifApp = "feed";   // กดแจ้งเตือนแล้วเปิดแอปไหน
-
-// จำนวนแจ้งเตือนที่ยังไม่ได้ดู
-let unreadCount = 0;
+let lastNotifEntry = null;        // แจ้งเตือนล่าสุด (สำหรับกด banner)
+let unreadCount = 0;              // badge ปุ่มเมนู (นอกเครื่อง)
+let notifBellUnread = 0;          // badge กระดิ่งในเครื่อง
+const notifLog = [];              // ประวัติแจ้งเตือน (cap 30)
 
 // เพิ่มจุดแดง + สั่นปุ่มเมนู เมื่อมีของใหม่
 function markUnread() {
@@ -2826,20 +2840,50 @@ function clearUnread() {
     $("#tinyfeed-menu-badge").text("").addClass("tinyfeed-hidden");
 }
 
-// แสดงแบนเนอร์แจ้งเตือน (ใช้ได้ทุกแอป — ระบุ tab + app ที่จะเปิดเมื่อกด)
-function showNotif(avatarHtml, author, text, tab, app) {
+function updateNotifBell() {
+    const b = $("#tinyfeed-notif-bell-badge");
+    if (notifBellUnread > 0) b.text(notifBellUnread > 99 ? "99+" : notifBellUnread).removeClass("tinyfeed-hidden");
+    else b.text("").addClass("tinyfeed-hidden");
+}
+
+// แจ้งเตือน OS/desktop จริง (ต้องเปิด toggle + อนุญาต permission)
+function ensureNotifPermission() {
+    try {
+        if (typeof Notification === "undefined") { toastr.warning("เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS", "TinyPhone"); return; }
+        if (Notification.permission === "default") Notification.requestPermission();
+    } catch (e) { /* ข้าม */ }
+}
+function fireOsNotif(title, body) {
+    if (!getSetting("osNotifEnabled")) return;
+    try {
+        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+        const n = new Notification(title || "TinyPhone", { body: String(body || "").slice(0, 120), tag: "tinyphone" });
+        n.onclick = () => { try { window.focus(); } catch (e) { /* ข้าม */ } if (lastNotifEntry) routeFromNotif(lastNotifEntry); };
+    } catch (e) { /* ข้าม */ }
+}
+
+// แสดงแบนเนอร์ + เก็บลิ้นชัก + ยิง OS (ระบุ tab/app/key/name ที่จะเปิดเมื่อกด)
+function showNotif(avatarHtml, author, text, tab, app, key, name) {
     if (!getSetting("notificationsEnabled")) return;   // ปิดแจ้งเตือน = ไม่ทำอะไร
     markUnread();
-    notifTab = tab || "feed";
-    notifApp = app || "feed";
+    const entry = {
+        avatar: avatarHtml, author: author || "", text: String(text || "").slice(0, 140),
+        tab: tab || "feed", app: app || "feed", key: key || null, name: name || "", ts: Date.now(),
+    };
+    lastNotifEntry = entry;
+    notifLog.unshift(entry);
+    if (notifLog.length > 30) notifLog.length = 30;
+    notifBellUnread++;
+    updateNotifBell();
     const notif = $("#tinyfeed-notif");
     notif.find(".tinyfeed-notif-avatar").html(avatarHtml);
     notif.find(".tinyfeed-notif-author").text(author || "");
-    notif.find(".tinyfeed-notif-text").text(String(text || "").slice(0, 90));
+    notif.find(".tinyfeed-notif-text").text(entry.text.slice(0, 90));
     notif.addClass("tinyfeed-notif-show");
     try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) { /* ไม่รองรับก็ข้าม */ }
     clearTimeout(notifTimer);
     notifTimer = setTimeout(dismissNotif, 8000);
+    fireOsNotif(author || "TinyPhone", entry.text);
 }
 
 function showPushNotification(post) {
@@ -2850,18 +2894,207 @@ function dismissNotif() {
     $("#tinyfeed-notif").removeClass("tinyfeed-notif-show");
 }
 
-// กดแจ้งเตือน → เปิดแอปที่เกี่ยวข้องไปที่แท็บที่ถูกต้อง
-function openFeedFromNotif() {
+// route ไปแอป/ห้องที่เกี่ยวข้องกับแจ้งเตือน (ใช้ทั้ง banner, OS, ลิ้นชัก)
+function routeFromNotif(e) {
     dismissNotif();
-    openPhone();          // เปิดเครื่อง (ไปหน้าโฮมก่อน)
-    if (notifApp === "memo") {
+    openPhone();
+    if (e.app === "memo") {
         openApp("memo");
-        switchMemoTab(notifTab === "notes" ? "notes" : "agenda");
-    } else if (notifApp === "forum") {
+        switchMemoTab(e.tab === "notes" ? "notes" : "agenda");
+    } else if (e.app === "forum") {
         openApp("forum");
+    } else if (e.app === "connect") {
+        openApp("connect");
+        if (e.key) openThread(e.key, e.name || e.author);
     } else {
         openApp("feed");
-        switchTab(notifTab);
+        switchTab(e.tab || "feed");
+    }
+}
+
+// กด banner แจ้งเตือน
+function openFeedFromNotif() {
+    if (lastNotifEntry) routeFromNotif(lastNotifEntry);
+    else { dismissNotif(); openPhone(); openApp("feed"); }
+}
+
+// ลิ้นชักแจ้งเตือน
+function renderNotifDrawer() {
+    const box = $("#tinyfeed-notif-drawer-list");
+    if (!notifLog.length) {
+        box.html(`<div class="tinyfeed-notif-drawer-empty">ยังไม่มีแจ้งเตือน</div>`);
+        return;
+    }
+    box.html(notifLog.map((e, i) => `
+        <div class="tinyfeed-notif-item" data-idx="${i}">
+            <div class="tinyfeed-notif-item-avatar">${e.avatar}</div>
+            <div class="tinyfeed-notif-item-body">
+                <div class="tinyfeed-notif-item-author">${escapeText(e.author)}</div>
+                <div class="tinyfeed-notif-item-text">${escapeText(e.text)}</div>
+                <div class="tinyfeed-notif-item-time">${timeAgo(e.ts)}</div>
+            </div>
+        </div>`).join(""));
+}
+
+function toggleNotifDrawer(show) {
+    const d = $("#tinyfeed-notif-drawer");
+    const willShow = (show === undefined) ? d.hasClass("tinyfeed-hidden") : show;
+    if (willShow) {
+        renderNotifDrawer();
+        d.removeClass("tinyfeed-hidden");
+        notifBellUnread = 0;
+        updateNotifBell();
+    } else {
+        d.addClass("tinyfeed-hidden");
+    }
+}
+
+// ===== ทักเชิงรุก (proactive) + กลุ่มคุยกันเอง =====
+let proactiveTimer = null;
+let lastProactiveTs = 0;
+
+// มีการ generate อื่นค้างอยู่ไหม (กันชนกับ RP/แอปอื่น)
+function proactiveBusy() {
+    return isAutoBusy || isGenerating || isGeneratingNews || isConnectReplying || isGeneratingStream || isMemoBusy || isForumBusy;
+}
+
+// อยู่ในช่วงเวลาเงียบไหม (รองรับข้ามเที่ยงคืน)
+function inQuietHours() {
+    const from = ((parseInt(getSetting("proactiveQuietFrom"), 10) || 0) % 24 + 24) % 24;
+    const to = ((parseInt(getSetting("proactiveQuietTo"), 10) || 0) % 24 + 24) % 24;
+    if (from === to) return false;
+    const h = new Date().getHours();
+    return from < to ? (h >= from && h < to) : (h >= from || h < to);
+}
+
+function startProactiveTimer() {
+    if (proactiveTimer) return;
+    proactiveTimer = setInterval(proactiveTick, 60000);   // ตรวจทุก 1 นาที
+}
+function stopProactiveTimer() {
+    if (proactiveTimer) { clearInterval(proactiveTimer); proactiveTimer = null; }
+}
+
+async function proactiveTick() {
+    if (!getSetting("proactiveEnabled")) return;
+    if (proactiveBusy() || !getCurrentCharacter() || inQuietHours()) return;
+    const gap = Math.max(1, parseInt(getSetting("proactiveIntervalMin"), 10) || 20) * 60000;
+    if (Date.now() - lastProactiveTs < gap) return;
+    lastProactiveTs = Date.now();   // นับเวลาใหม่ทุกครั้งที่ถึงรอบ (แม้พลาดโอกาส)
+    const chance = Math.max(0, Math.min(100, parseInt(getSetting("proactiveChance"), 10) || 50));
+    if (Math.random() * 100 >= chance) return;
+    // สุ่มงาน: กลุ่มคุยกันเอง (ถ้าเปิด + มีกลุ่มที่เริ่มคุยแล้ว) หรือ DM ทัก
+    const groups = getSetting("groupAutoChat")
+        ? getConnectGroups().filter((g) => (getThread("group:" + g.id) || []).length)
+        : [];
+    if (groups.length && Math.random() < 0.5) {
+        await groupSelfChat("group:" + groups[Math.floor(Math.random() * groups.length)].id, { notify: true, silent: true });
+    } else {
+        await proactiveDM();
+    }
+}
+
+// ตัวละคร/NPC ทักผู้ใช้ขึ้นมาเอง (DM)
+async function proactiveDM() {
+    const contacts = getConnectContacts();
+    if (!contacts.length) return;
+    const c = contacts[Math.floor(Math.random() * contacts.length)];
+    const you = getUserName();
+    const recent = getThread(c.key).slice(-6)
+        .map((m) => `${m.from === "user" ? you : c.name}: ${htmlToPlain(m.text)}`).join("\n");
+    const extra = String(getSetting("connectExtraPrompt") || "").trim();
+    const q =
+        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ในบทบาทของ ${c.name} ส่งข้อความแชตทักหา ${you} ขึ้นมาเอง ` +
+        `(เหมือนส่งไลน์มาหาเฉยๆ) ให้เข้ากับความสัมพันธ์/สถานการณ์ในเนื้อเรื่องตอนนี้ สั้นเป็นธรรมชาติ 1-2 ประโยค ` +
+        `ห้ามพูดหรือกระทำแทน ${you}.\n` +
+        (extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "") +
+        (recent ? `บทแชตล่าสุด:\n${recent}\n` : "") +
+        `ตอบเฉพาะข้อความของ ${c.name} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`;
+    let reply;
+    try {
+        reply = stripReasoning(await tinyGenerate(q, Math.max(1, parseInt(getSetting("proactiveTokens"), 10) || 120))).trim();
+    } catch (e) { console.error(`[${extensionName}] proactiveDM failed:`, e); return; }
+    reply = reply.replace(/^\[|\]$/g, "").trim();
+    if (!reply) return;
+    getThread(c.key).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
+    saveFeedData();
+    if (currentApp === "connect" && activeThread === c.key) renderThread();
+    updateChatInjection();
+    showNotif(makeAvatar(contactAvatarItem(c)), c.name, reply, "contact", "connect", c.key, c.name);
+}
+
+// สมาชิกในกลุ่มคุยกันเอง (ใช้ทั้ง auto และปุ่มสั่งเอง)
+async function groupSelfChat(threadKey, opts) {
+    opts = opts || {};
+    const group = findGroup(threadKey);
+    if (!group || isConnectReplying) return;
+    const you = getUserName();
+    const transcript = getThread(threadKey).slice(-12)
+        .map((m) => `${m.from === "user" ? you : (m.author || group.name)}: ${htmlToPlain(m.text)}`).join("\n");
+    const extra = String(getSetting("connectExtraPrompt") || "").trim();
+    const q =
+        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือแชตกลุ่ม "${group.name}" สมาชิก: ${group.members.join(", ")} และ ${you}. ` +
+        `ให้สมาชิกในกลุ่ม (เลือกเอง 2-4 ข้อความ ห้ามใช้ ${you}) คุยกันเองต่อ อ้างถึงกันได้ เหมือนช่วงนี้ ${you} เงียบ/ไม่อยู่ ` +
+        `สั้นเป็นธรรมชาติเหมือนแชตจริง ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
+        (extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "") +
+        crossAppContext("connect") +
+        `บทแชตล่าสุด:\n${transcript}\n` +
+        `ตอบบรรทัดละคนในรูปแบบนี้เท่านั้น:\nMSG: <ชื่อสมาชิก> | <ข้อความ>`;
+    isConnectReplying = true;
+    if (currentApp === "connect" && activeThread === threadKey) renderThread();
+    try {
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200));
+        const list = parseCommentLines(raw, group.members[0] || group.name, "MSG")
+            .filter((c) => c.author.trim().toLowerCase() !== you.trim().toLowerCase());
+        if (list.length) {
+            for (const c of list.slice(0, 4)) getThread(threadKey).push({ from: "contact", author: c.author, text: c.text, ts: Date.now() });
+            saveFeedData();
+            updateChatInjection();
+            if (opts.notify) showNotif(makeAnonAvatar(group.name), group.name,
+                list.slice(0, 4).map((c) => `${c.author}: ${htmlToPlain(c.text)}`).join(" · "),
+                "contact", "connect", threadKey, group.name);
+        } else if (!opts.silent) {
+            toastr.info("กลุ่มยังเงียบอยู่ ลองใหม่นะ", "TinyConnect");
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] groupSelfChat failed:`, e);
+        if (!opts.silent) toastr.error("ให้กลุ่มคุยต่อไม่สำเร็จ", "TinyConnect");
+    } finally {
+        isConnectReplying = false;
+        if (currentApp === "connect" && activeThread === threadKey) renderThread();
+    }
+}
+
+// ===== จำ/คืนหน้าจอล่าสุด =====
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum"];
+function saveLastScreen() {
+    try {
+        const data = getFeedData();
+        data.ui = {
+            app: MEMO_APPS.includes(currentApp) ? currentApp : "home",
+            thread: activeThread || null,
+            forumThread: activeForumThread || null,
+        };
+        saveFeedData();
+    } catch (e) { /* ข้าม */ }
+}
+
+function restoreLastScreen() {
+    let ui = null;
+    try { ui = getFeedData().ui; } catch (e) { /* ข้าม */ }
+    if (!ui || !MEMO_APPS.includes(ui.app)) { goHome(); return; }
+    if (ui.app === "connect") {
+        openApp("connect");
+        if (ui.thread) {
+            const c = getConnectContacts().find((x) => x.key === ui.thread);
+            const g = findGroup(ui.thread);
+            if (c || g) openThread(ui.thread, c ? c.name : g.name);
+        }
+    } else if (ui.app === "forum") {
+        openApp("forum");
+        if (ui.forumThread && getForum().find((t) => t.id === ui.forumThread)) openForumThread(ui.forumThread);
+    } else {
+        openApp(ui.app);   // feed / stream / memo
     }
 }
 
@@ -2925,7 +3158,7 @@ function closeDetail() {
 const SETTINGS_LAYOUT = [
     {
         head: "⚙️ ตั้งค่าเครื่อง",
-        titles: ["ปรับแต่งหน้าตา", "การแจ้งเตือน", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
+        titles: ["ปรับแต่งหน้าตา", "การแจ้งเตือน", "ทักเชิงรุก (ตัวละครทักเอง)", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
     },
     {
         head: "📱 TinyFeed",
@@ -3013,6 +3246,15 @@ function populateSettings() {
     $("#tinyfeed-cfg-news-interval").val(getSetting("newsAutoInterval") || 20);
     $("#tinyfeed-cfg-news-history").val(getSetting("newsHistoryCount"));
     $("#tinyfeed-cfg-notif").prop("checked", Boolean(getSetting("notificationsEnabled")));
+    $("#tinyfeed-cfg-osnotif").prop("checked", Boolean(getSetting("osNotifEnabled")));
+    $("#tinyfeed-cfg-proactive").prop("checked", Boolean(getSetting("proactiveEnabled")));
+    $("#tinyfeed-cfg-proactive-interval").val(getSetting("proactiveIntervalMin") || 20);
+    $("#tinyfeed-cfg-proactive-chance").val(getSetting("proactiveChance"));
+    $("#tinyfeed-proactive-chance-val").text(`${parseInt(getSetting("proactiveChance"), 10) || 0}%`);
+    $("#tinyfeed-cfg-quiet-from").val(getSetting("proactiveQuietFrom"));
+    $("#tinyfeed-cfg-quiet-to").val(getSetting("proactiveQuietTo"));
+    $("#tinyfeed-cfg-proactive-tokens").val(getSetting("proactiveTokens"));
+    $("#tinyfeed-cfg-group-autochat").prop("checked", Boolean(getSetting("groupAutoChat")));
 
     $("#tinyfeed-cfg-stream-streamer").val(getSetting("streamStreamer") || "char");
     $("#tinyfeed-cfg-stream-mode").val(getSetting("streamCommentMode") || "manual");
@@ -3441,6 +3683,23 @@ jQuery(async () => {
         // กดแจ้งเตือน → เปิดฟีด
         $(document).on("click", "#tinyfeed-notif", openFeedFromNotif);
 
+        // ลิ้นชักแจ้งเตือน
+        $(document).on("click", "#tinyfeed-notif-bell", function () { toggleNotifDrawer(); });
+        $(document).on("click", "#tinyfeed-notif-drawer-close", function () { toggleNotifDrawer(false); });
+        $(document).on("click", "#tinyfeed-notif-clear", function () {
+            notifLog.length = 0;
+            renderNotifDrawer();
+        });
+        $(document).on("click", ".tinyfeed-notif-item", function () {
+            const e = notifLog[parseInt($(this).data("idx"), 10)];
+            if (e) { toggleNotifDrawer(false); routeFromNotif(e); }
+        });
+
+        // ให้กลุ่มคุยกันต่อ (ปุ่มสั่งเอง)
+        $(document).on("click", "#tinyfeed-group-continue", function () {
+            if (activeThread && findGroup(activeThread)) groupSelfChat(activeThread, {});
+        });
+
         // Stage 8: คอมเมนต์
         $(document).on("click", ".tinyfeed-comment-send", function () {
             const input = $(this).closest(".tinyfeed-comment-compose").find(".tinyfeed-comment-input");
@@ -3572,6 +3831,44 @@ jQuery(async () => {
             const on = $(this).prop("checked");
             setSetting("notificationsEnabled", on);
             if (!on) clearUnread();   // ปิดแล้วเก็บจุดแดงที่ค้างด้วย
+        });
+        // แจ้งเตือน OS จริง
+        $(document).on("change", "#tinyfeed-cfg-osnotif", function () {
+            const on = $(this).prop("checked");
+            setSetting("osNotifEnabled", on);
+            if (on) ensureNotifPermission();
+        });
+        // ทักเชิงรุก
+        $(document).on("change", "#tinyfeed-cfg-proactive", function () {
+            const on = $(this).prop("checked");
+            setSetting("proactiveEnabled", on);
+            if (on) { lastProactiveTs = 0; startProactiveTimer(); }
+            else stopProactiveTimer();
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-interval", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveIntervalMin", Number.isFinite(v) && v > 0 ? v : 20);
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-chance", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 50;
+            setSetting("proactiveChance", v);
+            $("#tinyfeed-proactive-chance-val").text(`${v}%`);
+        });
+        $(document).on("input", "#tinyfeed-cfg-quiet-from", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveQuietFrom", Number.isFinite(v) ? ((v % 24) + 24) % 24 : 0);
+        });
+        $(document).on("input", "#tinyfeed-cfg-quiet-to", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveQuietTo", Number.isFinite(v) ? ((v % 24) + 24) % 24 : 0);
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-tokens", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveTokens", Number.isFinite(v) && v > 0 ? v : 120);
+        });
+        $(document).on("change", "#tinyfeed-cfg-group-autochat", function () {
+            setSetting("groupAutoChat", $(this).prop("checked"));
         });
         // Phase 2: เลือกโมเดล/API
         $(document).on("change", "#tinyfeed-cfg-api-profile", function () {
@@ -3768,6 +4065,9 @@ jQuery(async () => {
 
         // โหลดค่าที่บันทึกไว้
         loadSettings();
+
+        // เริ่มตัวจับเวลาทักเชิงรุก (ถ้าเปิดไว้) — เดินตลอดแม้ปิดหน้าแอป
+        if (getSetting("proactiveEnabled")) startProactiveTimer();
 
         console.log(`[${extensionName}] ✅ Loaded successfully`);
     } catch (error) {
