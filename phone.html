@@ -19,10 +19,25 @@
             <span id="tinyfeed-back" class="fa-solid fa-arrow-left tinyfeed-hidden"></span>
             <span class="tinyfeed-title">TinyPhone</span>
             <span class="tinyfeed-topbar-right">
+                <span id="tinyfeed-notif-bell" title="การแจ้งเตือน">
+                    <i class="fa-solid fa-bell"></i>
+                    <span id="tinyfeed-notif-bell-badge" class="tinyfeed-hidden"></span>
+                </span>
                 <span id="tinyfeed-settings-btn" class="fa-solid fa-gear"></span>
                 <span id="tinyfeed-theme" class="fa-solid fa-moon"></span>
                 <span id="tinyfeed-close" class="fa-solid fa-xmark"></span>
             </span>
+        </div>
+
+        <div id="tinyfeed-notif-drawer" class="tinyfeed-notif-drawer tinyfeed-hidden">
+            <div class="tinyfeed-notif-drawer-head">
+                <span>การแจ้งเตือน</span>
+                <span class="tinyfeed-notif-drawer-actions">
+                    <span id="tinyfeed-notif-clear" title="ล้างทั้งหมด"><i class="fa-solid fa-trash"></i></span>
+                    <span id="tinyfeed-notif-drawer-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </span>
+            </div>
+            <div id="tinyfeed-notif-drawer-list"></div>
         </div>
 
         <div id="tinyfeed-home" class="tinyfeed-home">
@@ -145,6 +160,62 @@
                         <input id="tinyfeed-cfg-notif" type="checkbox" />
                     </label>
                     <small class="tinyfeed-field-hint">เด้งแจ้งเตือนสไตล์โทรศัพท์เมื่อมีโพสต์/ข่าวใหม่อัตโนมัติ · ปิดเพื่อความสงบ</small>
+                    <label class="tinyfeed-field-row">
+                        <span>แจ้งเตือนบนเดสก์ท็อป/OS จริง</span>
+                        <input id="tinyfeed-cfg-osnotif" type="checkbox" />
+                    </label>
+                    <button id="tinyfeed-osnotif-test" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-bell"></i> <span>ทดสอบแจ้งเตือน OS</span>
+                    </button>
+                    <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์ · กด “ทดสอบ” เพื่อเช็คว่าใช้ได้ไหม (จะบอกสาเหตุถ้าติด) · ⚠️ <b>ต้องเปิด ST ผ่าน HTTPS หรือ localhost</b> ถ้าเปิดผ่าน IP/HTTP เบราว์เซอร์จะบล็อก · ข้อความจะโผล่บน lock screen/แถบ OS แบบเห็นได้ ระวังเนื้อหา 18+</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">ทักเชิงรุก (ตัวละครทักเอง)</div>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้ตัวละคร/NPC ทักหาเองเป็นระยะ</span>
+                        <input id="tinyfeed-cfg-proactive" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เว้นระยะขั้นต่ำ (นาที)</span>
+                        <input id="tinyfeed-cfg-proactive-interval" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โอกาสทักในแต่ละรอบ: <b id="tinyfeed-proactive-chance-val">50%</b></span>
+                        <input id="tinyfeed-cfg-proactive-chance" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <div class="tinyfeed-field-2col">
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">ช่วงเงียบ เริ่ม (ชม.)</span>
+                            <input id="tinyfeed-cfg-quiet-from" type="number" min="0" max="23" />
+                        </label>
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">ถึง (ชม.)</span>
+                            <input id="tinyfeed-cfg-quiet-to" type="number" min="0" max="23" />
+                        </label>
+                    </div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวข้อความทัก (token)</span>
+                        <input id="tinyfeed-cfg-proactive-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้กลุ่มแชตคุยกันเองเป็นระยะ</span>
+                        <input id="tinyfeed-cfg-group-autochat" type="checkbox" />
+                    </label>
+                    <div class="tinyfeed-field-label" style="margin-top:6px">สไตล์การทัก (ผสมได้)</div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ทักเฉพาะตอนเงียบเกิน (นาที; 0 = ปิด)</span>
+                        <input id="tinyfeed-cfg-proactive-idle" type="number" min="0" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ทักตามช่วงเวลาจริง (เช้า/บ่าย/ดึก)</span>
+                        <input id="tinyfeed-cfg-proactive-timeaware" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>บางครั้งทักผ่านการโพสต์ฟีดแทน DM</span>
+                        <input id="tinyfeed-cfg-proactive-viafeed" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">⚠️ ทำงานเฉพาะตอน<b>เปิดแท็บ SillyTavern ค้างไว้</b> (ย่อ/พับได้) · ต้องมีแชตที่มีตัวละครเปิดอยู่ · ยิง AI เป็นระยะ = เปลือง token ตั้งเว้นระยะ/โอกาส/ช่วงเงียบให้เหมาะ · ช่วงเงียบตั้งเริ่ม=ถึง = ไม่เงียบ</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -501,6 +572,12 @@
                     </button>
                     <small class="tinyfeed-field-hint">ตอน AI ตั้งกระทู้จะเลือกห้องจากรายการนี้ · ห้องใช้ร่วมทุกแชท · โหลดคอมเมนต์เพิ่มได้เรื่อยๆ ในหน้ากระทู้ (ยิ่งเยอะยิ่งเปลือง token)</small>
                 </div>
+
+                <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
+                    <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
+                    <div id="tinyfeed-prompt-list"></div>
+                </div>
             </div>
         </div>
         </div>
@@ -524,6 +601,11 @@
             <div id="tinyfeed-connect-list" class="tinyfeed-connect-list"></div>
             <div id="tinyfeed-connect-thread" class="tinyfeed-connect-thread tinyfeed-hidden">
                 <div id="tinyfeed-connect-messages" class="tinyfeed-connect-messages"></div>
+                <div id="tinyfeed-group-chat-tools" class="tinyfeed-hidden">
+                    <button id="tinyfeed-group-continue" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-comments"></i> <span>ให้กลุ่มคุยกันต่อ</span>
+                    </button>
+                </div>
                 <div class="tinyfeed-connect-compose">
                     <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
                     <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>

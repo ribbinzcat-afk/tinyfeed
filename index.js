@@ -20,6 +20,21 @@ const defaultSettings = {
     widgetClock: true,        // วิดเจ็ตนาฬิกา+วันที่
     widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
     customCss: "",            // CSS snippet ของผู้ใช้
+    // ทักเชิงรุก (proactive) + แจ้งเตือน OS + กลุ่มคุยกันเอง
+    proactiveEnabled: false,      // ให้ตัวละครทักเองเป็นระยะ
+    proactiveIntervalMin: 20,     // ตรวจ/เว้นระยะขั้นต่ำ (นาที)
+    proactiveChance: 50,          // โอกาสทักในแต่ละรอบ (%)
+    proactiveQuietFrom: 0,        // ช่วงเงียบ เริ่ม (ชม. 0-23)
+    proactiveQuietTo: 7,          // ช่วงเงียบ ถึง (ชม. 0-23)
+    proactiveTokens: 120,         // ความยาวข้อความทัก
+    groupAutoChat: false,         // ให้กลุ่มคุยกันเองเป็นระยะ
+    osNotifEnabled: false,        // แจ้งเตือน OS/desktop จริง (default ปิด — ระวังเนื้อหา 18+)
+    proactiveIdleMin: 0,          // ทักเฉพาะเมื่อผู้ใช้เงียบ RP เกิน N นาที (0 = ปิด)
+    proactiveTimeAware: false,    // ใส่บริบทช่วงเวลาจริง (เช้า/บ่าย/ดึก) ลง prompt
+    proactiveViaFeed: false,      // บางครั้งทักผ่านการโพสต์ฟีดแทน DM
+    notifLog: [],                 // ประวัติแจ้งเตือน (cap 30) — persist ลิ้นชัก
+    notifSeenTs: 0,               // เวลาเปิดดูลิ้นชักล่าสุด (คำนวณ badge)
+    promptOverrides: {},          // id → template override ("" / ไม่มี = ใช้ default)
     // Stage 5: override รูปโปรไฟล์ด้วยลิงก์ภายนอก
     wallpaperUrl: "",           // ลิงก์วอลเปเปอร์หน้าโฮม
     userAvatarUrl: "",          // รูปผู้ใช้ (global)
@@ -159,8 +174,8 @@ function onEnabledChange(event) {
 // เปิด/ปิด panel โทรศัพท์
 function openPhone() {
     $("#tinyfeed-overlay").addClass("tinyfeed-visible");
-    clearUnread();   // เปิดดูแล้ว เคลียร์จุดแดง
-    goHome();        // เปิดเครื่องมาที่หน้าโฮมเสมอ
+    clearUnread();          // เปิดดูแล้ว เคลียร์จุดแดง
+    restoreLastScreen();    // กลับไปหน้าจอล่าสุด (ไม่งั้นไปโฮม)
     console.log(`[${extensionName}] Phone opened`);
 }
 
@@ -177,6 +192,7 @@ function goHome() {
     $("#tinyfeed-settings-btn").removeClass("tinyfeed-hidden");   // เฟืองเข้าถึงได้จากโฮม
     try { $("#tinyfeed-home .tinyfeed-home-hello").text(`สวัสดี, ${getUserName()}`); } catch (e) { /* ข้าม */ }
     renderHomeWidgets();
+    saveLastScreen();
 }
 
 function openApp(app) {
@@ -218,6 +234,7 @@ function openApp(app) {
         renderStream();
         maybeStartStreamTimer();
     }
+    saveLastScreen();
 }
 
 // ===== TinyStream: ไลฟ์สตรีม + คอมเมนต์สด =====
@@ -530,7 +547,10 @@ function openThread(key, name) {
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
     $("#tinyfeed-back").removeClass("tinyfeed-hidden");
     $(".tinyfeed-title").text(name);
+    // ปุ่ม "ให้กลุ่มคุยกันต่อ" โชว์เฉพาะห้องกลุ่ม
+    $("#tinyfeed-group-chat-tools").toggleClass("tinyfeed-hidden", !findGroup(key));
     renderThread();
+    saveLastScreen();
     $("#tinyfeed-connect-input").trigger("focus");
 }
 
@@ -1513,6 +1533,93 @@ function stripReasoning(raw) {
     return s.trim();
 }
 
+// ===== Prompt แก้ไขได้ (template registry) =====
+// default = template ที่ใช้ {{token}} แทนส่วน dynamic · marker = ข้อความที่ parser ต้องใช้ (ห้ามลบ)
+const PROMPT_DEFS = {
+    feedPost: {
+        label: "โพสต์ฟีด (TinyFeed)", marker: "POST:", tokens: ["roster", "extra", "history", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนโพสต์โซเชียลมีเดียสั้นๆ 1 โพสต์ (1-3 ประโยค) ที่จะปรากฏบนฟีด สะท้อนอารมณ์หรือสถานการณ์ในเนื้อเรื่องตอนนี้. {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนหรือกระทำแทนผู้ใช้. {{extra}}{{history}}{{context}}\n` +
+            `ตอบกลับตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\nNAME: <ชื่อผู้โพสต์>\nPOST: <ข้อความโพสต์>`,
+    },
+    feedInitialComments: {
+        label: "คอมเมนต์ติดโพสต์ใหม่ (TinyFeed)", marker: "COMMENT:", tokens: ["postText", "author", "roster", "count"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] มีโพสต์บนฟีดว่า: "{{postText}}" (โดย {{author}}). เขียนคอมเมนต์ใต้โพสต์นี้ให้สมจริง. {{roster}}{{count}}ห้ามให้ {{author}} คอมเมนต์โพสต์ตัวเอง ห้ามพูดแทนผู้ใช้. ` +
+            `ตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อ> | <ข้อความ>`,
+    },
+    feedCommentReply: {
+        label: "AI ตอบคอมเมนต์ (TinyFeed)", marker: "COMMENT:", tokens: ["postText", "author", "thread", "roster"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาทตอบยาว] มีโพสต์บนฟีดว่า: "{{postText}}" (โดย {{author}}). คอมเมนต์ในโพสต์ล่าสุด:\n{{thread}}\n` +
+            `เขียนคอมเมนต์ตอบกลับสั้นๆ 1 อัน จะเป็น {{author}} หรือ NPC ที่เกี่ยวข้องก็ได้ (เลือกเอง). {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้. ` +
+            `ตอบรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>`,
+    },
+    news: {
+        label: "ข่าว (TinyFeed)", marker: "TITLE:", tokens: ["extra", "history", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนข่าว/บทความสั้น 1 ชิ้นที่จะปรากฏบนหน้าข่าวสาร สะท้อนสถานการณ์บ้านเมืองหรือเหตุการณ์รอบข้างในโลกของเนื้อเรื่อง เสริมบรรยากาศ worldbuilding ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.{{extra}}{{history}}{{context}}\n` +
+            `ตอบตามรูปแบบนี้เท่านั้น:\nSOURCE: <ชื่อสำนักข่าว>\nTITLE: <หัวข้อข่าว>\nSUMMARY: <สรุปสั้น 1-2 ประโยค>\nBODY: <เนื้อหาเต็ม หลายย่อหน้าได้>`,
+    },
+    forumThread: {
+        label: "ตั้งกระทู้ (TinyForum)", marker: "TITLE:", tokens: ["rooms", "roster", "extra", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งกระทู้เว็บบอร์ด 1 กระทู้ที่คนในโลกของเรื่องน่าจะตั้ง สะท้อนสถานการณ์/ดราม่า/ประเด็นตอนนี้. เลือกห้องจากรายการนี้เท่านั้น: {{rooms}}. {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
+            `ตอบตามรูปแบบนี้:\nROOM: <ห้องจากรายการ>\nAUTHOR: <ชื่อคนตั้งกระทู้>\nTITLE: <หัวข้อ>\nBODY: <เนื้อหากระทู้>\n` +
+            `แล้วต่อด้วยคอมเมนต์ชาวเน็ต 3-5 อัน บรรทัดละอัน:\nCOMMENT: <ชื่อ> | <ข้อความ>`,
+    },
+    forumComments: {
+        label: "คอมเมนต์กระทู้ (TinyForum)", marker: "COMMENT:", tokens: ["room", "title", "body", "batch", "roster", "extra", "existing", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "{{room}}" หัวข้อ "{{title}}": {{body}}\n` +
+            `เขียนคอมเมนต์ชาวเน็ตประมาณ {{batch}} อัน ให้หลากหลายคน สมจริงเหมือนเว็บบอร์ด (เห็นด้วย/เถียง/แซว/เล่าประสบการณ์/ถาม). {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}{{existing}}\n` +
+            `ตอบบรรทัดละอันในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>   (คอมเมนต์ใหม่)\nREPLY: <เลข> | <ชื่อ> | <ข้อความ>   (ตอบกลับคอมเมนต์เลขนั้น)`,
+    },
+};
+
+function getPromptTemplate(id) {
+    const ov = (getSetting("promptOverrides") || {})[id];
+    return (ov && String(ov).trim()) ? String(ov) : (PROMPT_DEFS[id] ? PROMPT_DEFS[id].default : "");
+}
+
+// แทน {{token}} ด้วยค่าใน vars (แทนทุกตำแหน่ง) แล้วเคลียร์ token ที่เหลือ
+function buildPrompt(id, vars) {
+    let t = getPromptTemplate(id);
+    vars = vars || {};
+    for (const k of Object.keys(vars)) {
+        t = t.split(`{{${k}}}`).join(vars[k] == null ? "" : String(vars[k]));
+    }
+    return t.replace(/\{\{\w+\}\}/g, "");
+}
+
+// บันทึก/ลบ override ของ prompt แต่ละตัว
+function setPromptOverride(id, val) {
+    const o = Object.assign({}, getSetting("promptOverrides") || {});
+    if (val == null) delete o[id];
+    else o[id] = val;
+    setSetting("promptOverrides", o);
+}
+
+// วาดตัวแก้ prompt ในหน้า settings (loop จาก PROMPT_DEFS)
+function renderPromptEditors() {
+    const overrides = getSetting("promptOverrides") || {};
+    const html = Object.keys(PROMPT_DEFS).map((id) => {
+        const def = PROMPT_DEFS[id];
+        const val = getPromptTemplate(id);
+        const isCustom = overrides[id] && String(overrides[id]).trim();
+        const tokens = (def.tokens && def.tokens.length) ? def.tokens.map((t) => `{{${t}}}`).join(" ") : "—";
+        return `<div class="tinyfeed-prompt-item" data-id="${escapeAttr(id)}">
+            <div class="tinyfeed-prompt-head">
+                <span class="tinyfeed-prompt-label">${escapeText(def.label)}${isCustom ? ' <span class="tinyfeed-prompt-custom">(แก้ไขแล้ว)</span>' : ""}</span>
+                <span class="tinyfeed-prompt-reset" data-id="${escapeAttr(id)}">คืนค่าเริ่มต้น</span>
+            </div>
+            <textarea class="tinyfeed-prompt-text" data-id="${escapeAttr(id)}" rows="6">${escapeText(val)}</textarea>
+            <small class="tinyfeed-field-hint">ต้องมี marker: <code>${escapeText(def.marker || "—")}</code> · ช่องข้อมูลที่ใช้ได้: <code>${escapeText(tokens)}</code></small>
+        </div>`;
+    }).join("");
+    $("#tinyfeed-prompt-list").html(html);
+}
+
 // ===== Phase 2: ชั้น generation รองรับ API แยก =====
 
 // สร้าง context เนื้อเรื่อง (ใช้เฉพาะตอนยิงไป profile แยก เพราะไม่มี context RP ติดไปให้)
@@ -1700,17 +1807,9 @@ async function generateFeedPost(opts) {
     const extra = String(getSetting("postExtraPrompt") || "").trim();
     const extraLine = extra ? `คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}. ` : "";
 
-    const quietPrompt =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ` +
-        `เขียนโพสต์โซเชียลมีเดียสั้นๆ 1 โพสต์ (1-3 ประโยค) ที่จะปรากฏบนฟีด ` +
-        `สะท้อนอารมณ์หรือสถานการณ์ในเนื้อเรื่องตอนนี้. ` +
-        rosterLine +
-        `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนหรือกระทำแทนผู้ใช้. ` +
-        extraLine +
-        historyLine +
-        crossAppContext("feed") +
-        `ตอบกลับตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\n` +
-        `NAME: <ชื่อผู้โพสต์>\nPOST: <ข้อความโพสต์>`;
+    const quietPrompt = buildPrompt("feedPost", {
+        roster: rosterLine, extra: extraLine, history: historyLine, context: crossAppContext("feed"),
+    });
 
     try {
         const raw = await tinyGenerate(quietPrompt, Math.max(1, parseInt(getSetting("postTokens"), 10) || 400));
@@ -1814,14 +1913,9 @@ async function generateCommentReply(postId) {
 
     const thread = post.comments.slice(-6)
         .map((c) => `- ${c.author}: ${htmlToPlain(c.text)}`).join("\n");
-    const q =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาทตอบยาว] ` +
-        `มีโพสต์บนฟีดว่า: "${htmlToPlain(post.text)}" (โดย ${post.author}). ` +
-        `คอมเมนต์ในโพสต์ล่าสุด:\n${thread}\n` +
-        `เขียนคอมเมนต์ตอบกลับสั้นๆ 1 อัน จะเป็น ${post.author} หรือ NPC ที่เกี่ยวข้องก็ได้ (เลือกเอง). ` +
-        npcRosterLine(charName) +
-        `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้. ` +
-        `ตอบรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+    const q = buildPrompt("feedCommentReply", {
+        postText: htmlToPlain(post.text), author: post.author, thread: thread, roster: npcRosterLine(charName),
+    });
 
     isReplying = postId;
     openPostDetail(postId);   // โชว์ "กำลังพิมพ์…"
@@ -1855,11 +1949,9 @@ async function runInitialComments(post, mode) {
     } else {
         countLine = `เขียนคอมเมนต์ 0 ถึง 3 อันตามที่เหมาะสม (ถ้าไม่มีใครน่าคอมเมนต์ก็ไม่ต้องเขียน). `;
     }
-    const q =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] มีโพสต์บนฟีดว่า: "${htmlToPlain(post.text)}" (โดย ${post.author}). ` +
-        `เขียนคอมเมนต์ใต้โพสต์นี้ให้สมจริง. ` + npcRosterLine(charName) + countLine +
-        `ห้ามให้ ${post.author} คอมเมนต์โพสต์ตัวเอง ห้ามพูดแทนผู้ใช้. ` +
-        `ตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+    const q = buildPrompt("feedInitialComments", {
+        postText: htmlToPlain(post.text), author: post.author, roster: npcRosterLine(charName), count: countLine,
+    });
     const raw = await tinyGenerate(q, 300);
     const comments = parseCommentLines(raw, charName)
         .filter((c) => c.author.trim().toLowerCase() !== String(post.author).trim().toLowerCase());
@@ -1954,12 +2046,9 @@ async function generateNews(opts) {
     const extra = String(getSetting("newsExtraPrompt") || "").trim();
     const extraLine = extra ? ` คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}.` : "";
 
-    const q =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนข่าว/บทความสั้น 1 ชิ้นที่จะปรากฏบนหน้าข่าวสาร ` +
-        `สะท้อนสถานการณ์บ้านเมืองหรือเหตุการณ์รอบข้างในโลกของเนื้อเรื่อง เสริมบรรยากาศ worldbuilding ` +
-        `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.` + extraLine + historyLine + crossAppContext("news") +
-        `\nตอบตามรูปแบบนี้เท่านั้น:\n` +
-        `SOURCE: <ชื่อสำนักข่าว>\nTITLE: <หัวข้อข่าว>\nSUMMARY: <สรุปสั้น 1-2 ประโยค>\nBODY: <เนื้อหาเต็ม หลายย่อหน้าได้>`;
+    const q = buildPrompt("news", {
+        extra: extraLine, history: historyLine, context: crossAppContext("news"),
+    });
 
     try {
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("newsTokens"), 10) || 500));
@@ -2298,6 +2387,7 @@ function openForumThread(id) {
     const t = getForum().find((x) => x.id === id);
     $(".tinyfeed-title").text(t ? t.room : "กระทู้");
     renderForumThread(id);
+    saveLastScreen();
 }
 
 function switchForumSort(sort) {
@@ -2598,15 +2688,12 @@ async function generateForumThread(opts) {
     try {
         const rooms = getForumRooms();
         const extra = String(getSetting("forumExtraPrompt") || "").trim();
-        const q =
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งกระทู้เว็บบอร์ด 1 กระทู้ที่คนในโลกของเรื่องน่าจะตั้ง ` +
-            `สะท้อนสถานการณ์/ดราม่า/ประเด็นตอนนี้. เลือกห้องจากรายการนี้เท่านั้น: ${rooms.join(", ")}. ` +
-            npcRosterLine(charName) +
-            `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. ` +
-            (extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "") +
-            crossAppContext("forum") +
-            `\nตอบตามรูปแบบนี้:\nROOM: <ห้องจากรายการ>\nAUTHOR: <ชื่อคนตั้งกระทู้>\nTITLE: <หัวข้อ>\nBODY: <เนื้อหากระทู้>\n` +
-            `แล้วต่อด้วยคอมเมนต์ชาวเน็ต 3-5 อัน บรรทัดละอัน:\nCOMMENT: <ชื่อ> | <ข้อความ>`;
+        const q = buildPrompt("forumThread", {
+            rooms: rooms.join(", "),
+            roster: npcRosterLine(charName),
+            extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
+            context: crossAppContext("forum"),
+        });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
         const s = stripReasoning(raw);
         const grab = (re) => { const m = s.match(re); return m ? m[1].trim() : ""; };
@@ -2662,15 +2749,13 @@ async function loadForumComments(threadId, opts) {
             return block;
         }).join("\n");
         const extra = String(getSetting("forumExtraPrompt") || "").trim();
-        const q =
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "${htmlToPlain(t.room)}" หัวข้อ "${htmlToPlain(t.title)}": ${htmlToPlain(t.body)}\n` +
-            `เขียนคอมเมนต์ชาวเน็ตประมาณ ${batch} อัน ให้หลากหลายคน สมจริงเหมือนเว็บบอร์ด (เห็นด้วย/เถียง/แซว/เล่าประสบการณ์/ถาม). ` +
-            npcRosterLine(charName) +
-            `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.` +
-            (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") +
-            crossAppContext("forum") +
-            (existing ? `\nคอมเมนต์ที่มีอยู่แล้ว (อ้างเลขเพื่อตอบกลับได้ อย่าเขียนซ้ำ):\n${existing}\n` : "") +
-            `\nตอบบรรทัดละอันในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>   (คอมเมนต์ใหม่)\nREPLY: <เลข> | <ชื่อ> | <ข้อความ>   (ตอบกลับคอมเมนต์เลขนั้น)`;
+        const q = buildPrompt("forumComments", {
+            room: htmlToPlain(t.room), title: htmlToPlain(t.title), body: htmlToPlain(t.body), batch: batch,
+            roster: npcRosterLine(charName),
+            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            existing: existing ? `\nคอมเมนต์ที่มีอยู่แล้ว (อ้างเลขเพื่อตอบกลับได้ อย่าเขียนซ้ำ):\n${existing}\n` : "",
+            context: crossAppContext("forum"),
+        });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
         const { tops, replies } = parseForumComments(raw, charName);
         let n = 0;
@@ -2731,6 +2816,7 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 async function onChatMessage() {
+    lastRpMsgTs = Date.now();   // มี RP activity → รีเซ็ตตัวจับเวลา idle
     if (isAutoBusy || isGenerating || isGeneratingNews) return;
     if (!getCurrentCharacter()) return;
 
@@ -2799,13 +2885,12 @@ async function onChatMessage() {
     }
 }
 
-// ===== แจ้งเตือนสไตล์โทรศัพท์ (push banner) =====
+// ===== แจ้งเตือนสไตล์โทรศัพท์ (push banner + ลิ้นชัก + OS) =====
 let notifTimer = null;
-let notifTab = "feed";   // กดแจ้งเตือนแล้วไปแท็บไหน
-let notifApp = "feed";   // กดแจ้งเตือนแล้วเปิดแอปไหน
-
-// จำนวนแจ้งเตือนที่ยังไม่ได้ดู
-let unreadCount = 0;
+let lastNotifEntry = null;        // แจ้งเตือนล่าสุด (สำหรับกด banner)
+let unreadCount = 0;              // badge ปุ่มเมนู (นอกเครื่อง)
+let notifBellUnread = 0;          // badge กระดิ่งในเครื่อง
+const notifLog = [];              // ประวัติแจ้งเตือน (cap 30)
 
 // เพิ่มจุดแดง + สั่นปุ่มเมนู เมื่อมีของใหม่
 function markUnread() {
@@ -2826,20 +2911,125 @@ function clearUnread() {
     $("#tinyfeed-menu-badge").text("").addClass("tinyfeed-hidden");
 }
 
-// แสดงแบนเนอร์แจ้งเตือน (ใช้ได้ทุกแอป — ระบุ tab + app ที่จะเปิดเมื่อกด)
-function showNotif(avatarHtml, author, text, tab, app) {
+// โหลด notifLog จาก settings ตอน init (persist ข้ามการ reload แท็บ)
+function loadNotifLog() {
+    try {
+        const saved = getSetting("notifLog");
+        if (Array.isArray(saved)) { notifLog.length = 0; notifLog.push(...saved.slice(0, 30)); }
+    } catch (e) { /* ข้าม */ }
+    recomputeBellUnread();
+}
+function persistNotifLog() {
+    setSetting("notifLog", notifLog.slice(0, 30));
+}
+function recomputeBellUnread() {
+    const seen = parseInt(getSetting("notifSeenTs"), 10) || 0;
+    notifBellUnread = notifLog.filter((e) => (e.ts || 0) > seen).length;
+    updateNotifBell();
+}
+
+function updateNotifBell() {
+    const b = $("#tinyfeed-notif-bell-badge");
+    if (notifBellUnread > 0) b.text(notifBellUnread > 99 ? "99+" : notifBellUnread).removeClass("tinyfeed-hidden");
+    else b.text("").addClass("tinyfeed-hidden");
+}
+
+// เช็คว่าแจ้งเตือน OS ใช้ได้ไหม — คืน "" ถ้าโอเค, หรือข้อความสาเหตุถ้าใช้ไม่ได้
+function osNotifBlockReason() {
+    if (typeof Notification === "undefined") return "เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS";
+    // Notification ต้องอยู่ใน secure context (https หรือ localhost) — ST ผ่าน http แบบ LAN IP จะถูกบล็อก
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+        return "แจ้งเตือน OS ต้องเปิดผ่าน HTTPS หรือ http://localhost เท่านั้น (ตอนนี้เปิดผ่าน IP/HTTP ธรรมดา เบราว์เซอร์จึงบล็อก)";
+    }
+    if (Notification.permission === "denied") return "เบราว์เซอร์บล็อกแจ้งเตือนของเว็บนี้ไว้ — ไปเปิดสิทธิ์ Notifications ของเว็บนี้ในตั้งค่าเบราว์เซอร์";
+    return "";
+}
+
+// ขอสิทธิ์ + รายงานผลให้ผู้ใช้รู้ (เรียกตอนเปิด toggle)
+function ensureNotifPermission() {
+    const reason = osNotifBlockReason();
+    if (reason && Notification && Notification.permission !== "default") { toastr.warning(reason, "TinyPhone"); return; }
+    if (typeof Notification === "undefined") { toastr.warning("เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS", "TinyPhone"); return; }
+    if (Notification.permission === "granted") { toastr.success("อนุญาตแจ้งเตือน OS แล้ว", "TinyPhone"); return; }
+    try {
+        Notification.requestPermission().then((p) => {
+            if (p === "granted") toastr.success("อนุญาตแจ้งเตือน OS แล้ว — ลองกด “ทดสอบ” ดูได้", "TinyPhone");
+            else toastr.info("ยังไม่ได้อนุญาตแจ้งเตือน OS", "TinyPhone");
+        }).catch(() => { /* ข้าม */ });
+    } catch (e) { /* บางเบราว์เซอร์เก่าใช้ callback — ข้าม */ }
+}
+
+// ลงทะเบียน service worker (มือถือต้องใช้ยิงแจ้งเตือน)
+let swReg = null;
+function registerNotifSW() {
+    try {
+        if (!("serviceWorker" in navigator)) return;
+        navigator.serviceWorker.register(`${extensionFolderPath}/sw.js`)
+            .then((reg) => { swReg = reg; })
+            .catch((e) => console.warn(`[${extensionName}] SW register failed:`, e));
+    } catch (e) { /* ข้าม */ }
+}
+
+// ยิงแจ้งเตือน OS: มือถือใช้ service worker · เดสก์ท็อป fallback เป็น new Notification()
+function deliverOsNotif(title, opts) {
+    if (swReg && swReg.showNotification) {
+        return swReg.showNotification(title, opts).then(() => true).catch(() => plainNotif(title, opts));
+    }
+    return Promise.resolve(plainNotif(title, opts));
+}
+function plainNotif(title, opts) {
+    try {
+        const n = new Notification(title, opts);
+        n.onclick = () => { try { window.focus(); } catch (e) { /* ข้าม */ } if (lastNotifEntry) routeFromNotif(lastNotifEntry); };
+        return true;
+    } catch (e) { console.warn(`[${extensionName}] Notification failed:`, e); return false; }
+}
+
+function fireOsNotif(title, body) {
+    if (!getSetting("osNotifEnabled")) return;
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    deliverOsNotif(title || "TinyPhone", { body: String(body || "").slice(0, 120), tag: "tinyphone" });
+}
+
+// ปุ่มทดสอบแจ้งเตือน OS — วินิจฉัยว่าใช้ได้/ติดตรงไหน
+function testOsNotif() {
+    const reason = osNotifBlockReason();
+    const fire = () => {
+        deliverOsNotif("TinyPhone", { body: "ทดสอบแจ้งเตือน OS สำเร็จ ✅", tag: "tinyphone-test" })
+            .then((ok) => {
+                if (ok) toastr.success("ส่งแจ้งเตือนทดสอบแล้ว — ดูที่ศูนย์แจ้งเตือน/มุมจอ (ถ้าไม่เห็น เช็ค Do Not Disturb ของ OS)", "TinyPhone");
+                else toastr.error("ยิงแจ้งเตือนไม่สำเร็จ — ลองรีเฟรชหน้าแล้วลองใหม่ (service worker อาจยังไม่พร้อม)", "TinyPhone");
+            });
+    };
+    if (typeof Notification === "undefined") { toastr.warning("เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS", "TinyPhone"); return; }
+    if (reason) { toastr.warning(reason, "TinyPhone"); return; }
+    if (Notification.permission === "granted") fire();
+    else Notification.requestPermission().then((p) => { if (p === "granted") fire(); else toastr.info("ยังไม่ได้อนุญาตแจ้งเตือน OS", "TinyPhone"); }).catch(() => {});
+}
+
+// แสดงแบนเนอร์ + เก็บลิ้นชัก + ยิง OS (ระบุ tab/app/key/name ที่จะเปิดเมื่อกด)
+function showNotif(avatarHtml, author, text, tab, app, key, name) {
     if (!getSetting("notificationsEnabled")) return;   // ปิดแจ้งเตือน = ไม่ทำอะไร
     markUnread();
-    notifTab = tab || "feed";
-    notifApp = app || "feed";
+    const entry = {
+        avatar: avatarHtml, author: author || "", text: String(text || "").slice(0, 140),
+        tab: tab || "feed", app: app || "feed", key: key || null, name: name || "", ts: Date.now(),
+    };
+    lastNotifEntry = entry;
+    notifLog.unshift(entry);
+    if (notifLog.length > 30) notifLog.length = 30;
+    persistNotifLog();
+    notifBellUnread++;
+    updateNotifBell();
     const notif = $("#tinyfeed-notif");
     notif.find(".tinyfeed-notif-avatar").html(avatarHtml);
     notif.find(".tinyfeed-notif-author").text(author || "");
-    notif.find(".tinyfeed-notif-text").text(String(text || "").slice(0, 90));
+    notif.find(".tinyfeed-notif-text").text(entry.text.slice(0, 90));
     notif.addClass("tinyfeed-notif-show");
     try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) { /* ไม่รองรับก็ข้าม */ }
     clearTimeout(notifTimer);
     notifTimer = setTimeout(dismissNotif, 8000);
+    fireOsNotif(author || "TinyPhone", entry.text);
 }
 
 function showPushNotification(post) {
@@ -2850,18 +3040,227 @@ function dismissNotif() {
     $("#tinyfeed-notif").removeClass("tinyfeed-notif-show");
 }
 
-// กดแจ้งเตือน → เปิดแอปที่เกี่ยวข้องไปที่แท็บที่ถูกต้อง
-function openFeedFromNotif() {
+// route ไปแอป/ห้องที่เกี่ยวข้องกับแจ้งเตือน (ใช้ทั้ง banner, OS, ลิ้นชัก)
+function routeFromNotif(e) {
     dismissNotif();
-    openPhone();          // เปิดเครื่อง (ไปหน้าโฮมก่อน)
-    if (notifApp === "memo") {
+    openPhone();
+    if (e.app === "memo") {
         openApp("memo");
-        switchMemoTab(notifTab === "notes" ? "notes" : "agenda");
-    } else if (notifApp === "forum") {
+        switchMemoTab(e.tab === "notes" ? "notes" : "agenda");
+    } else if (e.app === "forum") {
         openApp("forum");
+    } else if (e.app === "connect") {
+        openApp("connect");
+        if (e.key) openThread(e.key, e.name || e.author);
     } else {
         openApp("feed");
-        switchTab(notifTab);
+        switchTab(e.tab || "feed");
+    }
+}
+
+// กด banner แจ้งเตือน
+function openFeedFromNotif() {
+    if (lastNotifEntry) routeFromNotif(lastNotifEntry);
+    else { dismissNotif(); openPhone(); openApp("feed"); }
+}
+
+// ลิ้นชักแจ้งเตือน
+function renderNotifDrawer() {
+    const box = $("#tinyfeed-notif-drawer-list");
+    if (!notifLog.length) {
+        box.html(`<div class="tinyfeed-notif-drawer-empty">ยังไม่มีแจ้งเตือน</div>`);
+        return;
+    }
+    box.html(notifLog.map((e, i) => `
+        <div class="tinyfeed-notif-item" data-idx="${i}">
+            <div class="tinyfeed-notif-item-avatar">${e.avatar}</div>
+            <div class="tinyfeed-notif-item-body">
+                <div class="tinyfeed-notif-item-author">${escapeText(e.author)}</div>
+                <div class="tinyfeed-notif-item-text">${escapeText(e.text)}</div>
+                <div class="tinyfeed-notif-item-time">${timeAgo(e.ts)}</div>
+            </div>
+        </div>`).join(""));
+}
+
+function toggleNotifDrawer(show) {
+    const d = $("#tinyfeed-notif-drawer");
+    const willShow = (show === undefined) ? d.hasClass("tinyfeed-hidden") : show;
+    if (willShow) {
+        renderNotifDrawer();
+        d.removeClass("tinyfeed-hidden");
+        setSetting("notifSeenTs", Date.now());   // เปิดดูแล้ว → เคลียร์ badge
+        notifBellUnread = 0;
+        updateNotifBell();
+    } else {
+        d.addClass("tinyfeed-hidden");
+    }
+}
+
+// ===== ทักเชิงรุก (proactive) + กลุ่มคุยกันเอง =====
+let proactiveTimer = null;
+let lastProactiveTs = 0;
+let lastRpMsgTs = Date.now();   // เวลาข้อความ RP ล่าสุด (สำหรับโหมด idle)
+
+// มีการ generate อื่นค้างอยู่ไหม (กันชนกับ RP/แอปอื่น)
+function proactiveBusy() {
+    return isAutoBusy || isGenerating || isGeneratingNews || isConnectReplying || isGeneratingStream || isMemoBusy || isForumBusy;
+}
+
+// อยู่ในช่วงเวลาเงียบไหม (รองรับข้ามเที่ยงคืน)
+function inQuietHours() {
+    const from = ((parseInt(getSetting("proactiveQuietFrom"), 10) || 0) % 24 + 24) % 24;
+    const to = ((parseInt(getSetting("proactiveQuietTo"), 10) || 0) % 24 + 24) % 24;
+    if (from === to) return false;
+    const h = new Date().getHours();
+    return from < to ? (h >= from && h < to) : (h >= from || h < to);
+}
+
+function startProactiveTimer() {
+    if (proactiveTimer) return;
+    proactiveTimer = setInterval(proactiveTick, 60000);   // ตรวจทุก 1 นาที
+}
+function stopProactiveTimer() {
+    if (proactiveTimer) { clearInterval(proactiveTimer); proactiveTimer = null; }
+}
+
+async function proactiveTick() {
+    if (!getSetting("proactiveEnabled")) return;
+    if (proactiveBusy() || !getCurrentCharacter() || inQuietHours()) return;
+    // โหมด idle: ทักเฉพาะเมื่อผู้ใช้เงียบ RP นานพอ
+    const idleMin = parseInt(getSetting("proactiveIdleMin"), 10) || 0;
+    if (idleMin > 0 && (Date.now() - lastRpMsgTs) < idleMin * 60000) return;
+    const gap = Math.max(1, parseInt(getSetting("proactiveIntervalMin"), 10) || 20) * 60000;
+    if (Date.now() - lastProactiveTs < gap) return;
+    lastProactiveTs = Date.now();   // นับเวลาใหม่ทุกครั้งที่ถึงรอบ (แม้พลาดโอกาส)
+    const chance = Math.max(0, Math.min(100, parseInt(getSetting("proactiveChance"), 10) || 50));
+    if (Math.random() * 100 >= chance) return;
+    // เลือก action จากสไตล์ที่เปิด: กลุ่มคุยกันเอง / โพสต์ฟีด / DM ทัก
+    const groups = getSetting("groupAutoChat")
+        ? getConnectGroups().filter((g) => (getThread("group:" + g.id) || []).length)
+        : [];
+    if (groups.length && Math.random() < 0.4) {
+        await groupSelfChat("group:" + groups[Math.floor(Math.random() * groups.length)].id, { notify: true, silent: true });
+    } else if (getSetting("proactiveViaFeed") && Math.random() < 0.5) {
+        await generateFeedPost({ notify: true, silent: true });   // ทักผ่านฟีดแทน DM
+    } else {
+        await proactiveDM();
+    }
+}
+
+// บริบทช่วงเวลาจริง (สำหรับโหมด time-aware)
+function timeOfDayPhrase() {
+    const h = new Date().getHours();
+    if (h < 5) return "ตอนนี้ดึกมากแล้ว (หลังเที่ยงคืน)";
+    if (h < 11) return "ตอนนี้เป็นช่วงเช้า";
+    if (h < 14) return "ตอนนี้เป็นช่วงเที่ยง";
+    if (h < 18) return "ตอนนี้เป็นช่วงบ่าย";
+    if (h < 22) return "ตอนนี้เป็นช่วงเย็น/หัวค่ำ";
+    return "ตอนนี้เป็นช่วงกลางคืน";
+}
+
+// ตัวละคร/NPC ทักผู้ใช้ขึ้นมาเอง (DM)
+async function proactiveDM() {
+    const contacts = getConnectContacts();
+    if (!contacts.length) return;
+    const c = contacts[Math.floor(Math.random() * contacts.length)];
+    const you = getUserName();
+    const recent = getThread(c.key).slice(-6)
+        .map((m) => `${m.from === "user" ? you : c.name}: ${htmlToPlain(m.text)}`).join("\n");
+    const extra = String(getSetting("connectExtraPrompt") || "").trim();
+    const timeLine = getSetting("proactiveTimeAware") ? `${timeOfDayPhrase()} (อ้างอิงช่วงเวลาได้ตามเหมาะสม).\n` : "";
+    const q =
+        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ในบทบาทของ ${c.name} ส่งข้อความแชตทักหา ${you} ขึ้นมาเอง ` +
+        `(เหมือนส่งไลน์มาหาเฉยๆ) ให้เข้ากับความสัมพันธ์/สถานการณ์ในเนื้อเรื่องตอนนี้ สั้นเป็นธรรมชาติ 1-2 ประโยค ` +
+        `ห้ามพูดหรือกระทำแทน ${you}.\n` +
+        timeLine +
+        (extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "") +
+        (recent ? `บทแชตล่าสุด:\n${recent}\n` : "") +
+        `ตอบเฉพาะข้อความของ ${c.name} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`;
+    let reply;
+    try {
+        reply = stripReasoning(await tinyGenerate(q, Math.max(1, parseInt(getSetting("proactiveTokens"), 10) || 120))).trim();
+    } catch (e) { console.error(`[${extensionName}] proactiveDM failed:`, e); return; }
+    reply = reply.replace(/^\[|\]$/g, "").trim();
+    if (!reply) return;
+    getThread(c.key).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
+    saveFeedData();
+    if (currentApp === "connect" && activeThread === c.key) renderThread();
+    updateChatInjection();
+    showNotif(makeAvatar(contactAvatarItem(c)), c.name, reply, "contact", "connect", c.key, c.name);
+}
+
+// สมาชิกในกลุ่มคุยกันเอง (ใช้ทั้ง auto และปุ่มสั่งเอง)
+async function groupSelfChat(threadKey, opts) {
+    opts = opts || {};
+    const group = findGroup(threadKey);
+    if (!group || isConnectReplying) return;
+    const you = getUserName();
+    const transcript = getThread(threadKey).slice(-12)
+        .map((m) => `${m.from === "user" ? you : (m.author || group.name)}: ${htmlToPlain(m.text)}`).join("\n");
+    const extra = String(getSetting("connectExtraPrompt") || "").trim();
+    const q =
+        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือแชตกลุ่ม "${group.name}" สมาชิก: ${group.members.join(", ")} และ ${you}. ` +
+        `ให้สมาชิกในกลุ่ม (เลือกเอง 2-4 ข้อความ ห้ามใช้ ${you}) คุยกันเองต่อ อ้างถึงกันได้ เหมือนช่วงนี้ ${you} เงียบ/ไม่อยู่ ` +
+        `สั้นเป็นธรรมชาติเหมือนแชตจริง ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
+        (extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "") +
+        crossAppContext("connect") +
+        `บทแชตล่าสุด:\n${transcript}\n` +
+        `ตอบบรรทัดละคนในรูปแบบนี้เท่านั้น:\nMSG: <ชื่อสมาชิก> | <ข้อความ>`;
+    isConnectReplying = true;
+    if (currentApp === "connect" && activeThread === threadKey) renderThread();
+    try {
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200));
+        const list = parseCommentLines(raw, group.members[0] || group.name, "MSG")
+            .filter((c) => c.author.trim().toLowerCase() !== you.trim().toLowerCase());
+        if (list.length) {
+            for (const c of list.slice(0, 4)) getThread(threadKey).push({ from: "contact", author: c.author, text: c.text, ts: Date.now() });
+            saveFeedData();
+            updateChatInjection();
+            if (opts.notify) showNotif(makeAnonAvatar(group.name), group.name,
+                list.slice(0, 4).map((c) => `${c.author}: ${htmlToPlain(c.text)}`).join(" · "),
+                "contact", "connect", threadKey, group.name);
+        } else if (!opts.silent) {
+            toastr.info("กลุ่มยังเงียบอยู่ ลองใหม่นะ", "TinyConnect");
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] groupSelfChat failed:`, e);
+        if (!opts.silent) toastr.error("ให้กลุ่มคุยต่อไม่สำเร็จ", "TinyConnect");
+    } finally {
+        isConnectReplying = false;
+        if (currentApp === "connect" && activeThread === threadKey) renderThread();
+    }
+}
+
+// ===== จำ/คืนหน้าจอล่าสุด =====
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum"];
+function saveLastScreen() {
+    try {
+        const data = getFeedData();
+        data.ui = {
+            app: MEMO_APPS.includes(currentApp) ? currentApp : "home",
+            thread: activeThread || null,
+            forumThread: activeForumThread || null,
+        };
+        saveFeedData();
+    } catch (e) { /* ข้าม */ }
+}
+
+function restoreLastScreen() {
+    let ui = null;
+    try { ui = getFeedData().ui; } catch (e) { /* ข้าม */ }
+    if (!ui || !MEMO_APPS.includes(ui.app)) { goHome(); return; }
+    if (ui.app === "connect") {
+        openApp("connect");
+        if (ui.thread) {
+            const c = getConnectContacts().find((x) => x.key === ui.thread);
+            const g = findGroup(ui.thread);
+            if (c || g) openThread(ui.thread, c ? c.name : g.name);
+        }
+    } else if (ui.app === "forum") {
+        openApp("forum");
+        if (ui.forumThread && getForum().find((t) => t.id === ui.forumThread)) openForumThread(ui.forumThread);
+    } else {
+        openApp(ui.app);   // feed / stream / memo
     }
 }
 
@@ -2925,7 +3324,7 @@ function closeDetail() {
 const SETTINGS_LAYOUT = [
     {
         head: "⚙️ ตั้งค่าเครื่อง",
-        titles: ["ปรับแต่งหน้าตา", "การแจ้งเตือน", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
+        titles: ["ปรับแต่งหน้าตา", "การแจ้งเตือน", "ทักเชิงรุก (ตัวละครทักเอง)", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
     },
     {
         head: "📱 TinyFeed",
@@ -2935,6 +3334,7 @@ const SETTINGS_LAYOUT = [
     { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
     { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
     { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
+    { head: "🧩 Prompt (ขั้นสูง)", titles: ["Prompt (ขั้นสูง)"] },
 ];
 
 // เรียงกลุ่ม settings ใหม่ + ใส่หัวข้อใหญ่คั่น (ทำครั้งเดียว)
@@ -3013,6 +3413,19 @@ function populateSettings() {
     $("#tinyfeed-cfg-news-interval").val(getSetting("newsAutoInterval") || 20);
     $("#tinyfeed-cfg-news-history").val(getSetting("newsHistoryCount"));
     $("#tinyfeed-cfg-notif").prop("checked", Boolean(getSetting("notificationsEnabled")));
+    $("#tinyfeed-cfg-osnotif").prop("checked", Boolean(getSetting("osNotifEnabled")));
+    $("#tinyfeed-cfg-proactive").prop("checked", Boolean(getSetting("proactiveEnabled")));
+    $("#tinyfeed-cfg-proactive-interval").val(getSetting("proactiveIntervalMin") || 20);
+    $("#tinyfeed-cfg-proactive-chance").val(getSetting("proactiveChance"));
+    $("#tinyfeed-proactive-chance-val").text(`${parseInt(getSetting("proactiveChance"), 10) || 0}%`);
+    $("#tinyfeed-cfg-quiet-from").val(getSetting("proactiveQuietFrom"));
+    $("#tinyfeed-cfg-quiet-to").val(getSetting("proactiveQuietTo"));
+    $("#tinyfeed-cfg-proactive-tokens").val(getSetting("proactiveTokens"));
+    $("#tinyfeed-cfg-group-autochat").prop("checked", Boolean(getSetting("groupAutoChat")));
+    $("#tinyfeed-cfg-proactive-idle").val(getSetting("proactiveIdleMin") || 0);
+    $("#tinyfeed-cfg-proactive-timeaware").prop("checked", Boolean(getSetting("proactiveTimeAware")));
+    $("#tinyfeed-cfg-proactive-viafeed").prop("checked", Boolean(getSetting("proactiveViaFeed")));
+    renderPromptEditors();
 
     $("#tinyfeed-cfg-stream-streamer").val(getSetting("streamStreamer") || "char");
     $("#tinyfeed-cfg-stream-mode").val(getSetting("streamCommentMode") || "manual");
@@ -3242,6 +3655,27 @@ jQuery(async () => {
             applyCustomCss();
         });
 
+        // Prompt (ขั้นสูง) — แก้/validate marker/รีเซ็ต
+        $(document).on("input", ".tinyfeed-prompt-text", function () {
+            const id = $(this).data("id");
+            const def = PROMPT_DEFS[id];
+            const val = $(this).val();
+            const ok = !def || !def.marker || String(val).includes(def.marker);
+            $(this).toggleClass("tinyfeed-prompt-invalid", !ok);
+            if (ok) setPromptOverride(id, val);   // บันทึกเฉพาะเมื่อ marker ครบ
+        });
+        $(document).on("blur", ".tinyfeed-prompt-text", function () {
+            const def = PROMPT_DEFS[$(this).data("id")];
+            if (def && def.marker && !String($(this).val()).includes(def.marker)) {
+                toastr.warning(`ต้องมี marker "${def.marker}" ในเทมเพลต ไม่งั้นระบบแยกผลลัพธ์ไม่ได้ (ยังไม่บันทึกจนกว่าจะใส่กลับ)`, "TinyPhone");
+            }
+        });
+        $(document).on("click", ".tinyfeed-prompt-reset", function () {
+            const id = $(this).data("id");
+            setPromptOverride(id, null);
+            renderPromptEditors();
+        });
+
         // TinyConnect: เข้าห้องแชต + ส่งข้อความ
         $(document).on("click", ".tinyfeed-connect-contact", function () {
             openThread($(this).data("key"), $(this).data("name"));
@@ -3441,6 +3875,25 @@ jQuery(async () => {
         // กดแจ้งเตือน → เปิดฟีด
         $(document).on("click", "#tinyfeed-notif", openFeedFromNotif);
 
+        // ลิ้นชักแจ้งเตือน
+        $(document).on("click", "#tinyfeed-notif-bell", function () { toggleNotifDrawer(); });
+        $(document).on("click", "#tinyfeed-notif-drawer-close", function () { toggleNotifDrawer(false); });
+        $(document).on("click", "#tinyfeed-notif-clear", function () {
+            notifLog.length = 0;
+            persistNotifLog();
+            recomputeBellUnread();
+            renderNotifDrawer();
+        });
+        $(document).on("click", ".tinyfeed-notif-item", function () {
+            const e = notifLog[parseInt($(this).data("idx"), 10)];
+            if (e) { toggleNotifDrawer(false); routeFromNotif(e); }
+        });
+
+        // ให้กลุ่มคุยกันต่อ (ปุ่มสั่งเอง)
+        $(document).on("click", "#tinyfeed-group-continue", function () {
+            if (activeThread && findGroup(activeThread)) groupSelfChat(activeThread, {});
+        });
+
         // Stage 8: คอมเมนต์
         $(document).on("click", ".tinyfeed-comment-send", function () {
             const input = $(this).closest(".tinyfeed-comment-compose").find(".tinyfeed-comment-input");
@@ -3572,6 +4025,55 @@ jQuery(async () => {
             const on = $(this).prop("checked");
             setSetting("notificationsEnabled", on);
             if (!on) clearUnread();   // ปิดแล้วเก็บจุดแดงที่ค้างด้วย
+        });
+        // แจ้งเตือน OS จริง
+        $(document).on("change", "#tinyfeed-cfg-osnotif", function () {
+            const on = $(this).prop("checked");
+            setSetting("osNotifEnabled", on);
+            if (on) ensureNotifPermission();
+        });
+        $(document).on("click", "#tinyfeed-osnotif-test", testOsNotif);
+        // ทักเชิงรุก
+        $(document).on("change", "#tinyfeed-cfg-proactive", function () {
+            const on = $(this).prop("checked");
+            setSetting("proactiveEnabled", on);
+            if (on) { lastProactiveTs = 0; startProactiveTimer(); }
+            else stopProactiveTimer();
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-interval", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveIntervalMin", Number.isFinite(v) && v > 0 ? v : 20);
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-chance", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 50;
+            setSetting("proactiveChance", v);
+            $("#tinyfeed-proactive-chance-val").text(`${v}%`);
+        });
+        $(document).on("input", "#tinyfeed-cfg-quiet-from", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveQuietFrom", Number.isFinite(v) ? ((v % 24) + 24) % 24 : 0);
+        });
+        $(document).on("input", "#tinyfeed-cfg-quiet-to", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveQuietTo", Number.isFinite(v) ? ((v % 24) + 24) % 24 : 0);
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-tokens", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveTokens", Number.isFinite(v) && v > 0 ? v : 120);
+        });
+        $(document).on("change", "#tinyfeed-cfg-group-autochat", function () {
+            setSetting("groupAutoChat", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-proactive-idle", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("proactiveIdleMin", Number.isFinite(v) && v >= 0 ? v : 0);
+        });
+        $(document).on("change", "#tinyfeed-cfg-proactive-timeaware", function () {
+            setSetting("proactiveTimeAware", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-proactive-viafeed", function () {
+            setSetting("proactiveViaFeed", $(this).prop("checked"));
         });
         // Phase 2: เลือกโมเดล/API
         $(document).on("change", "#tinyfeed-cfg-api-profile", function () {
@@ -3768,6 +4270,11 @@ jQuery(async () => {
 
         // โหลดค่าที่บันทึกไว้
         loadSettings();
+        loadNotifLog();   // ประวัติแจ้งเตือน (persist)
+        registerNotifSW();   // service worker สำหรับแจ้งเตือน OS บนมือถือ
+
+        // เริ่มตัวจับเวลาทักเชิงรุก (ถ้าเปิดไว้) — เดินตลอดแม้ปิดหน้าแอป
+        if (getSetting("proactiveEnabled")) startProactiveTimer();
 
         console.log(`[${extensionName}] ✅ Loaded successfully`);
     } catch (error) {
