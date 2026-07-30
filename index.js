@@ -2959,24 +2959,47 @@ function ensureNotifPermission() {
     } catch (e) { /* บางเบราว์เซอร์เก่าใช้ callback — ข้าม */ }
 }
 
+// ลงทะเบียน service worker (มือถือต้องใช้ยิงแจ้งเตือน)
+let swReg = null;
+function registerNotifSW() {
+    try {
+        if (!("serviceWorker" in navigator)) return;
+        navigator.serviceWorker.register(`${extensionFolderPath}/sw.js`)
+            .then((reg) => { swReg = reg; })
+            .catch((e) => console.warn(`[${extensionName}] SW register failed:`, e));
+    } catch (e) { /* ข้าม */ }
+}
+
+// ยิงแจ้งเตือน OS: มือถือใช้ service worker · เดสก์ท็อป fallback เป็น new Notification()
+function deliverOsNotif(title, opts) {
+    if (swReg && swReg.showNotification) {
+        return swReg.showNotification(title, opts).then(() => true).catch(() => plainNotif(title, opts));
+    }
+    return Promise.resolve(plainNotif(title, opts));
+}
+function plainNotif(title, opts) {
+    try {
+        const n = new Notification(title, opts);
+        n.onclick = () => { try { window.focus(); } catch (e) { /* ข้าม */ } if (lastNotifEntry) routeFromNotif(lastNotifEntry); };
+        return true;
+    } catch (e) { console.warn(`[${extensionName}] Notification failed:`, e); return false; }
+}
+
 function fireOsNotif(title, body) {
     if (!getSetting("osNotifEnabled")) return;
-    try {
-        if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
-        const n = new Notification(title || "TinyPhone", { body: String(body || "").slice(0, 120), tag: "tinyphone" });
-        n.onclick = () => { try { window.focus(); } catch (e) { /* ข้าม */ } if (lastNotifEntry) routeFromNotif(lastNotifEntry); };
-    } catch (e) { console.warn(`[${extensionName}] fireOsNotif failed:`, e); }
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    deliverOsNotif(title || "TinyPhone", { body: String(body || "").slice(0, 120), tag: "tinyphone" });
 }
 
 // ปุ่มทดสอบแจ้งเตือน OS — วินิจฉัยว่าใช้ได้/ติดตรงไหน
 function testOsNotif() {
     const reason = osNotifBlockReason();
     const fire = () => {
-        try {
-            const n = new Notification("TinyPhone", { body: "ทดสอบแจ้งเตือน OS สำเร็จ ✅", tag: "tinyphone-test" });
-            n.onclick = () => { try { window.focus(); } catch (e) { /* ข้าม */ } };
-            toastr.success("ส่งแจ้งเตือนทดสอบแล้ว — ดูที่ศูนย์แจ้งเตือน/มุมจอ (ถ้าไม่เห็น เช็ค Do Not Disturb ของ OS)", "TinyPhone");
-        } catch (e) { toastr.error("ยิงไม่สำเร็จ: " + (e && e.message), "TinyPhone"); }
+        deliverOsNotif("TinyPhone", { body: "ทดสอบแจ้งเตือน OS สำเร็จ ✅", tag: "tinyphone-test" })
+            .then((ok) => {
+                if (ok) toastr.success("ส่งแจ้งเตือนทดสอบแล้ว — ดูที่ศูนย์แจ้งเตือน/มุมจอ (ถ้าไม่เห็น เช็ค Do Not Disturb ของ OS)", "TinyPhone");
+                else toastr.error("ยิงแจ้งเตือนไม่สำเร็จ — ลองรีเฟรชหน้าแล้วลองใหม่ (service worker อาจยังไม่พร้อม)", "TinyPhone");
+            });
     };
     if (typeof Notification === "undefined") { toastr.warning("เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS", "TinyPhone"); return; }
     if (reason) { toastr.warning(reason, "TinyPhone"); return; }
@@ -4248,6 +4271,7 @@ jQuery(async () => {
         // โหลดค่าที่บันทึกไว้
         loadSettings();
         loadNotifLog();   // ประวัติแจ้งเตือน (persist)
+        registerNotifSW();   // service worker สำหรับแจ้งเตือน OS บนมือถือ
 
         // เริ่มตัวจับเวลาทักเชิงรุก (ถ้าเปิดไว้) — เดินตลอดแม้ปิดหน้าแอป
         if (getSetting("proactiveEnabled")) startProactiveTimer();
