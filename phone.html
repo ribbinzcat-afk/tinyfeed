@@ -164,7 +164,10 @@
                         <span>แจ้งเตือนบนเดสก์ท็อป/OS จริง</span>
                         <input id="tinyfeed-cfg-osnotif" type="checkbox" />
                     </label>
-                    <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์ · ⚠️ <b>ข้อความจะโผล่บน lock screen/แถบ OS แบบเห็นได้</b> — ระวังถ้าเป็นเนื้อหา 18+ (แนะนำปิดถ้าไม่มั่นใจ)</small>
+                    <button id="tinyfeed-osnotif-test" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-bell"></i> <span>ทดสอบแจ้งเตือน OS</span>
+                    </button>
+                    <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์ · กด “ทดสอบ” เพื่อเช็คว่าใช้ได้ไหม (จะบอกสาเหตุถ้าติด) · ⚠️ <b>ต้องเปิด ST ผ่าน HTTPS หรือ localhost</b> ถ้าเปิดผ่าน IP/HTTP เบราว์เซอร์จะบล็อก · ข้อความจะโผล่บน lock screen/แถบ OS แบบเห็นได้ ระวังเนื้อหา 18+</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">

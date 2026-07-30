@@ -2934,20 +2934,54 @@ function updateNotifBell() {
     else b.text("").addClass("tinyfeed-hidden");
 }
 
-// แจ้งเตือน OS/desktop จริง (ต้องเปิด toggle + อนุญาต permission)
-function ensureNotifPermission() {
-    try {
-        if (typeof Notification === "undefined") { toastr.warning("เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS", "TinyPhone"); return; }
-        if (Notification.permission === "default") Notification.requestPermission();
-    } catch (e) { /* ข้าม */ }
+// เช็คว่าแจ้งเตือน OS ใช้ได้ไหม — คืน "" ถ้าโอเค, หรือข้อความสาเหตุถ้าใช้ไม่ได้
+function osNotifBlockReason() {
+    if (typeof Notification === "undefined") return "เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS";
+    // Notification ต้องอยู่ใน secure context (https หรือ localhost) — ST ผ่าน http แบบ LAN IP จะถูกบล็อก
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+        return "แจ้งเตือน OS ต้องเปิดผ่าน HTTPS หรือ http://localhost เท่านั้น (ตอนนี้เปิดผ่าน IP/HTTP ธรรมดา เบราว์เซอร์จึงบล็อก)";
+    }
+    if (Notification.permission === "denied") return "เบราว์เซอร์บล็อกแจ้งเตือนของเว็บนี้ไว้ — ไปเปิดสิทธิ์ Notifications ของเว็บนี้ในตั้งค่าเบราว์เซอร์";
+    return "";
 }
+
+// ขอสิทธิ์ + รายงานผลให้ผู้ใช้รู้ (เรียกตอนเปิด toggle)
+function ensureNotifPermission() {
+    const reason = osNotifBlockReason();
+    if (reason && Notification && Notification.permission !== "default") { toastr.warning(reason, "TinyPhone"); return; }
+    if (typeof Notification === "undefined") { toastr.warning("เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS", "TinyPhone"); return; }
+    if (Notification.permission === "granted") { toastr.success("อนุญาตแจ้งเตือน OS แล้ว", "TinyPhone"); return; }
+    try {
+        Notification.requestPermission().then((p) => {
+            if (p === "granted") toastr.success("อนุญาตแจ้งเตือน OS แล้ว — ลองกด “ทดสอบ” ดูได้", "TinyPhone");
+            else toastr.info("ยังไม่ได้อนุญาตแจ้งเตือน OS", "TinyPhone");
+        }).catch(() => { /* ข้าม */ });
+    } catch (e) { /* บางเบราว์เซอร์เก่าใช้ callback — ข้าม */ }
+}
+
 function fireOsNotif(title, body) {
     if (!getSetting("osNotifEnabled")) return;
     try {
         if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
         const n = new Notification(title || "TinyPhone", { body: String(body || "").slice(0, 120), tag: "tinyphone" });
         n.onclick = () => { try { window.focus(); } catch (e) { /* ข้าม */ } if (lastNotifEntry) routeFromNotif(lastNotifEntry); };
-    } catch (e) { /* ข้าม */ }
+    } catch (e) { console.warn(`[${extensionName}] fireOsNotif failed:`, e); }
+}
+
+// ปุ่มทดสอบแจ้งเตือน OS — วินิจฉัยว่าใช้ได้/ติดตรงไหน
+function testOsNotif() {
+    const reason = osNotifBlockReason();
+    const fire = () => {
+        try {
+            const n = new Notification("TinyPhone", { body: "ทดสอบแจ้งเตือน OS สำเร็จ ✅", tag: "tinyphone-test" });
+            n.onclick = () => { try { window.focus(); } catch (e) { /* ข้าม */ } };
+            toastr.success("ส่งแจ้งเตือนทดสอบแล้ว — ดูที่ศูนย์แจ้งเตือน/มุมจอ (ถ้าไม่เห็น เช็ค Do Not Disturb ของ OS)", "TinyPhone");
+        } catch (e) { toastr.error("ยิงไม่สำเร็จ: " + (e && e.message), "TinyPhone"); }
+    };
+    if (typeof Notification === "undefined") { toastr.warning("เบราว์เซอร์นี้ไม่รองรับแจ้งเตือน OS", "TinyPhone"); return; }
+    if (reason) { toastr.warning(reason, "TinyPhone"); return; }
+    if (Notification.permission === "granted") fire();
+    else Notification.requestPermission().then((p) => { if (p === "granted") fire(); else toastr.info("ยังไม่ได้อนุญาตแจ้งเตือน OS", "TinyPhone"); }).catch(() => {});
 }
 
 // แสดงแบนเนอร์ + เก็บลิ้นชัก + ยิง OS (ระบุ tab/app/key/name ที่จะเปิดเมื่อกด)
@@ -3975,6 +4009,7 @@ jQuery(async () => {
             setSetting("osNotifEnabled", on);
             if (on) ensureNotifPermission();
         });
+        $(document).on("click", "#tinyfeed-osnotif-test", testOsNotif);
         // ทักเชิงรุก
         $(document).on("change", "#tinyfeed-cfg-proactive", function () {
             const on = $(this).prop("checked");
