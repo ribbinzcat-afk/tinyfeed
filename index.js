@@ -253,6 +253,11 @@ function getStreamData() {
     return data.stream;
 }
 
+// true = ผู้ใช้เป็นสตรีมเมอร์เอง (ไม่ใช่ตัวละคร AI)
+function streamerIsUser() {
+    return getSetting("streamStreamer") === "user";
+}
+
 // สตรีมเมอร์ปัจจุบัน { name, avatarItem }
 function getStreamer() {
     if (getSetting("streamStreamer") === "user") {
@@ -271,7 +276,8 @@ function maybeStartStreamTimer() {
     clearStreamTimer();
     const s = getStreamData();
     const viewersAuto = getSetting("streamCommentMode") === "auto";
-    const talk = Boolean(getSetting("streamStreamerTalk"));
+    // มอโนล็อกใช้ได้เฉพาะสตรีมเมอร์ที่เป็นตัวละคร AI
+    const talk = Boolean(getSetting("streamStreamerTalk")) && !streamerIsUser();
     if (currentApp === "stream" && s.live && (viewersAuto || talk)) {
         const sec = Math.max(4, parseInt(getSetting("streamAutoInterval"), 10) || 12);
         streamTimer = setInterval(() => {
@@ -292,10 +298,15 @@ function renderStream() {
     $("#tinyfeed-stream-toggle").text(s.live ? "จบไลฟ์" : "เริ่มไลฟ์");
     $(".tinyfeed-stream-live").toggleClass("tinyfeed-hidden", !s.live);
     $(".tinyfeed-stream-viewers").toggleClass("tinyfeed-hidden", !s.live).text(`👁 ${formatCount(s.viewers)}`);
+    const userStreamer = streamerIsUser();
     $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !s.live);
-    // ฟอร์มตั้งหัวข้อโชว์ตอนยังไม่ไลฟ์ · ปุ่มสตรีมเมอร์พูดโชว์ตอนไลฟ์
+    // ช่องพิมพ์คำพูดสตรีมเมอร์ = โชว์เฉพาะตอนไลฟ์ & เราเป็นสตรีมเมอร์เอง
+    $(".tinyfeed-stream-streamer-compose").toggleClass("tinyfeed-hidden", !(s.live && userStreamer));
+    // ฟอร์มตั้งหัวข้อ + ปุ่มให้ AI ตั้งหัวข้อโชว์ตอนยังไม่ไลฟ์
     $("#tinyfeed-stream-startform").toggleClass("tinyfeed-hidden", s.live);
-    $("#tinyfeed-stream-speak").toggleClass("tinyfeed-hidden", !s.live);
+    $("#tinyfeed-stream-ai-title").toggleClass("tinyfeed-hidden", s.live);
+    // ปุ่ม "ให้สตรีมเมอร์พูด" (AI) โชว์ตอนไลฟ์ & สตรีมเมอร์เป็นตัวละคร
+    $("#tinyfeed-stream-speak").toggleClass("tinyfeed-hidden", !(s.live && !userStreamer));
     $("#tinyfeed-stream-loadcomments").toggleClass("tinyfeed-hidden",
         !(s.live && getSetting("streamCommentMode") === "manual"));
 
@@ -369,7 +380,8 @@ async function toggleStream() {
         saveFeedData();
         renderStream();
         maybeStartStreamTimer();
-        await streamerSpeak("open", { silent: true });   // สตรีมเมอร์ทักเปิดไลฟ์
+        // สตรีมเมอร์ตัวละครทักเปิดไลฟ์เอง · ถ้าเราเป็นสตรีมเมอร์ให้พิมพ์เอง
+        if (!streamerIsUser()) await streamerSpeak("open", { silent: true });
         loadLiveComments({ silent: true });               // ผู้ชมทักทาย
     } catch (e) {
         console.error(`[${extensionName}] start stream failed:`, e);
@@ -468,6 +480,13 @@ async function streamerSpeak(kind, opts) {
     }
 }
 
+// toggle "สตรีมเมอร์อ่านคอมเมนต์/มอโนล็อก" ใช้ได้เฉพาะสตรีมเมอร์ตัวละคร — เทาไว้ถ้าเราเป็นสตรีมเมอร์เอง
+function refreshStreamerCfg() {
+    const dis = streamerIsUser();
+    $("#tinyfeed-cfg-stream-reply, #tinyfeed-cfg-stream-talk").prop("disabled", dis);
+    $("#tinyfeed-cfg-stream-reply-row, #tinyfeed-cfg-stream-talk-row").toggleClass("tinyfeed-field-disabled", dis);
+}
+
 // เติมหัวข้อไลฟ์ให้ช่อง input ด้วย AI (ปุ่มในฟอร์มเริ่มไลฟ์)
 async function fillStreamAiTitle() {
     if (isGeneratingStream) return;
@@ -514,11 +533,26 @@ async function sendStreamComment(text) {
     saveFeedData();
     $("#tinyfeed-stream-input").val("");
     renderStream();
-    // สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบ (auto)
-    if (getSetting("streamStreamerReply")) {
+    // สตรีมเมอร์ (ตัวละคร) อ่านคอมเมนต์เราแล้วตอบ (auto) — ข้ามถ้าเราเป็นสตรีมเมอร์เอง
+    if (getSetting("streamStreamerReply") && !streamerIsUser()) {
         await streamerSpeak("reply", { silent: true });
     }
     // โหมด onupdate: คอมเมนต์เราทำให้ผู้ชมรีแอคต่อ
+    if (getSetting("streamCommentMode") === "onupdate") {
+        await loadLiveComments({ silent: true });
+    }
+}
+
+// เราเป็นสตรีมเมอร์เอง — พิมพ์คำพูดของสตรีมเมอร์เอง (ไม่ใช้ AI)
+async function sendStreamerLine(text) {
+    const clean = String(text || "").trim();
+    const s = getStreamData();
+    if (!clean || !s.live || !streamerIsUser()) return;
+    s.comments.push({ isStreamer: true, author: getUserName(), text: escapeHtml(clean), ts: Date.now() });
+    saveFeedData();
+    $("#tinyfeed-stream-streamer-input").val("");
+    renderStream();
+    // โหมด onupdate: คำพูดสตรีมเมอร์ทำให้ผู้ชมรีแอค
     if (getSetting("streamCommentMode") === "onupdate") {
         await loadLiveComments({ silent: true });
     }
@@ -3577,6 +3611,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-stream-extra").val(getSetting("streamExtraPrompt"));
     $("#tinyfeed-cfg-stream-reply").prop("checked", Boolean(getSetting("streamStreamerReply")));
     $("#tinyfeed-cfg-stream-talk").prop("checked", Boolean(getSetting("streamStreamerTalk")));
+    refreshStreamerCfg();
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
@@ -3880,6 +3915,16 @@ jQuery(async () => {
             if (e.key === "Enter") {
                 e.preventDefault();
                 sendStreamComment($(this).val());
+            }
+        });
+        // เราเป็นสตรีมเมอร์เอง: พิมพ์คำพูดสตรีมเมอร์
+        $(document).on("click", "#tinyfeed-stream-streamer-send", function () {
+            sendStreamerLine($("#tinyfeed-stream-streamer-input").val());
+        });
+        $(document).on("keydown", "#tinyfeed-stream-streamer-input", function (e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendStreamerLine($(this).val());
             }
         });
 
@@ -4239,7 +4284,8 @@ jQuery(async () => {
         // TinyStream config
         $(document).on("change", "#tinyfeed-cfg-stream-streamer", function () {
             setSetting("streamStreamer", $(this).val());
-            if (currentApp === "stream") renderStream();
+            refreshStreamerCfg();
+            if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
         });
         $(document).on("change", "#tinyfeed-cfg-stream-mode", function () {
             setSetting("streamCommentMode", $(this).val());

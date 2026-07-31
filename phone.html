@@ -248,11 +248,11 @@
                         <span class="tinyfeed-field-label">คำสั่งเสริมคอมเมนต์ผู้ชม (ไม่บังคับ)</span>
                         <textarea id="tinyfeed-cfg-stream-extra" rows="2" placeholder="เช่น: ผู้ชมขี้เล่น, สแปมอิโมจิ, มีทั้งแฟนคลับและแอนตี้..."></textarea>
                     </label>
-                    <label class="tinyfeed-field-row">
+                    <label class="tinyfeed-field-row" id="tinyfeed-cfg-stream-reply-row">
                         <span>สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบเอง</span>
                         <input id="tinyfeed-cfg-stream-reply" type="checkbox" />
                     </label>
-                    <label class="tinyfeed-field-row">
+                    <label class="tinyfeed-field-row" id="tinyfeed-cfg-stream-talk-row">
                         <span>ให้สตรีมเมอร์เล่าเรื่องเองเป็นระยะ (มอโนล็อก)</span>
                         <input id="tinyfeed-cfg-stream-talk" type="checkbox" />
                     </label>
@@ -636,12 +636,12 @@
             <div id="tinyfeed-stream-startform" class="tinyfeed-stream-startform">
                 <input id="tinyfeed-stream-title-input" type="text" placeholder="หัวข้อไลฟ์ (เว้นว่าง = ให้ AI ตั้ง)" />
                 <textarea id="tinyfeed-stream-direction-input" rows="2" placeholder="แนวทาง/รายละเอียดไลฟ์ (ไม่บังคับ) เช่น: เล่นเกม, ตอบคำถาม, รีวิวของ..."></textarea>
-                <button id="tinyfeed-stream-ai-title" class="tinyfeed-btn-generate">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตั้งหัวข้อ</span>
-                </button>
             </div>
             <div class="tinyfeed-stream-controls">
                 <button id="tinyfeed-stream-toggle" class="tinyfeed-btn-primary">เริ่มไลฟ์</button>
+                <button id="tinyfeed-stream-ai-title" class="tinyfeed-btn-generate">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตั้งหัวข้อ</span>
+                </button>
                 <button id="tinyfeed-stream-speak" class="tinyfeed-btn-generate tinyfeed-hidden">
                     <i class="fa-solid fa-microphone"></i> <span>ให้สตรีมเมอร์พูด</span>
                 </button>
@@ -650,6 +650,10 @@
                 </button>
             </div>
             <div id="tinyfeed-stream-comments" class="tinyfeed-stream-comments"></div>
+            <div class="tinyfeed-stream-streamer-compose tinyfeed-hidden">
+                <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
+                <span id="tinyfeed-stream-streamer-send"><i class="fa-solid fa-microphone"></i></span>
+            </div>
             <div class="tinyfeed-stream-compose tinyfeed-hidden">
                 <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
                 <span id="tinyfeed-stream-send"><i class="fa-solid fa-paper-plane"></i></span>
