@@ -65,6 +65,8 @@ const defaultSettings = {
     connectSplitBubbles: true,    // แยกข้อความหลายบรรทัดเป็นหลายบับเบิล
     // TinyStream
     streamStreamer: "char",       // "char" | "user"
+    streamStreamerReply: true,    // สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบอัตโนมัติ
+    streamStreamerTalk: false,    // สตรีมเมอร์เล่าเรื่องเองเป็นระยะ (มอโนล็อก)
     streamCommentMode: "manual",  // "manual" | "auto" | "onupdate"
     streamAutoInterval: 12,        // วินาที (โหมด auto)
     streamTokens: 300,
@@ -244,9 +246,10 @@ let streamTimer = null;
 function getStreamData() {
     const data = getFeedData();
     if (!data.stream || typeof data.stream !== "object") {
-        data.stream = { live: false, title: "", viewers: 0, comments: [] };
+        data.stream = { live: false, title: "", direction: "", viewers: 0, comments: [] };
     }
     if (!Array.isArray(data.stream.comments)) data.stream.comments = [];
+    if (typeof data.stream.direction !== "string") data.stream.direction = "";
     return data.stream;
 }
 
@@ -266,10 +269,16 @@ function clearStreamTimer() {
 
 function maybeStartStreamTimer() {
     clearStreamTimer();
-    if (currentApp === "stream" && getStreamData().live && getSetting("streamCommentMode") === "auto") {
+    const s = getStreamData();
+    const viewersAuto = getSetting("streamCommentMode") === "auto";
+    const talk = Boolean(getSetting("streamStreamerTalk"));
+    if (currentApp === "stream" && s.live && (viewersAuto || talk)) {
         const sec = Math.max(4, parseInt(getSetting("streamAutoInterval"), 10) || 12);
         streamTimer = setInterval(() => {
-            if (!isGeneratingStream) loadLiveComments({ silent: true });
+            if (isGeneratingStream) return;
+            // สลับระหว่างสตรีมเมอร์เล่าเรื่อง กับ คอมเมนต์ผู้ชม
+            if (talk && (!viewersAuto || Math.random() < 0.4)) streamerSpeak("talk", { silent: true });
+            else if (viewersAuto) loadLiveComments({ silent: true });
         }, sec * 1000);
     }
 }
@@ -279,21 +288,37 @@ function renderStream() {
     const streamer = getStreamer();
     $("#tinyfeed-app-stream .tinyfeed-stream-avatar").html(makeAvatar(streamer.avatarItem));
     $("#tinyfeed-app-stream .tinyfeed-stream-title").text(s.live ? (s.title || "กำลังไลฟ์สด") : "ยังไม่ได้เริ่มไลฟ์");
-    $("#tinyfeed-app-stream .tinyfeed-stream-streamer").text(s.live ? `โดย ${streamer.name}` : "");
+    $("#tinyfeed-app-stream .tinyfeed-stream-streamer").text(s.live ? `โดย ${streamer.name}${s.direction ? " · " + s.direction : ""}` : "");
     $("#tinyfeed-stream-toggle").text(s.live ? "จบไลฟ์" : "เริ่มไลฟ์");
     $(".tinyfeed-stream-live").toggleClass("tinyfeed-hidden", !s.live);
     $(".tinyfeed-stream-viewers").toggleClass("tinyfeed-hidden", !s.live).text(`👁 ${formatCount(s.viewers)}`);
     $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !s.live);
-    // ปุ่มโหลดคอมเมนต์โชว์เฉพาะโหมด manual + กำลังไลฟ์
+    // ฟอร์มตั้งหัวข้อโชว์ตอนยังไม่ไลฟ์ · ปุ่มสตรีมเมอร์พูดโชว์ตอนไลฟ์
+    $("#tinyfeed-stream-startform").toggleClass("tinyfeed-hidden", s.live);
+    $("#tinyfeed-stream-speak").toggleClass("tinyfeed-hidden", !s.live);
     $("#tinyfeed-stream-loadcomments").toggleClass("tinyfeed-hidden",
         !(s.live && getSetting("streamCommentMode") === "manual"));
+
+    // แคปชันบนเวที = ประโยคล่าสุดที่สตรีมเมอร์พูด
+    const lastSpeak = [...s.comments].reverse().find((c) => c.isStreamer);
+    $(".tinyfeed-stream-caption").toggleClass("tinyfeed-hidden", !(s.live && lastSpeak))
+        .html(lastSpeak ? `🎙 ${renderRich(lastSpeak.text)}` : "");
 
     const rows = s.comments.map((c) => {
         if (c.isSystem) {
             return `<div class="tinyfeed-stream-divider"><span>${c.text}</span></div>`;
         }
+        if (c.isStreamer) {
+            return `<div class="tinyfeed-stream-speak-row">
+                ${makeAvatar(streamer.avatarItem)}
+                <div class="tinyfeed-stream-speak-body">
+                    <span class="tinyfeed-stream-speak-label"><i class="fa-solid fa-microphone"></i> ${escapeText(c.author)} · สตรีมเมอร์</span>
+                    <span class="tinyfeed-stream-speak-text">${renderRich(c.text)}</span>
+                </div>
+            </div>`;
+        }
         return `
-        <div class="tinyfeed-stream-comment${c.isStreamer ? " tinyfeed-stream-comment-streamer" : ""}">
+        <div class="tinyfeed-stream-comment">
             ${makeAvatar(c.isUser ? { isUser: true, author: c.author } : { author: c.author, avatar: c.avatar || "" })}
             <div class="tinyfeed-stream-comment-body">
                 <span class="tinyfeed-stream-comment-author">${escapeText(c.author)}</span>
@@ -317,25 +342,35 @@ async function toggleStream() {
         renderStream();
         return;
     }
-    // เริ่มไลฟ์: ให้ AI ตั้งหัวข้อจากเนื้อเรื่อง
+    // เริ่มไลฟ์: ใช้หัวข้อที่ผู้ใช้กรอก หรือให้ AI ตั้งถ้าเว้นว่าง
     if (isGeneratingStream) return;
+    const userTitle = String($("#tinyfeed-stream-title-input").val() || "").trim();
+    const direction = String($("#tinyfeed-stream-direction-input").val() || "").trim();
     isGeneratingStream = true;
     const btn = $("#tinyfeed-stream-toggle");
     btn.prop("disabled", true).text("กำลังเริ่ม...");
     try {
         const streamer = getStreamer();
-        const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สดในแอปสตรีมมิ่ง ` +
-            `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่องตอนนี้ ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
-        const raw = await tinyGenerate(q, 60);
-        const title = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+        let title = userTitle;
+        if (!title) {
+            const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สดในแอปสตรีมมิ่ง ` +
+                (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
+                `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่องตอนนี้ ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
+            const raw = await tinyGenerate(q, 60);
+            title = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+        }
         s.title = title || "ไลฟ์สด";
+        s.direction = direction;
         s.live = true;
         s.viewers = 20 + Math.floor(Math.random() * 4800);
         s.comments.push({ isSystem: true, text: escapeText(`🔴 เริ่มไลฟ์ — ${s.title}`), ts: Date.now() });
+        $("#tinyfeed-stream-title-input").val("");
+        $("#tinyfeed-stream-direction-input").val("");
         saveFeedData();
         renderStream();
         maybeStartStreamTimer();
-        loadLiveComments({ silent: true });   // เปิดมามีคอมเมนต์ทักทายเลย
+        await streamerSpeak("open", { silent: true });   // สตรีมเมอร์ทักเปิดไลฟ์
+        loadLiveComments({ silent: true });               // ผู้ชมทักทาย
     } catch (e) {
         console.error(`[${extensionName}] start stream failed:`, e);
         toastr.error("เริ่มไลฟ์ไม่สำเร็จ ลองใหม่นะ", "TinyStream");
@@ -355,17 +390,25 @@ async function loadLiveComments(opts) {
     btn.addClass("tinyfeed-generating").prop("disabled", true);
     try {
         const streamer = getStreamer();
+        const you = getUserName();
         const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
         const recent = s.comments.slice(-6).map((c) => `${c.author}: ${htmlToPlain(c.text)}`).join("\n");
-        const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือไลฟ์สดของ ${streamer.name} หัวข้อ "${s.title}". ` +
-            `เขียนคอมเมนต์สดจากผู้ชม 3-5 คน (ชื่อผู้ชมสุ่มหลากหลาย${npcNames.length ? " หรือใช้ NPC เหล่านี้บ้าง: " + npcNames.join(", ") : ""}) ` +
-            `รีแอคกับไลฟ์แบบสมจริง สั้นๆ เหมือนแชตสด ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.` +
-            (String(getSetting("streamExtraPrompt") || "").trim() ? ` คำสั่งเพิ่มเติม: ${String(getSetting("streamExtraPrompt")).trim()}.` : "") +
-            crossAppContext("stream") +
-            (recent ? `\nคอมเมนต์ล่าสุด (อย่าซ้ำ):\n${recent}\n` : "") +
-            `\nตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อผู้ชม> | <ข้อความ>`;
+        const extra = String(getSetting("streamExtraPrompt") || "").trim();
+        const q = buildPrompt("streamComments", {
+            streamer: streamer.name, title: s.title,
+            direction: s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "",
+            roster: npcNames.length ? " หรือใช้ NPC เหล่านี้บ้าง: " + npcNames.join(", ") : "",
+            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            context: crossAppContext("stream"),
+            recent: recent ? `\nคอมเมนต์ล่าสุด (อย่าซ้ำ):\n${recent}\n` : "",
+        });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
+        // กรองไม่ให้สตรีมเมอร์/ผู้ใช้โผล่เป็นผู้ชมสุ่ม
         const list = parseCommentLines(raw, streamer.name)
+            .filter((c) => {
+                const a = c.author.trim().toLowerCase();
+                return a !== streamer.name.trim().toLowerCase() && a !== you.trim().toLowerCase();
+            })
             .map((c) => ({ author: c.author, avatar: getNpcAvatar(c.author), text: c.text, ts: Date.now() }));
         if (list.length) {
             s.comments.push(...list);
@@ -381,6 +424,88 @@ async function loadLiveComments(opts) {
     }
 }
 
+// สตรีมเมอร์ (ตัวละคร) พูด/อ่านแชตแล้วตอบ — kind: "open" | "reply" | "talk"
+async function streamerSpeak(kind, opts) {
+    opts = opts || {};
+    const s = getStreamData();
+    if (!s.live || isGeneratingStream) return;
+    const streamer = getStreamer();
+    const you = getUserName();
+    isGeneratingStream = true;
+    try {
+        const transcript = s.comments.slice(-8).filter((c) => !c.isSystem)
+            .map((c) => `${c.isStreamer ? streamer.name + " (สตรีมเมอร์)" : c.author}: ${htmlToPlain(c.text)}`).join("\n");
+        const task = kind === "open"
+            ? ` ตอนนี้เพิ่งเปิดไลฟ์ — ทักทายผู้ชมและเกริ่นสั้นๆ ว่าจะไลฟ์เรื่องอะไร.`
+            : kind === "reply"
+                ? ` อ่านคอมเมนต์ล่าสุดของผู้ชม (โดยเฉพาะของ ${you}) แล้วโต้ตอบ/ตอบกลับแบบสตรีมเมอร์อ่านแชตสดๆ.`
+                : ` พูดคุย/เล่าเรื่องต่อเกี่ยวกับหัวข้อไลฟ์ ให้ต่อเนื่องเป็นธรรมชาติ.`;
+        const extra = String(getSetting("streamExtraPrompt") || "").trim();
+        const q = buildPrompt("streamerSpeak", {
+            streamer: streamer.name, title: s.title,
+            direction: s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "",
+            task,
+            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            context: crossAppContext("stream"),
+            transcript: transcript ? `\nแชตล่าสุด:\n${transcript}\n` : "",
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
+        let line = stripReasoning(raw).trim().replace(/^\[|\]$/g, "").trim();
+        const esc = streamer.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        line = line.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
+        if (line) {
+            s.comments.push({ isStreamer: true, author: streamer.name, text: escapeHtml(line), ts: Date.now() });
+            saveFeedData();
+            renderStream();
+        } else if (!opts.silent) {
+            toastr.info("สตรีมเมอร์ยังไม่พูดอะไร ลองใหม่นะ", "TinyStream");
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] streamerSpeak failed:`, e);
+        if (!opts.silent) toastr.error("สตรีมเมอร์พูดไม่สำเร็จ", "TinyStream");
+    } finally {
+        isGeneratingStream = false;
+    }
+}
+
+// เติมหัวข้อไลฟ์ให้ช่อง input ด้วย AI (ปุ่มในฟอร์มเริ่มไลฟ์)
+async function fillStreamAiTitle() {
+    if (isGeneratingStream) return;
+    if (!getCurrentCharacter()) { toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyStream"); return; }
+    const streamer = getStreamer();
+    const direction = String($("#tinyfeed-stream-direction-input").val() || "").trim();
+    isGeneratingStream = true;
+    const btn = $("#tinyfeed-stream-ai-title");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สด ` +
+            (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
+            `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่อง ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
+        const raw = await tinyGenerate(q, 60);
+        const t = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+        if (t) $("#tinyfeed-stream-title-input").val(t);
+    } catch (e) {
+        console.error(`[${extensionName}] ai title failed:`, e);
+        toastr.error("ตั้งหัวข้อไม่สำเร็จ ลองใหม่นะ", "TinyStream");
+    } finally {
+        isGeneratingStream = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+// ปุ่ม "ให้สตรีมเมอร์พูด" — ถ้ามีคอมเมนต์ผู้ใช้ค้าง = ตอบ, ไม่งั้น = เล่าเรื่อง
+function streamerSpeakButton() {
+    const s = getStreamData();
+    if (!s.live) return;
+    let kind = "talk";
+    for (let i = s.comments.length - 1; i >= 0; i--) {
+        const c = s.comments[i];
+        if (c.isStreamer) break;
+        if (c.isUser) { kind = "reply"; break; }
+    }
+    streamerSpeak(kind, {});
+}
+
 async function sendStreamComment(text) {
     const clean = String(text || "").trim();
     const s = getStreamData();
@@ -389,6 +514,10 @@ async function sendStreamComment(text) {
     saveFeedData();
     $("#tinyfeed-stream-input").val("");
     renderStream();
+    // สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบ (auto)
+    if (getSetting("streamStreamerReply")) {
+        await streamerSpeak("reply", { silent: true });
+    }
     // โหมด onupdate: คอมเมนต์เราทำให้ผู้ชมรีแอคต่อ
     if (getSetting("streamCommentMode") === "onupdate") {
         await loadLiveComments({ silent: true });
@@ -1574,6 +1703,20 @@ const PROMPT_DEFS = {
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "{{room}}" หัวข้อ "{{title}}": {{body}}\n` +
             `เขียนคอมเมนต์ชาวเน็ตประมาณ {{batch}} อัน ให้หลากหลายคน สมจริงเหมือนเว็บบอร์ด (เห็นด้วย/เถียง/แซว/เล่าประสบการณ์/ถาม). {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}{{existing}}\n` +
             `ตอบบรรทัดละอันในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>   (คอมเมนต์ใหม่)\nREPLY: <เลข> | <ชื่อ> | <ข้อความ>   (ตอบกลับคอมเมนต์เลขนั้น)`,
+    },
+    streamComments: {
+        label: "คอมเมนต์ผู้ชม (TinyStream)", marker: "COMMENT:", tokens: ["streamer", "title", "direction", "roster", "extra", "context", "recent"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือไลฟ์สดของ {{streamer}} หัวข้อ "{{title}}".{{direction}} ` +
+            `เขียนคอมเมนต์สดจากผู้ชม 3-5 คน (ชื่อผู้ชมสุ่มหลากหลาย{{roster}}) รีแอคกับไลฟ์แบบสมจริง สั้นๆ เหมือนแชตสด ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.{{extra}}{{context}}{{recent}}\n` +
+            `ตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อผู้ชม> | <ข้อความ>`,
+    },
+    streamerSpeak: {
+        label: "สตรีมเมอร์พูด/ตอบ (TinyStream)", marker: "", tokens: ["streamer", "title", "direction", "task", "extra", "context", "transcript"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{streamer}} กำลังไลฟ์สดอยู่ หัวข้อ "{{title}}".{{direction}} ` +
+            `พูดในมุมมองบุคคลที่หนึ่งแบบสตรีมเมอร์กำลังพูดสดหน้ากล้อง (อ่านแชต/คุยกับผู้ชม) สั้นเป็นธรรมชาติ 1-2 ประโยค ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{task}}{{extra}}{{context}}{{transcript}}\n` +
+            `ตอบเฉพาะคำพูดของ {{streamer}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า ไม่ต้องมีเครื่องหมายคำพูด`,
     },
 };
 
@@ -3432,6 +3575,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-stream-interval").val(getSetting("streamAutoInterval"));
     $("#tinyfeed-cfg-stream-tokens").val(getSetting("streamTokens"));
     $("#tinyfeed-cfg-stream-extra").val(getSetting("streamExtraPrompt"));
+    $("#tinyfeed-cfg-stream-reply").prop("checked", Boolean(getSetting("streamStreamerReply")));
+    $("#tinyfeed-cfg-stream-talk").prop("checked", Boolean(getSetting("streamStreamerTalk")));
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
@@ -3723,6 +3868,8 @@ jQuery(async () => {
 
         // TinyStream: เริ่ม/จบไลฟ์ + โหลดคอมเมนต์ + ส่งคอมเมนต์
         $(document).on("click", "#tinyfeed-stream-toggle", toggleStream);
+        $(document).on("click", "#tinyfeed-stream-ai-title", fillStreamAiTitle);
+        $(document).on("click", "#tinyfeed-stream-speak", streamerSpeakButton);
         $(document).on("click", "#tinyfeed-stream-loadcomments", function () {
             loadLiveComments();
         });
@@ -4109,6 +4256,13 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-stream-extra", function () {
             setSetting("streamExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-stream-reply", function () {
+            setSetting("streamStreamerReply", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-stream-talk", function () {
+            setSetting("streamStreamerTalk", $(this).prop("checked"));
+            if (currentApp === "stream") maybeStartStreamTimer();   // เปิด/ปิดมอโนล็อกทันที
         });
         $(document).on("input", "#tinyfeed-cfg-connect-tokens", function () {
             let v = parseInt($(this).val(), 10);

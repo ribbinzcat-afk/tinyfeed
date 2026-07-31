@@ -248,6 +248,15 @@
                         <span class="tinyfeed-field-label">คำสั่งเสริมคอมเมนต์ผู้ชม (ไม่บังคับ)</span>
                         <textarea id="tinyfeed-cfg-stream-extra" rows="2" placeholder="เช่น: ผู้ชมขี้เล่น, สแปมอิโมจิ, มีทั้งแฟนคลับและแอนตี้..."></textarea>
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบเอง</span>
+                        <input id="tinyfeed-cfg-stream-reply" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้สตรีมเมอร์เล่าเรื่องเองเป็นระยะ (มอโนล็อก)</span>
+                        <input id="tinyfeed-cfg-stream-talk" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ตอนเริ่มไลฟ์ตั้งหัวข้อ + แนวทางเองได้ (เว้นว่าง = ให้ AI ตั้ง) · สตรีมเมอร์จะทักเปิดไลฟ์เอง + มีปุ่ม "ให้สตรีมเมอร์พูด" ในหน้าไลฟ์ · มอโนล็อกทำงานตามรอบเวลาเดียวกับคอมเมนต์อัตโนมัติ</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -618,13 +627,24 @@
                 <div class="tinyfeed-stream-avatar"></div>
                 <span class="tinyfeed-stream-live tinyfeed-hidden">🔴 LIVE</span>
                 <span class="tinyfeed-stream-viewers tinyfeed-hidden"></span>
+                <div class="tinyfeed-stream-caption tinyfeed-hidden"></div>
             </div>
             <div class="tinyfeed-stream-info">
                 <div class="tinyfeed-stream-title">ยังไม่ได้เริ่มไลฟ์</div>
                 <div class="tinyfeed-stream-streamer"></div>
             </div>
+            <div id="tinyfeed-stream-startform" class="tinyfeed-stream-startform">
+                <input id="tinyfeed-stream-title-input" type="text" placeholder="หัวข้อไลฟ์ (เว้นว่าง = ให้ AI ตั้ง)" />
+                <textarea id="tinyfeed-stream-direction-input" rows="2" placeholder="แนวทาง/รายละเอียดไลฟ์ (ไม่บังคับ) เช่น: เล่นเกม, ตอบคำถาม, รีวิวของ..."></textarea>
+                <button id="tinyfeed-stream-ai-title" class="tinyfeed-btn-generate">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตั้งหัวข้อ</span>
+                </button>
+            </div>
             <div class="tinyfeed-stream-controls">
                 <button id="tinyfeed-stream-toggle" class="tinyfeed-btn-primary">เริ่มไลฟ์</button>
+                <button id="tinyfeed-stream-speak" class="tinyfeed-btn-generate tinyfeed-hidden">
+                    <i class="fa-solid fa-microphone"></i> <span>ให้สตรีมเมอร์พูด</span>
+                </button>
                 <button id="tinyfeed-stream-loadcomments" class="tinyfeed-btn-generate tinyfeed-hidden">
                     <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
                 </button>
