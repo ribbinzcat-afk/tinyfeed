@@ -1767,8 +1767,8 @@ function saveGallery() {
 // ถอด HTML entity เบาๆ (สำหรับจับคู่ชื่อในโทเคน [sticker:...] / [img:...] ที่ผ่าน escape มาแล้ว)
 function unescapeLite(s) {
     return String(s == null ? "" : s)
-        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+        .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 }
 
 // หาสติกเกอร์/รูปในคลังตามชื่อ (case-insensitive) ไม่เจอคืน null
