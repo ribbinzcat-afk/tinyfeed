@@ -64,8 +64,14 @@ const defaultSettings = {
     connectExtraPrompt: "",
     connectSplitBubbles: true,    // แยกข้อความหลายบรรทัดเป็นหลายบับเบิล
     // TinyStream
-    streamStreamer: "char",       // "char" | "user"
+    streamStreamer: "char",       // "char" | "user" | "npc"
+    streamStreamerNpc: "",        // ชื่อ NPC ที่เป็นสตรีมเมอร์ (เมื่อ streamStreamer = "npc")
+    streamCoStreamers: [],        // ชื่อตัวละคร/NPC ที่ร่วมไลฟ์ (หลายผู้พูด)
+    streamStreamerReply: true,    // สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบอัตโนมัติ
+    streamStreamerTalk: false,    // สตรีมเมอร์เล่าเรื่องเองเป็นระยะ (มอโนล็อก)
     streamCommentMode: "manual",  // "manual" | "auto" | "onupdate"
+    streamBgUrl: "",              // ลิงก์รูปพื้นหลังกรอบสตรีม ("" = ใช้สีพื้น)
+    streamBgTheme: false,         // ใช้สีพื้นหลังตามธีม (accent) เมื่อไม่มีลิงก์รูป
     streamAutoInterval: 12,        // วินาที (โหมด auto)
     streamTokens: 300,
     streamExtraPrompt: "",
@@ -102,6 +108,27 @@ const defaultSettings = {
     forumRooms: ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"],
     injectForum: false,           // แทรกกระทู้ เข้า RP หลัก
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
+    // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
+    bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
+    streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
+    bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
+    // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
+    donateTiers: [
+        { min: 0, color: "#1d9bf0" },
+        { min: 50, color: "#00b8d4" },
+        { min: 200, color: "#22c55e" },
+        { min: 500, color: "#ffca28" },
+        { min: 1000, color: "#ff9100" },
+        { min: 2000, color: "#ec407a" },
+        { min: 5000, color: "#e53935" },
+    ],
+    // TinyGallery (คลังรูป + สติกเกอร์ — global ข้ามแชท ไม่ผูกกับแชทไหน)
+    gallery: { images: [], stickers: [], imageAlbums: ["ทั่วไป"], stickerAlbums: ["ทั่วไป"] },
+    galleryPrompt: true,          // ให้บอทรู้จักคลัง + ส่งสติกเกอร์/รูปได้ด้วย [sticker:ชื่อ] / [img:ชื่อ]
+    galleryPromptScope: "all",    // "all" = ทุกอัลบั้ม · "selected" = เฉพาะอัลบั้มที่เลือก
+    galleryAlbums: [],            // ชื่ออัลบั้มที่ให้ AI เข้าถึง (เมื่อ scope = "selected")
+    galleryMaxImages: 24,         // จำนวนรูปสูงสุดที่แนบเข้า prompt
+    galleryMaxStickers: 24,       // จำนวนสติกเกอร์สูงสุดที่แนบเข้า prompt
     // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
     crossAppEnabled: false,       // master switch
     crossAppCount: 3,
@@ -196,12 +223,14 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (app !== "feed" && app !== "connect" && app !== "stream" && app !== "memo" && app !== "forum") {
+    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank"].includes(app)) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
     clearStreamTimer();   // ออกจากแอปอื่น = หยุด timer stream
     clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
+    closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
+    closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
@@ -212,6 +241,7 @@ function openApp(app) {
         $("#tinyfeed-app-feed").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyFeed");
         $(".tinyfeed-tabs").removeClass("tinyfeed-hidden");
+        applyFeedComposeMode();
         switchTab(activeTab);
     } else if (app === "connect") {
         currentApp = "connect";
@@ -227,6 +257,16 @@ function openApp(app) {
         currentApp = "forum";
         $("#tinyfeed-app-forum").removeClass("tinyfeed-hidden");
         openForumList();
+    } else if (app === "gallery") {
+        currentApp = "gallery";
+        $("#tinyfeed-app-gallery").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyGallery");
+        openGallery();
+    } else if (app === "bank") {
+        currentApp = "bank";
+        $("#tinyfeed-app-bank").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyBank");
+        renderBank();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -244,20 +284,133 @@ let streamTimer = null;
 function getStreamData() {
     const data = getFeedData();
     if (!data.stream || typeof data.stream !== "object") {
-        data.stream = { live: false, title: "", viewers: 0, comments: [] };
+        data.stream = { live: false, title: "", direction: "", viewers: 0, comments: [] };
     }
     if (!Array.isArray(data.stream.comments)) data.stream.comments = [];
+    if (typeof data.stream.direction !== "string") data.stream.direction = "";
+    // เลือกสตรีมเมอร์ในหน้าแอป (ผูกกับแชท): mainStreamer "" = ตัวละครหลัก, POSTER_USER = เรา, หรือชื่อ NPC/ตัวละคร
+    if (typeof data.stream.mainStreamer !== "string") data.stream.mainStreamer = "";
+    if (!Array.isArray(data.stream.coHosts)) data.stream.coHosts = [];
     return data.stream;
 }
 
-// สตรีมเมอร์ปัจจุบัน { name, avatarItem }
+// true = ผู้ใช้เป็นสตรีมเมอร์หลักเอง (ไม่ใช่ตัวละคร AI)
+function streamerIsUser() {
+    return getStreamData().mainStreamer === POSTER_USER;
+}
+
+// avatarItem จากชื่อผู้พูดในไลฟ์ (ผู้ใช้ / ตัวละครหลัก / NPC)
+function streamSpeakerAvatarItem(name) {
+    const who = String(name || "").trim();
+    if (who === getUserName()) return { isUser: true, author: who };
+    const mainName = (getCurrentCharacter() || {}).name || "";
+    if (mainName && who.toLowerCase() === mainName.trim().toLowerCase()) return { isMain: true, author: who };
+    return { author: who, avatar: getNpcAvatar(who) };
+}
+
+// สตรีมเมอร์หลักปัจจุบัน { name, avatarItem } — เลือกในหน้าแอป (เก็บใน stream data)
 function getStreamer() {
-    if (getSetting("streamStreamer") === "user") {
+    const main = getStreamData().mainStreamer || "";
+    if (main === POSTER_USER) {
         return { name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
     }
+    if (main) return { name: main, avatarItem: streamSpeakerAvatarItem(main) };
+    // ค่าเริ่มต้น = ตัวละครหลัก
     const char = getCurrentCharacter();
     const name = (char && char.name) || "ตัวละคร";
     return { name, avatarItem: { isMain: true, author: name } };
+}
+
+// รายชื่อผู้ไลฟ์ที่เป็น AI (หลัก + ตัวละครร่วมไลฟ์) — ไม่รวมผู้ใช้ (ผู้ใช้พิมพ์เอง)
+function getStreamHosts() {
+    const hosts = [];
+    const seen = new Set();
+    const add = (nm) => {
+        const k = String(nm || "").trim();
+        if (!k || k === POSTER_USER || k === getUserName()) return;   // ข้ามผู้ใช้ (ไม่ให้ AI พูดแทน)
+        if (!seen.has(k.toLowerCase())) { seen.add(k.toLowerCase()); hosts.push(k); }
+    };
+    if (!streamerIsUser()) add(getStreamer().name);
+    for (const co of (getStreamData().coHosts || [])) add(co);
+    return hosts;
+}
+
+// ผู้ใช้เป็นหนึ่งในผู้ไลฟ์ไหม (เป็นหลัก หรือมาไลฟ์ร่วม) — โชว์ช่องพิมพ์คำพูดของเรา
+function userIsHost() {
+    return streamerIsUser() || (getStreamData().coHosts || []).includes(POSTER_USER);
+}
+
+// แปลงค่า host (ชื่อ หรือ POSTER_USER) เป็น { name, avatarItem } สำหรับแสดงผล
+function hostDisplay(hostVal) {
+    if (hostVal === POSTER_USER) return { name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
+    return { name: hostVal, avatarItem: streamSpeakerAvatarItem(hostVal) };
+}
+
+// ชนิดการพูด: มีคอมเมนต์ผู้ใช้ค้างล่าสุด = ตอบ, ไม่งั้น = เล่าเรื่อง
+function streamSpeakKind() {
+    const s = getStreamData();
+    for (let i = s.comments.length - 1; i >= 0; i--) {
+        const c = s.comments[i];
+        if (c.isStreamer) break;
+        if (c.isUser) return "reply";
+    }
+    return "talk";
+}
+
+// ผู้พูด AI คนถัดไป (วนเวียนจากคนที่พูดล่าสุด → การันตีว่าตัวร่วมได้คิว)
+function nextStreamHost(hosts) {
+    const last = String(getStreamData().lastSpeaker || "");
+    const idx = hosts.findIndex((h) => h.toLowerCase() === last.toLowerCase());
+    return hosts[(idx + 1) % hosts.length];
+}
+
+// วาดรูปโปรไฟล์ผู้ไลฟ์ในกรอบสตรีม — แตะรูป AI = ให้พูด · แตะรูปเรา = พิมพ์เอง
+// ปุ่มดินสอ = เปลี่ยนสตรีมเมอร์หลัก · ปุ่มกากบาท = เอาตัวร่วมออก · ปุ่ม + = เพิ่มตัวร่วม
+function renderStreamHosts() {
+    const s = getStreamData();
+    const main = getStreamer();
+    const mainVal = s.mainStreamer || "";
+    const mainIsUser = mainVal === POSTER_USER;
+    // ตัวร่วมไลฟ์ (ไม่ซ้ำกับหลัก) — อาจมี POSTER_USER (เรา)
+    const co = (s.coHosts || []).filter((v) => {
+        if (mainIsUser) return v !== POSTER_USER;
+        return v !== mainVal && v !== main.name;
+    });
+    const multi = co.length > 0;
+    const hint = (isUser) => isUser ? "แตะเพื่อพิมพ์คำพูดของเรา" : "แตะให้พูด";
+    // สตรีมเมอร์หลัก
+    let html = `<div class="tinyfeed-stream-host tinyfeed-stream-host-main" ${mainIsUser ? `data-user="1"` : `data-name="${escapeAttr(main.name)}"`} title="${hint(mainIsUser)}">
+        ${multi ? `<span class="tinyfeed-host-crown"><i class="fa-solid fa-crown"></i></span>` : ""}
+        <span class="tinyfeed-host-edit" title="เปลี่ยนสตรีมเมอร์หลัก"><i class="fa-solid fa-pen"></i></span>
+        ${makeAvatar(main.avatarItem)}
+        <span class="tinyfeed-host-name">${escapeText(main.name)}</span>
+    </div>`;
+    // ตัวร่วมไลฟ์
+    for (const v of co) {
+        const d = hostDisplay(v);
+        const isUser = v === POSTER_USER;
+        html += `<div class="tinyfeed-stream-host" data-role="co" ${isUser ? `data-user="1"` : `data-name="${escapeAttr(d.name)}"`} data-val="${escapeAttr(v)}" title="${hint(isUser)}">
+            <span class="tinyfeed-host-remove" title="เอาออก"><i class="fa-solid fa-xmark"></i></span>
+            ${makeAvatar(d.avatarItem)}
+            <span class="tinyfeed-host-name">${escapeText(d.name)}</span>
+        </div>`;
+    }
+    html += `<div id="tinyfeed-stream-addhost" class="tinyfeed-stream-addhost" title="เพิ่มตัวละคร/เราเอง มาไลฟ์ร่วม"><i class="fa-solid fa-plus"></i></div>`;
+    $("#tinyfeed-stream-hosts").html(html);
+}
+
+// พื้นหลังกรอบสตรีม: ลิงก์รูป > สีตามธีม > สีพื้นม่วงเริ่มต้น
+function applyStreamBg() {
+    const stage = $("#tinyfeed-app-stream .tinyfeed-stream-stage");
+    if (!stage.length) return;
+    const url = String(getSetting("streamBgUrl") || "").trim();
+    if (url) {
+        stage.css("background-image", `url("${url.replace(/["\\]/g, encodeURIComponent)}")`);
+    } else if (getSetting("streamBgTheme")) {
+        stage.css("background-image", "linear-gradient(135deg, var(--tf-accent), color-mix(in srgb, var(--tf-accent) 50%, #000))");
+    } else {
+        stage.css("background-image", "linear-gradient(135deg, #a855f7, #7e22ce)");
+    }
 }
 
 function clearStreamTimer() {
@@ -266,10 +419,17 @@ function clearStreamTimer() {
 
 function maybeStartStreamTimer() {
     clearStreamTimer();
-    if (currentApp === "stream" && getStreamData().live && getSetting("streamCommentMode") === "auto") {
+    const s = getStreamData();
+    const viewersAuto = getSetting("streamCommentMode") === "auto";
+    // มอโนล็อกใช้ได้เฉพาะสตรีมเมอร์ที่เป็นตัวละคร AI
+    const talk = Boolean(getSetting("streamStreamerTalk")) && !streamerIsUser();
+    if (currentApp === "stream" && s.live && (viewersAuto || talk)) {
         const sec = Math.max(4, parseInt(getSetting("streamAutoInterval"), 10) || 12);
         streamTimer = setInterval(() => {
-            if (!isGeneratingStream) loadLiveComments({ silent: true });
+            if (isGeneratingStream) return;
+            // สลับระหว่างสตรีมเมอร์เล่าเรื่อง กับ คอมเมนต์ผู้ชม
+            if (talk && (!viewersAuto || Math.random() < 0.4)) streamerSpeak("talk", { silent: true });
+            else if (viewersAuto) loadLiveComments({ silent: true });
         }, sec * 1000);
     }
 }
@@ -277,23 +437,61 @@ function maybeStartStreamTimer() {
 function renderStream() {
     const s = getStreamData();
     const streamer = getStreamer();
-    $("#tinyfeed-app-stream .tinyfeed-stream-avatar").html(makeAvatar(streamer.avatarItem));
+    renderStreamHosts();
+    applyStreamBg();
     $("#tinyfeed-app-stream .tinyfeed-stream-title").text(s.live ? (s.title || "กำลังไลฟ์สด") : "ยังไม่ได้เริ่มไลฟ์");
-    $("#tinyfeed-app-stream .tinyfeed-stream-streamer").text(s.live ? `โดย ${streamer.name}` : "");
+    // ชื่อผู้ไลฟ์: รวมตัวละครร่วมไลฟ์ (+ เราเอง ถ้าเรามาไลฟ์ร่วม/เป็นหลัก)
+    const hostNames = getStreamHosts();
+    if (userIsHost()) hostNames.unshift(getUserName());
+    const byLine = hostNames.length ? hostNames.join(", ") : streamer.name;
+    $("#tinyfeed-app-stream .tinyfeed-stream-streamer").text(s.live ? `โดย ${byLine}${s.direction ? " · " + s.direction : ""}` : "");
     $("#tinyfeed-stream-toggle").text(s.live ? "จบไลฟ์" : "เริ่มไลฟ์");
     $(".tinyfeed-stream-live").toggleClass("tinyfeed-hidden", !s.live);
     $(".tinyfeed-stream-viewers").toggleClass("tinyfeed-hidden", !s.live).text(`👁 ${formatCount(s.viewers)}`);
-    $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !s.live);
-    // ปุ่มโหลดคอมเมนต์โชว์เฉพาะโหมด manual + กำลังไลฟ์
+    const userHost = userIsHost();
+    // เราเป็นผู้ไลฟ์ (หลัก/ร่วม) = แถบพิมพ์คำพูดของเรา · ไม่งั้น = แถบคอมเมนต์ผู้ชม
+    $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !(s.live && !userHost));
+    $(".tinyfeed-stream-streamer-compose").toggleClass("tinyfeed-hidden", !(s.live && userHost));
+    // ฟอร์มตั้งหัวข้อ + ปุ่มให้ AI ตั้งหัวข้อโชว์ตอนยังไม่ไลฟ์
+    $("#tinyfeed-stream-startform").toggleClass("tinyfeed-hidden", s.live);
+    $("#tinyfeed-stream-ai-title").toggleClass("tinyfeed-hidden", s.live);
+    // ปุ่ม "ให้สตรีมเมอร์พูด" (AI) โชว์เมื่อมีสตรีมเมอร์ AI อย่างน้อย 1 คน (รวมกรณีเราไลฟ์ + มีตัวละครร่วม)
+    $("#tinyfeed-stream-speak").toggleClass("tinyfeed-hidden", !(s.live && getStreamHosts().length > 0));
     $("#tinyfeed-stream-loadcomments").toggleClass("tinyfeed-hidden",
         !(s.live && getSetting("streamCommentMode") === "manual"));
+
+    // แคปชันบนเวที = ประโยคล่าสุดที่สตรีมเมอร์พูด
+    const lastSpeak = [...s.comments].reverse().find((c) => c.isStreamer);
+    $(".tinyfeed-stream-caption").toggleClass("tinyfeed-hidden", !(s.live && lastSpeak))
+        .html(lastSpeak ? `🎙 ${renderRich(lastSpeak.text)}` : "");
 
     const rows = s.comments.map((c) => {
         if (c.isSystem) {
             return `<div class="tinyfeed-stream-divider"><span>${c.text}</span></div>`;
         }
+        if (c.isDonation) {
+            const color = donateTierColor(c.amount);
+            return `<div class="tinyfeed-stream-donation" style="--donate-color:${color}">
+                <div class="tinyfeed-stream-donation-head">
+                    <span class="tinyfeed-stream-donation-who"><i class="fa-solid fa-gift"></i> ${escapeText(c.author)}</span>
+                    <span class="tinyfeed-stream-donation-amt">${formatMoney(c.amount)}</span>
+                </div>
+                ${c.text ? `<div class="tinyfeed-stream-donation-msg">${renderRich(c.text)}</div>` : ""}
+            </div>`;
+        }
+        if (c.isStreamer) {
+            // ใช้ avatar ของผู้พูดจริง (รองรับไลฟ์หลายตัวละคร)
+            const spkAva = (c.author && c.author !== streamer.name) ? streamSpeakerAvatarItem(c.author) : streamer.avatarItem;
+            return `<div class="tinyfeed-stream-speak-row">
+                ${makeAvatar(spkAva)}
+                <div class="tinyfeed-stream-speak-body">
+                    <span class="tinyfeed-stream-speak-label"><i class="fa-solid fa-microphone"></i> ${escapeText(c.author)} · สตรีมเมอร์</span>
+                    <span class="tinyfeed-stream-speak-text">${renderRich(c.text)}</span>
+                </div>
+            </div>`;
+        }
         return `
-        <div class="tinyfeed-stream-comment${c.isStreamer ? " tinyfeed-stream-comment-streamer" : ""}">
+        <div class="tinyfeed-stream-comment">
             ${makeAvatar(c.isUser ? { isUser: true, author: c.author } : { author: c.author, avatar: c.avatar || "" })}
             <div class="tinyfeed-stream-comment-body">
                 <span class="tinyfeed-stream-comment-author">${escapeText(c.author)}</span>
@@ -317,25 +515,36 @@ async function toggleStream() {
         renderStream();
         return;
     }
-    // เริ่มไลฟ์: ให้ AI ตั้งหัวข้อจากเนื้อเรื่อง
+    // เริ่มไลฟ์: ใช้หัวข้อที่ผู้ใช้กรอก หรือให้ AI ตั้งถ้าเว้นว่าง
     if (isGeneratingStream) return;
+    const userTitle = String($("#tinyfeed-stream-title-input").val() || "").trim();
+    const direction = String($("#tinyfeed-stream-direction-input").val() || "").trim();
     isGeneratingStream = true;
     const btn = $("#tinyfeed-stream-toggle");
     btn.prop("disabled", true).text("กำลังเริ่ม...");
     try {
         const streamer = getStreamer();
-        const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สดในแอปสตรีมมิ่ง ` +
-            `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่องตอนนี้ ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
-        const raw = await tinyGenerate(q, 60);
-        const title = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+        let title = userTitle;
+        if (!title) {
+            const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สดในแอปสตรีมมิ่ง ` +
+                (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
+                `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่องตอนนี้ ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
+            const raw = await tinyGenerate(q, 60);
+            title = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+        }
         s.title = title || "ไลฟ์สด";
+        s.direction = direction;
         s.live = true;
         s.viewers = 20 + Math.floor(Math.random() * 4800);
         s.comments.push({ isSystem: true, text: escapeText(`🔴 เริ่มไลฟ์ — ${s.title}`), ts: Date.now() });
+        $("#tinyfeed-stream-title-input").val("");
+        $("#tinyfeed-stream-direction-input").val("");
         saveFeedData();
         renderStream();
         maybeStartStreamTimer();
-        loadLiveComments({ silent: true });   // เปิดมามีคอมเมนต์ทักทายเลย
+        // สตรีมเมอร์ตัวละครทักเปิดไลฟ์เอง · ถ้าเราเป็นสตรีมเมอร์ให้พิมพ์เอง
+        if (!streamerIsUser()) await streamerSpeak("open", { silent: true });
+        loadLiveComments({ silent: true });               // ผู้ชมทักทาย
     } catch (e) {
         console.error(`[${extensionName}] start stream failed:`, e);
         toastr.error("เริ่มไลฟ์ไม่สำเร็จ ลองใหม่นะ", "TinyStream");
@@ -343,6 +552,65 @@ async function toggleStream() {
         isGeneratingStream = false;
         btn.prop("disabled", false);
         renderStream();
+    }
+}
+
+// tier โดเนท (คงลำดับที่เก็บไว้ — ไม่ sort เพื่อให้แก้ไขไม่เด้ง) + สีตามจำนวนเงิน (SuperChat)
+function getDonateTiers() {
+    const t = getSetting("donateTiers");
+    return (Array.isArray(t) && t.length ? t : defaultSettings.donateTiers)
+        .map((x) => ({ min: Math.max(0, parseInt(x.min, 10) || 0), color: String(x.color || "#1d9bf0") }));
+}
+function donateTierColor(amount) {
+    const amt = Number(amount) || 0;
+    const tiers = getDonateTiers().sort((a, b) => a.min - b.min);
+    let color = tiers.length ? tiers[0].color : "#1d9bf0";
+    for (const t of tiers) { if (amt >= t.min) color = t.color; }
+    return color;
+}
+
+// วาดตัวแก้ tier โดเนทในหน้า config
+function renderDonateTiers() {
+    const tiers = getDonateTiers();
+    $("#tinyfeed-donate-tiers").html(tiers.map((t, i) => `
+        <div class="tinyfeed-donate-tier-row" data-index="${i}">
+            <span class="tinyfeed-donate-tier-ge">≥</span>
+            <input class="tinyfeed-donate-tier-min" type="number" min="0" value="${t.min}" />
+            <input class="tinyfeed-donate-tier-color" type="color" value="${escapeAttr(t.color)}" />
+            <span class="tinyfeed-donate-tier-del" title="ลบ tier"><i class="fa-solid fa-trash"></i></span>
+        </div>
+    `).join("") || `<span class="tinyfeed-field-hint">ยังไม่มี tier</span>`);
+}
+
+// แยกบรรทัดโดเนทจากผลลัพธ์ AI: DONATE: ชื่อ | จำนวนเงิน | ข้อความ
+function parseDonations(raw) {
+    const s = stripReasoning(raw);
+    const out = [];
+    const re = /DONATE:\s*(.+)/gi;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+        const parts = m[1].split("|");
+        if (parts.length < 2) continue;
+        const author = parts[0].replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const amount = Math.abs(Math.round(parseFloat(String(parts[1]).replace(/[^\d.]/g, "")) || 0));
+        const text = parts.slice(2).join("|").trim();
+        if (author && amount) out.push({ author, amount, text });
+    }
+    return out;
+}
+
+// ประมวลผลโดเนทที่ AI สร้าง: เข้าบัญชี + ดันการ์ดโดเนทลงคอมเมนต์ไลฟ์
+function processDonations(raw) {
+    if (!getSetting("streamDonateEnabled")) return;
+    const s = getStreamData();
+    const you = getUserName().trim().toLowerCase();
+    const cap = Math.max(1, parseInt(getSetting("bankDonateMax"), 10) || 5000);
+    for (const d of parseDonations(raw)) {
+        if (d.author.trim().toLowerCase() === you) continue;   // ผู้ใช้ไม่โดเนทให้ตัวเอง
+        const amount = Math.min(cap, d.amount);
+        if (bankAdd(amount, `โดเนทจาก ${d.author}`, "stream", { silentToast: true })) {
+            s.comments.push({ isDonation: true, author: d.author, amount, text: escapeHtml(d.text || ""), ts: Date.now() });
+        }
     }
 }
 
@@ -355,23 +623,34 @@ async function loadLiveComments(opts) {
     btn.addClass("tinyfeed-generating").prop("disabled", true);
     try {
         const streamer = getStreamer();
+        const you = getUserName();
         const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
         const recent = s.comments.slice(-6).map((c) => `${c.author}: ${htmlToPlain(c.text)}`).join("\n");
-        const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือไลฟ์สดของ ${streamer.name} หัวข้อ "${s.title}". ` +
-            `เขียนคอมเมนต์สดจากผู้ชม 3-5 คน (ชื่อผู้ชมสุ่มหลากหลาย${npcNames.length ? " หรือใช้ NPC เหล่านี้บ้าง: " + npcNames.join(", ") : ""}) ` +
-            `รีแอคกับไลฟ์แบบสมจริง สั้นๆ เหมือนแชตสด ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.` +
-            (String(getSetting("streamExtraPrompt") || "").trim() ? ` คำสั่งเพิ่มเติม: ${String(getSetting("streamExtraPrompt")).trim()}.` : "") +
-            crossAppContext("stream") +
-            (recent ? `\nคอมเมนต์ล่าสุด (อย่าซ้ำ):\n${recent}\n` : "") +
-            `\nตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อผู้ชม> | <ข้อความ>`;
+        const extra = String(getSetting("streamExtraPrompt") || "").trim();
+        // ระบบโดเนท: ให้ AI เลือกให้ผู้ชมโดเนทเอง (กำหนดจำนวน + ข้อความ)
+        const donateLine = getSetting("streamDonateEnabled")
+            ? ` [ระบบโดเนท] ผู้ชมบางคนอาจโดเนทเงินให้สตรีมเมอร์ได้ (0-1 คนต่อรอบ ไม่ต้องมีทุกครั้ง). ถ้าจะให้ใครโดเนท ใส่บรรทัดแยกในรูปแบบนี้: DONATE: <ชื่อผู้ชม> | <จำนวนเงินเป็นตัวเลข เช่น 20-2000> | <ข้อความโดเนทสั้นๆ>.`
+            : "";
+        const q = buildPrompt("streamComments", {
+            streamer: streamer.name, title: s.title,
+            direction: s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "",
+            roster: npcNames.length ? " หรือใช้ NPC เหล่านี้บ้าง: " + npcNames.join(", ") : "",
+            extra: (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + donateLine,
+            context: crossAppContext("stream"),
+            recent: recent ? `\nคอมเมนต์ล่าสุด (อย่าซ้ำ):\n${recent}\n` : "",
+        });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
+        // กรองไม่ให้สตรีมเมอร์/ผู้ใช้โผล่เป็นผู้ชมสุ่ม
         const list = parseCommentLines(raw, streamer.name)
+            .filter((c) => {
+                const a = c.author.trim().toLowerCase();
+                return a !== streamer.name.trim().toLowerCase() && a !== you.trim().toLowerCase();
+            })
             .map((c) => ({ author: c.author, avatar: getNpcAvatar(c.author), text: c.text, ts: Date.now() }));
-        if (list.length) {
-            s.comments.push(...list);
-            saveFeedData();
-            renderStream();
-        }
+        const before = s.comments.length;
+        s.comments.push(...list);
+        processDonations(raw);   // โดเนทที่ AI กำหนด → เข้าบัญชี + การ์ดโดเนท
+        if (s.comments.length > before) { saveFeedData(); renderStream(); }
     } catch (e) {
         console.error(`[${extensionName}] live comments failed:`, e);
         if (!opts.silent) toastr.error("โหลดคอมเมนต์ไม่สำเร็จ", "TinyStream");
@@ -379,6 +658,99 @@ async function loadLiveComments(opts) {
         isGeneratingStream = false;
         btn.removeClass("tinyfeed-generating").prop("disabled", false);
     }
+}
+
+// ให้สตรีมเมอร์ AI พูด 1 ประโยค — kind: "open" | "reply" | "talk"
+// opts.host = บังคับให้คนนี้พูด · ถ้าไม่ระบุและมีหลายคน = วนเวียนทีละคน (การันตีตัวร่วมได้คิว)
+async function streamerSpeak(kind, opts) {
+    opts = opts || {};
+    const s = getStreamData();
+    if (!s.live || isGeneratingStream) return;
+    const hosts = getStreamHosts();   // เฉพาะ AI (ไม่รวมเรา)
+    if (!hosts.length) return;        // ไม่มีสตรีมเมอร์ AI (เช่นเราไลฟ์คนเดียว)
+    const you = getUserName();
+    // เลือกผู้พูด
+    let speaker;
+    if (opts.host && hosts.some((h) => h.toLowerCase() === String(opts.host).toLowerCase())) speaker = opts.host;
+    else if (hosts.length > 1) speaker = nextStreamHost(hosts);
+    else speaker = hosts[0];
+    isGeneratingStream = true;
+    $("#tinyfeed-stream-speak").addClass("tinyfeed-generating").prop("disabled", true);   // ไอคอนหมุนบอกว่ากำลังเจน
+    try {
+        const transcript = s.comments.slice(-8).filter((c) => !c.isSystem && !c.isDonation)
+            .map((c) => `${c.isStreamer ? c.author + " (สตรีมเมอร์)" : c.author}: ${htmlToPlain(c.text)}`).join("\n");
+        const taskText = kind === "open"
+            ? `เพิ่งเปิดไลฟ์ — ทักทายผู้ชมและเกริ่นสั้นๆ ว่าจะไลฟ์เรื่องอะไร`
+            : kind === "reply"
+                ? `อ่านคอมเมนต์ล่าสุดของผู้ชม (โดยเฉพาะของ ${you}) แล้วโต้ตอบ/ตอบกลับแบบอ่านแชตสดๆ`
+                : `พูดคุย/เล่าเรื่องต่อเกี่ยวกับหัวข้อไลฟ์ ให้ต่อเนื่องเป็นธรรมชาติ`;
+        // เพื่อนร่วมไลฟ์คนอื่น (รวมเราถ้ามาไลฟ์ร่วม) — ให้พูดโต้ตอบกันได้
+        const others = hosts.filter((h) => h.toLowerCase() !== speaker.toLowerCase());
+        if (userIsHost() && !streamerIsUser()) others.push(you);
+        const coLine = others.length
+            ? ` คุณกำลังไลฟ์ร่วมกับ: ${others.join(", ")} — พูดในนามของ ${speaker} เท่านั้น จะทัก/โต้ตอบคนอื่นก็ได้ แต่ห้ามพูดแทน ${you}.`
+            : "";
+        const extra = String(getSetting("streamExtraPrompt") || "").trim();
+        const extraLine = (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + galleryPromptBlock();
+        const q = buildPrompt("streamerSpeak", {
+            streamer: speaker, title: s.title,
+            direction: (s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "") + coLine,
+            task: " " + taskText + ".",
+            extra: extraLine,
+            context: crossAppContext("stream"),
+            transcript: transcript ? `\nแชตล่าสุด:\n${transcript}\n` : "",
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
+        let line = stripWrapBrackets(stripReasoning(raw).trim());
+        const esc = speaker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        line = line.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
+        if (line) {
+            s.comments.push({ isStreamer: true, author: speaker, text: escapeHtml(line), ts: Date.now() });
+            s.lastSpeaker = speaker;   // จำไว้เพื่อวนเวียนคนถัดไป
+            saveFeedData();
+            renderStream();
+        } else if (!opts.silent) {
+            toastr.info("สตรีมเมอร์ยังไม่พูดอะไร ลองใหม่นะ", "TinyStream");
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] streamerSpeak failed:`, e);
+        if (!opts.silent) toastr.error("สตรีมเมอร์พูดไม่สำเร็จ", "TinyStream");
+    } finally {
+        isGeneratingStream = false;
+        $("#tinyfeed-stream-speak").removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+
+// เติมหัวข้อไลฟ์ให้ช่อง input ด้วย AI (ปุ่มในฟอร์มเริ่มไลฟ์)
+async function fillStreamAiTitle() {
+    if (isGeneratingStream) return;
+    if (!getCurrentCharacter()) { toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyStream"); return; }
+    const streamer = getStreamer();
+    const direction = String($("#tinyfeed-stream-direction-input").val() || "").trim();
+    isGeneratingStream = true;
+    const btn = $("#tinyfeed-stream-ai-title");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สด ` +
+            (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
+            `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่อง ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
+        const raw = await tinyGenerate(q, 60);
+        const t = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+        if (t) $("#tinyfeed-stream-title-input").val(t);
+    } catch (e) {
+        console.error(`[${extensionName}] ai title failed:`, e);
+        toastr.error("ตั้งหัวข้อไม่สำเร็จ ลองใหม่นะ", "TinyStream");
+    } finally {
+        isGeneratingStream = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+// ปุ่ม "ให้สตรีมเมอร์พูด" — ถ้ามีคอมเมนต์ผู้ใช้ค้าง = ตอบ, ไม่งั้น = เล่าเรื่อง
+function streamerSpeakButton() {
+    if (!getStreamData().live) return;
+    streamerSpeak(streamSpeakKind(), {});   // วนเวียนผู้พูดให้เอง
 }
 
 async function sendStreamComment(text) {
@@ -389,10 +761,460 @@ async function sendStreamComment(text) {
     saveFeedData();
     $("#tinyfeed-stream-input").val("");
     renderStream();
+    // สตรีมเมอร์ (ตัวละคร) อ่านคอมเมนต์เราแล้วตอบ (auto) — ข้ามถ้าเราเป็นสตรีมเมอร์เอง
+    if (getSetting("streamStreamerReply") && !streamerIsUser()) {
+        await streamerSpeak("reply", { silent: true });
+    }
     // โหมด onupdate: คอมเมนต์เราทำให้ผู้ชมรีแอคต่อ
     if (getSetting("streamCommentMode") === "onupdate") {
         await loadLiveComments({ silent: true });
     }
+}
+
+// เราเป็นสตรีมเมอร์เอง — พิมพ์คำพูดของสตรีมเมอร์เอง (ไม่ใช้ AI)
+async function sendStreamerLine(text) {
+    const clean = String(text || "").trim();
+    const s = getStreamData();
+    if (!clean || !s.live || !userIsHost()) return;
+    s.comments.push({ isStreamer: true, author: getUserName(), text: escapeHtml(clean), ts: Date.now() });
+    saveFeedData();
+    $("#tinyfeed-stream-streamer-input").val("");
+    renderStream();
+    // โหมด onupdate: คำพูดสตรีมเมอร์ทำให้ผู้ชมรีแอค
+    if (getSetting("streamCommentMode") === "onupdate") {
+        await loadLiveComments({ silent: true });
+    }
+}
+
+// ===== TinyBank: ธนาคาร/การเงิน (ผูกกับแชท) =====
+function getBankData() {
+    const data = getFeedData();
+    if (!data.bank || typeof data.bank !== "object") data.bank = { balance: 0, txns: [] };
+    if (typeof data.bank.balance !== "number" || !isFinite(data.bank.balance)) data.bank.balance = 0;
+    if (!Array.isArray(data.bank.txns)) data.bank.txns = [];
+    return data.bank;
+}
+
+function formatMoney(n) {
+    const cur = getSetting("bankCurrency") || "฿";
+    return `${cur}${Number(n || 0).toLocaleString()}`;
+}
+
+// แกนธุรกรรม: dir "in" = เงินเข้า, "out" = เงินออก · app = แหล่งที่มา (bank/stream/connect/shop)
+// คืน true ถ้าสำเร็จ · opts.silentToast = ไม่เด้ง toast ยอดไม่พอ
+function bankTxn(dir, amount, label, app, opts) {
+    opts = opts || {};
+    const amt = Math.abs(Math.round(Number(amount) || 0));
+    if (!amt) return false;
+    const b = getBankData();
+    if (dir === "out" && amt > b.balance) {
+        if (!opts.silentToast) toastr.warning("ยอดเงินไม่พอ", "TinyBank");
+        return false;
+    }
+    b.balance += dir === "in" ? amt : -amt;
+    b.txns.unshift({
+        id: "tx" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        dir, amount: amt, label: String(label || ""), app: app || "bank", ts: Date.now(),
+    });
+    if (b.txns.length > 200) b.txns.length = 200;
+    saveFeedData();
+    if (currentApp === "bank") renderBank();
+    return true;
+}
+function bankAdd(amount, label, app, opts) { return bankTxn("in", amount, label, app, opts); }
+function bankDeduct(amount, label, app, opts) { return bankTxn("out", amount, label, app, opts); }
+
+// ไอคอน + ป้ายชื่อแอปต้นทางของธุรกรรม
+function bankTxnMeta(app) {
+    switch (app) {
+        case "stream": return { icon: "fa-video", name: "TinyStream" };
+        case "connect": return { icon: "fa-comment-dots", name: "TinyConnect" };
+        case "shop": return { icon: "fa-bag-shopping", name: "ร้านค้า" };
+        default: return { icon: "fa-wallet", name: "ธนาคาร" };
+    }
+}
+
+function renderBank() {
+    const b = getBankData();
+    $("#tinyfeed-bank-balance").text(formatMoney(b.balance));
+    if (!b.txns.length) {
+        $("#tinyfeed-bank-txns").html(emptyStateHtml("fa-receipt", "ยังไม่มีธุรกรรม", "เติมเงิน/จ่ายเงินเอง หรือรับโดเนทจากไลฟ์"));
+        return;
+    }
+    $("#tinyfeed-bank-txns").html(b.txns.map((t) => {
+        const m = bankTxnMeta(t.app);
+        const sign = t.dir === "in" ? "+" : "−";
+        return `<div class="tinyfeed-bank-txn">
+            <div class="tinyfeed-bank-txn-icon tinyfeed-bank-${t.dir}"><i class="fa-solid ${m.icon}"></i></div>
+            <div class="tinyfeed-bank-txn-body">
+                <div class="tinyfeed-bank-txn-label">${escapeText(t.label || (t.dir === "in" ? "เงินเข้า" : "เงินออก"))}</div>
+                <div class="tinyfeed-bank-txn-sub">${m.name} · ${timeAgo(t.ts)}</div>
+            </div>
+            <div class="tinyfeed-bank-txn-amt tinyfeed-bank-${t.dir}">${sign}${formatMoney(t.amount)}</div>
+        </div>`;
+    }).join(""));
+}
+
+// ปุ่มเติม/จ่ายเงินเอง (อ่านจากฟอร์มในแอป)
+function bankManualTxn(dir) {
+    const amt = parseInt($("#tinyfeed-bank-amount").val(), 10);
+    const label = String($("#tinyfeed-bank-label").val() || "").trim();
+    if (!Number.isFinite(amt) || amt <= 0) { toastr.info("ใส่จำนวนเงินก่อนนะ", "TinyBank"); return; }
+    const ok = bankTxn(dir, amt, label || (dir === "in" ? "เติมเงิน" : "จ่ายเงิน"), "bank");
+    if (ok) {
+        $("#tinyfeed-bank-amount, #tinyfeed-bank-label").val("");
+    }
+}
+
+// ===== TinyGallery: คลังรูป + สติกเกอร์ (global, ไม่ผูกกับแชท) =====
+let galleryTab = "images";        // "images" | "stickers"
+let galleryPickTarget = null;     // { kind, onPick } ตอนเปิด picker เลือกมาส่ง
+
+function galleryId() {
+    return "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function openGallery() {
+    renderGalleryAlbums();
+    switchGalleryTab(galleryTab);
+}
+
+function switchGalleryTab(tab) {
+    galleryTab = tab === "stickers" ? "stickers" : "images";
+    $(".tinyfeed-gallery-tab").removeClass("tinyfeed-gallery-tab-active");
+    $(`.tinyfeed-gallery-tab[data-gtab="${galleryTab}"]`).addClass("tinyfeed-gallery-tab-active");
+    $("#tinyfeed-gallery-panel-images").toggleClass("tinyfeed-hidden", galleryTab !== "images");
+    $("#tinyfeed-gallery-panel-stickers").toggleClass("tinyfeed-hidden", galleryTab !== "stickers");
+    renderGalleryGrid(galleryTab === "stickers" ? "sticker" : "image");
+}
+
+// เติม dropdown อัลบั้ม (คงค่าที่เลือกไว้ถ้ายังมีอยู่)
+function fillAlbumSelect($sel, albums, keep) {
+    const cur = keep != null ? keep : $sel.val();
+    $sel.html(albums.map((a) => `<option value="${escapeAttr(a)}">${escapeText(a)}</option>`).join(""));
+    if (cur && albums.includes(cur)) $sel.val(cur);
+}
+
+function renderGalleryAlbums() {
+    const g = getGallery();
+    fillAlbumSelect($("#tinyfeed-gallery-img-album"), g.imageAlbums);
+    fillAlbumSelect($("#tinyfeed-gallery-stk-album"), g.stickerAlbums);
+}
+
+// อัลบั้มที่กำลังเลือกในแท็บนั้น
+function currentAlbum(kind) {
+    const sel = kind === "sticker" ? "#tinyfeed-gallery-stk-album" : "#tinyfeed-gallery-img-album";
+    return String($(sel).val() || "ทั่วไป");
+}
+
+function renderGalleryGrid(kind) {
+    const g = getGallery();
+    const album = currentAlbum(kind);
+    const list = (kind === "sticker" ? g.stickers : g.images).filter((it) => (it.album || "ทั่วไป") === album);
+    const gridSel = kind === "sticker" ? "#tinyfeed-gallery-stk-grid" : "#tinyfeed-gallery-img-grid";
+    if (!list.length) {
+        $(gridSel).html(`<div class="tinyfeed-gallery-empty">ยังไม่มี${kind === "sticker" ? "สติกเกอร์" : "รูป"}ในอัลบั้มนี้ · เพิ่มด้านบนได้เลย</div>`);
+        return;
+    }
+    $(gridSel).html(list.map((it) => `
+        <div class="tinyfeed-gallery-item" data-kind="${kind}" data-id="${escapeAttr(it.id)}">
+            <div class="tinyfeed-gallery-thumb-wrap">
+                <img class="tinyfeed-gallery-thumb" src="${escapeAttr(it.url)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />
+                <span class="tinyfeed-gallery-item-actions">
+                    <span class="tinyfeed-gallery-item-edit" title="แก้ไข/ย้ายอัลบั้ม"><i class="fa-solid fa-pen"></i></span>
+                    <span class="tinyfeed-gallery-item-del" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+                </span>
+            </div>
+            <div class="tinyfeed-gallery-item-name">${escapeText(it.name)}</div>
+        </div>
+    `).join(""));
+}
+
+function addGalleryImage() {
+    const url = String($("#tinyfeed-gallery-img-url").val() || "").trim();
+    const caption = String($("#tinyfeed-gallery-img-caption").val() || "").trim();
+    const name = String($("#tinyfeed-gallery-img-name").val() || "").trim();
+    if (!url) { toastr.info("ใส่ลิงก์รูปก่อนนะ", "TinyGallery"); return; }
+    const g = getGallery();
+    const finalName = name || `รูป-${g.images.length + 1}`;
+    if (g.images.some((im) => String(im.name).trim().toLowerCase() === finalName.toLowerCase())) {
+        toastr.info("มีชื่อนี้อยู่แล้ว ตั้งชื่ออื่นนะ (ชื่อใช้อ้างอิงตอนส่ง)", "TinyGallery"); return;
+    }
+    g.images.push({ id: galleryId(), url, caption, name: finalName, album: currentAlbum("image"), ts: Date.now() });
+    saveGallery();
+    $("#tinyfeed-gallery-img-url, #tinyfeed-gallery-img-caption, #tinyfeed-gallery-img-name").val("");
+    renderGalleryGrid("image");
+    toastr.success(`เพิ่มรูป "${finalName}" แล้ว`, "TinyGallery");
+}
+
+function addGallerySticker() {
+    const url = String($("#tinyfeed-gallery-stk-url").val() || "").trim();
+    const name = String($("#tinyfeed-gallery-stk-name").val() || "").trim();
+    if (!url) { toastr.info("ใส่ลิงก์สติกเกอร์ก่อนนะ", "TinyGallery"); return; }
+    const g = getGallery();
+    const finalName = name || `สติกเกอร์-${g.stickers.length + 1}`;
+    if (g.stickers.some((s) => String(s.name).trim().toLowerCase() === finalName.toLowerCase())) {
+        toastr.info("มีชื่อนี้อยู่แล้ว ตั้งชื่ออื่นนะ (ชื่อใช้อ้างอิงตอนส่ง)", "TinyGallery"); return;
+    }
+    g.stickers.push({ id: galleryId(), url, name: finalName, album: currentAlbum("sticker"), ts: Date.now() });
+    saveGallery();
+    $("#tinyfeed-gallery-stk-url, #tinyfeed-gallery-stk-name").val("");
+    renderGalleryGrid("sticker");
+    toastr.success(`เพิ่มสติกเกอร์ "${finalName}" แล้ว`, "TinyGallery");
+}
+
+function addGalleryAlbum(kind) {
+    const g = getGallery();
+    const arr = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    const name = String(window.prompt("ชื่ออัลบั้มใหม่:", "") || "").trim();
+    if (!name) return;
+    if (arr.some((a) => a.trim().toLowerCase() === name.toLowerCase())) {
+        toastr.info("มีอัลบั้มชื่อนี้แล้ว", "TinyGallery"); return;
+    }
+    arr.push(name);
+    saveGallery();
+    renderGalleryAlbums();
+    $(kind === "sticker" ? "#tinyfeed-gallery-stk-album" : "#tinyfeed-gallery-img-album").val(name);
+    renderGalleryGrid(kind);
+}
+
+function deleteGalleryAlbum(kind) {
+    const g = getGallery();
+    const arr = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    const album = currentAlbum(kind);
+    if (album === "ทั่วไป") { toastr.info("ลบอัลบั้ม 'ทั่วไป' ไม่ได้", "TinyGallery"); return; }
+    if (arr.length <= 1) { toastr.info("ต้องเหลืออัลบั้มอย่างน้อย 1 อัน", "TinyGallery"); return; }
+    if (!window.confirm(`ลบอัลบั้ม "${album}"? รายการในนั้นจะย้ายไปอัลบั้ม 'ทั่วไป'`)) return;
+    const items = kind === "sticker" ? g.stickers : g.images;
+    items.forEach((it) => { if ((it.album || "ทั่วไป") === album) it.album = "ทั่วไป"; });
+    const idx = arr.indexOf(album);
+    if (idx >= 0) arr.splice(idx, 1);
+    saveGallery();
+    renderGalleryAlbums();
+    $(kind === "sticker" ? "#tinyfeed-gallery-stk-album" : "#tinyfeed-gallery-img-album").val("ทั่วไป");
+    renderGalleryGrid(kind);
+}
+
+function deleteGalleryItem(kind, id) {
+    const g = getGallery();
+    const arr = kind === "sticker" ? g.stickers : g.images;
+    const idx = arr.findIndex((it) => String(it.id) === String(id));
+    if (idx < 0) return;
+    arr.splice(idx, 1);
+    saveGallery();
+    renderGalleryGrid(kind);
+}
+
+// หาไอเท็มในคลังตาม kind + id
+function getGalleryItem(kind, id) {
+    const g = getGallery();
+    return (kind === "sticker" ? g.stickers : g.images).find((it) => String(it.id) === String(id)) || null;
+}
+
+// ===== ดูรูปเต็ม (lightbox) — โชว์รูปใหญ่ + ชื่อ + คำบรรยาย =====
+function openGalleryView(kind, id) {
+    const it = getGalleryItem(kind, id);
+    if (!it) return;
+    $("#tinyfeed-gallery-view-img").removeClass("tinyfeed-img-broken").attr("src", it.url);
+    $("#tinyfeed-gallery-view-name").text(it.name || "");
+    const cap = kind === "image" ? String(it.caption || "").trim() : "";
+    $("#tinyfeed-gallery-view-cap").text(cap).toggleClass("tinyfeed-hidden", !cap);
+    $("#tinyfeed-gallery-view").removeClass("tinyfeed-hidden");
+}
+function closeGalleryView() {
+    $("#tinyfeed-gallery-view").addClass("tinyfeed-hidden");
+}
+
+// ===== แก้ไขชื่อ/คำบรรยาย + ย้ายอัลบั้ม =====
+let galleryEditRef = null;   // { kind, id }
+function openGalleryEdit(kind, id) {
+    const it = getGalleryItem(kind, id);
+    if (!it) return;
+    galleryEditRef = { kind, id };
+    const g = getGallery();
+    const albums = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    $("#tinyfeed-gallery-edit-title").text(kind === "sticker" ? "แก้ไขสติกเกอร์" : "แก้ไขรูป");
+    $("#tinyfeed-gallery-edit-name").val(it.name || "");
+    $("#tinyfeed-gallery-edit-caption").val(it.caption || "");
+    $("#tinyfeed-gallery-edit-caption-field").toggleClass("tinyfeed-hidden", kind !== "image");
+    fillAlbumSelect($("#tinyfeed-gallery-edit-album"), albums, it.album || "ทั่วไป");
+    $("#tinyfeed-gallery-edit").removeClass("tinyfeed-hidden");
+}
+function closeGalleryEdit() {
+    $("#tinyfeed-gallery-edit").addClass("tinyfeed-hidden");
+    galleryEditRef = null;
+}
+function saveGalleryEdit() {
+    if (!galleryEditRef) return;
+    const { kind, id } = galleryEditRef;
+    const it = getGalleryItem(kind, id);
+    if (!it) { closeGalleryEdit(); return; }
+    const newName = String($("#tinyfeed-gallery-edit-name").val() || "").trim();
+    if (!newName) { toastr.info("ตั้งชื่อก่อนนะ", "TinyGallery"); return; }
+    const arr = kind === "sticker" ? getGallery().stickers : getGallery().images;
+    if (arr.some((x) => x.id !== it.id && String(x.name).trim().toLowerCase() === newName.toLowerCase())) {
+        toastr.info("มีชื่อนี้อยู่แล้ว ตั้งชื่ออื่นนะ", "TinyGallery"); return;
+    }
+    it.name = newName;
+    if (kind === "image") it.caption = String($("#tinyfeed-gallery-edit-caption").val() || "").trim();
+    it.album = String($("#tinyfeed-gallery-edit-album").val() || "ทั่วไป");
+    saveGallery();
+    closeGalleryEdit();
+    renderGalleryGrid(kind);
+    toastr.success("บันทึกแล้ว", "TinyGallery");
+}
+
+// ปิด overlay ทั้งหมดของคลัง (picker/ดูรูป/แก้ไข)
+function closeGalleryOverlays() {
+    closeGalleryPicker();
+    closeGalleryView();
+    closeGalleryEdit();
+}
+
+// ===== ตัวเลือกตัวละคร (กดรูปโปรไฟล์ → เลือก) ใช้ร่วม TinyFeed + TinyStream =====
+const POSTER_USER = "__user__";
+const POSTER_AUTO = "__auto__";
+let charPickTarget = null;   // callback(value) เมื่อเลือก
+
+// สร้างรายการตัวเลือก [{ value, name, node(html avatar) }]
+function charPickerItems(opts) {
+    opts = opts || {};
+    const out = [];
+    const exclude = new Set((opts.exclude || []).map(String));
+    if (opts.includeUser && !exclude.has(POSTER_USER)) {
+        out.push({ value: POSTER_USER, name: getUserName() + " (เรา)", node: makeAvatar({ isUser: true, author: getUserName() }) });
+    }
+    const char = getCurrentCharacter();
+    if (opts.includeMain !== false && char && char.name && !exclude.has(char.name)) {
+        out.push({ value: char.name, name: char.name, node: makeAvatar({ isMain: true, author: char.name }) });
+    }
+    for (const npc of getNpcs()) {
+        const nm = String(npc.name || "").trim();
+        if (nm && !exclude.has(nm)) out.push({ value: nm, name: nm, node: makeAvatar({ author: nm, avatar: npc.avatar || "" }) });
+    }
+    // "อัตโนมัติ" อยู่ล่างสุดเสมอ
+    if (opts.includeAuto) {
+        out.push({ value: POSTER_AUTO, name: "อัตโนมัติ (AI เลือก)", node: `<div class="tinyfeed-avatar tinyfeed-avatar-auto"><i class="fa-solid fa-wand-magic-sparkles"></i></div>` });
+    }
+    return out;
+}
+
+function openCharPicker(opts, onPick) {
+    const items = charPickerItems(opts);
+    if (!items.length) { toastr.info("ยังไม่มีตัวละคร/NPC ให้เลือก", "TinyPhone"); return; }
+    charPickTarget = onPick;
+    $("#tinyfeed-char-picker-title").text((opts && opts.title) || "เลือกตัวละคร");
+    $("#tinyfeed-char-picker-list").html(items.map((it) => `
+        <div class="tinyfeed-char-pick" data-value="${escapeAttr(it.value)}">
+            ${it.node}
+            <span class="tinyfeed-char-pick-name">${escapeText(it.name)}</span>
+        </div>
+    `).join(""));
+    $("#tinyfeed-char-picker").removeClass("tinyfeed-hidden");
+}
+
+function closeCharPicker() {
+    $("#tinyfeed-char-picker").addClass("tinyfeed-hidden");
+    charPickTarget = null;
+}
+
+function pickChar(value) {
+    const cb = charPickTarget;
+    closeCharPicker();
+    if (typeof cb === "function") cb(value);
+}
+
+// ===== config: เลือกอัลบั้มที่ให้ AI เข้าถึง (checkbox + แบ่งหน้า) =====
+const GALLERY_CFG_PER_PAGE = 8;
+let galleryCfgPage = 0;
+
+// รวมชื่ออัลบั้มทั้งรูป + สติกเกอร์ (ไม่ซ้ำ เรียงตามที่พบ)
+function allGalleryAlbums() {
+    const g = getGallery();
+    const seen = new Set();
+    const out = [];
+    [...g.imageAlbums, ...g.stickerAlbums].forEach((a) => {
+        const k = String(a);
+        if (!seen.has(k)) { seen.add(k); out.push(k); }
+    });
+    return out;
+}
+
+function renderGalleryCfgAlbums() {
+    const scope = getSetting("galleryPromptScope") || "all";
+    $("#tinyfeed-cfg-gallery-albums").toggleClass("tinyfeed-hidden", scope !== "selected");
+    if (scope !== "selected") return;
+    const albums = allGalleryAlbums();
+    const selected = new Set((getSetting("galleryAlbums") || []).map((a) => String(a)));
+    const pages = Math.max(1, Math.ceil(albums.length / GALLERY_CFG_PER_PAGE));
+    galleryCfgPage = Math.min(Math.max(0, galleryCfgPage), pages - 1);
+    const start = galleryCfgPage * GALLERY_CFG_PER_PAGE;
+    const pageItems = albums.slice(start, start + GALLERY_CFG_PER_PAGE);
+    $("#tinyfeed-cfg-gallery-albums-list").html(pageItems.map((a) => `
+        <label class="tinyfeed-gallery-cfg-item">
+            <input type="checkbox" class="tinyfeed-cfg-gallery-album" value="${escapeAttr(a)}" ${selected.has(a) ? "checked" : ""} />
+            <span>${escapeText(a)}</span>
+        </label>
+    `).join("") || `<span class="tinyfeed-field-hint">ยังไม่มีอัลบั้ม</span>`);
+    $("#tinyfeed-cfg-gallery-albums-pager").toggleClass("tinyfeed-hidden", pages <= 1);
+    $("#tinyfeed-cfg-gallery-albums-info").text(`${galleryCfgPage + 1}/${pages}`);
+}
+
+// ===== Picker: เลือกสติกเกอร์/รูป จากคลังมาส่งในแอปอื่น =====
+function openGalleryPicker(kind, onPick) {
+    const g = getGallery();
+    const items = kind === "sticker" ? g.stickers : g.images;
+    if (!items.length) {
+        toastr.info(`ยังไม่มี${kind === "sticker" ? "สติกเกอร์" : "รูป"}ในคลัง — เพิ่มที่แอป TinyGallery ก่อนนะ`, "TinyGallery");
+        return;
+    }
+    galleryPickTarget = { kind, onPick };
+    $("#tinyfeed-gallery-picker-title").text(kind === "sticker" ? "เลือกสติกเกอร์" : "เลือกรูป");
+    const albums = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    fillAlbumSelect($("#tinyfeed-gallery-picker-album"), albums, albums[0]);
+    renderPickerGrid();
+    $("#tinyfeed-gallery-picker").removeClass("tinyfeed-hidden");
+}
+
+function renderPickerGrid() {
+    if (!galleryPickTarget) return;
+    const kind = galleryPickTarget.kind;
+    const g = getGallery();
+    const album = String($("#tinyfeed-gallery-picker-album").val() || "ทั่วไป");
+    const list = (kind === "sticker" ? g.stickers : g.images).filter((it) => (it.album || "ทั่วไป") === album);
+    if (!list.length) {
+        $("#tinyfeed-gallery-picker-grid").html(`<div class="tinyfeed-gallery-empty">อัลบั้มนี้ว่าง</div>`);
+        return;
+    }
+    $("#tinyfeed-gallery-picker-grid").html(list.map((it) => `
+        <div class="tinyfeed-gallery-pick" data-name="${escapeAttr(it.name)}" title="${escapeText(it.name)}">
+            <img class="tinyfeed-gallery-thumb" src="${escapeAttr(it.url)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />
+            <div class="tinyfeed-gallery-item-name">${escapeText(it.name)}</div>
+        </div>
+    `).join(""));
+}
+
+function closeGalleryPicker() {
+    $("#tinyfeed-gallery-picker").addClass("tinyfeed-hidden");
+    galleryPickTarget = null;
+}
+
+function pickGalleryItem(name) {
+    if (!galleryPickTarget) return;
+    const kind = galleryPickTarget.kind;
+    const cb = galleryPickTarget.onPick;
+    const token = `[${kind === "sticker" ? "sticker" : "img"}:${name}]`;
+    closeGalleryPicker();
+    if (typeof cb === "function") cb(token, name, kind);
+}
+
+// แทรกโทเคนลงช่องพิมพ์ (สำหรับแอปที่พิมพ์ก่อนแล้วค่อยโพสต์ เช่น TinyFeed)
+function insertIntoInput(sel, token) {
+    const el = $(sel);
+    if (!el.length) return;
+    const cur = String(el.val() || "");
+    const glue = cur && !/\s$/.test(cur) ? " " : "";
+    el.val(cur + glue + token + " ").trigger("input").focus();
 }
 
 // ===== TinyConnect: แชตสไตล์ไลน์ =====
@@ -547,8 +1369,11 @@ function openThread(key, name) {
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
     $("#tinyfeed-back").removeClass("tinyfeed-hidden");
     $(".tinyfeed-title").text(name);
-    // ปุ่ม "ให้กลุ่มคุยกันต่อ" โชว์เฉพาะห้องกลุ่ม
-    $("#tinyfeed-group-chat-tools").toggleClass("tinyfeed-hidden", !findGroup(key));
+    // แถบเครื่องมือในห้องแชต: 1:1 = ปุ่ม "ให้ตอบกลับ" · กลุ่ม = "ให้กลุ่มคุยกันต่อ"
+    const isGroup = Boolean(findGroup(key));
+    $("#tinyfeed-connect-thread-tools").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-connect-reply").toggleClass("tinyfeed-hidden", isGroup);
+    $("#tinyfeed-group-continue").toggleClass("tinyfeed-hidden", !isGroup);
     renderThread();
     saveLastScreen();
     $("#tinyfeed-connect-input").trigger("focus");
@@ -614,14 +1439,15 @@ function deleteConnectMessage(idx) {
     renderThread();
 }
 
-async function sendConnectMessage(text) {
+// ส่งข้อความ = แค่ต่อคิว (ไม่ generate ทันที) เพื่อพิมพ์/แนบรูป/สติกเกอร์หลายอันใน 1 รอบ
+// แล้วค่อยกดปุ่ม "ให้ตอบกลับ" ให้ตัวละครตอบทีเดียว
+function sendConnectMessage(text) {
     const clean = String(text || "").trim();
     if (!clean || !activeThread) return;
     getThread(activeThread).push({ from: "user", text: escapeHtml(clean), ts: Date.now() });
     saveFeedData();
     $("#tinyfeed-connect-input").val("").css("height", "");   // เคลียร์ + คืนความสูงเริ่มต้น
     renderThread();
-    await generateConnectReply();
 }
 
 async function generateConnectReply() {
@@ -642,6 +1468,7 @@ async function generateConnectReply() {
             `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
             (extraG ? `คำสั่งเพิ่มเติม: ${extraG}.\n` : "") +
             crossAppContext("connect") +
+            galleryPromptBlock() +
             `บทแชตล่าสุด:\n${transcript}\n` +
             `ตอบบรรทัดละคนในรูปแบบนี้เท่านั้น:\nMSG: <ชื่อสมาชิก> | <ข้อความ>`;
         isConnectReplying = true;
@@ -674,6 +1501,7 @@ async function generateConnectReply() {
         `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
         (String(getSetting("connectExtraPrompt") || "").trim() ? `คำสั่งเพิ่มเติม: ${String(getSetting("connectExtraPrompt")).trim()}.\n` : "") +
         crossAppContext("connect") +
+        galleryPromptBlock() +
         `บทแชตล่าสุด:\n${transcript}\n` +
         `ตอบเฉพาะข้อความของ ${name} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`;
 
@@ -685,8 +1513,8 @@ async function generateConnectReply() {
         // ถ้าโมเดลห่อด้วย [... Message: ข้อความ] ให้ดึงเฉพาะเนื้อในออกมา
         const wrapped = [...reply.matchAll(/\[[^\]]*?Message:\s*([^\]]+)\]/gi)];
         if (wrapped.length) reply = wrapped.map((m) => m[1].trim()).join("\n");
-        // ตัดวงเล็บ/ป้ายกำกับที่หลงเหลือ + "ชื่อ:" นำหน้า
-        reply = reply.replace(/^\[|\]$/g, "").trim();
+        // ตัดวงเล็บ/ป้ายกำกับที่หลงเหลือ + "ชื่อ:" นำหน้า (ไม่ทำลายโทเคนสติกเกอร์/รูป)
+        reply = stripWrapBrackets(reply);
         const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         reply = reply.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
         if (reply) {
@@ -917,6 +1745,44 @@ function getForumRooms() {
     return r;
 }
 
+// ===== TinyGallery: คลังรูป + สติกเกอร์ (global — เก็บใน extension_settings ไม่ผูกกับแชท) =====
+function getGallery() {
+    const store = extension_settings[extensionName] || {};
+    let g = store.gallery;
+    if (!g || typeof g !== "object") g = {};
+    if (!Array.isArray(g.images)) g.images = [];
+    if (!Array.isArray(g.stickers)) g.stickers = [];
+    if (!Array.isArray(g.imageAlbums) || !g.imageAlbums.length) g.imageAlbums = ["ทั่วไป"];
+    if (!Array.isArray(g.stickerAlbums) || !g.stickerAlbums.length) g.stickerAlbums = ["ทั่วไป"];
+    if (store.gallery !== g) setSetting("gallery", g);   // เขียนกลับถ้าเพิ่งสร้าง/ซ่อม
+    return g;
+}
+
+function saveGallery() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    extension_settings[extensionName].gallery = getGallery();
+    saveSettingsDebounced();
+}
+
+// ถอด HTML entity เบาๆ (สำหรับจับคู่ชื่อในโทเคน [sticker:...] / [img:...] ที่ผ่าน escape มาแล้ว)
+function unescapeLite(s) {
+    return String(s == null ? "" : s)
+        .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+}
+
+// หาสติกเกอร์/รูปในคลังตามชื่อ (case-insensitive) ไม่เจอคืน null
+function findSticker(name) {
+    const k = String(name || "").trim().toLowerCase();
+    if (!k) return null;
+    return getGallery().stickers.find((s) => String(s.name || "").trim().toLowerCase() === k) || null;
+}
+function findGalleryImage(name) {
+    const k = String(name || "").trim().toLowerCase();
+    if (!k) return null;
+    return getGallery().images.find((s) => String(s.name || "").trim().toLowerCase() === k) || null;
+}
+
 // หา URL รูปของ NPC จากรายชื่อประจำ (ตามชื่อ) ไม่เจอคืน ""
 function getNpcAvatar(name) {
     const key = String(name || "").trim().toLowerCase();
@@ -1026,6 +1892,9 @@ function escapeHtml(str) {
 // (ปลอดภัยเพราะรับ input ที่ผ่าน escape มาแล้ว แท็กเดียวที่มีคือ <br>)
 function renderRich(html) {
     let s = String(html == null ? "" : html);
+    // โทเคนคลังรูป: [sticker:ชื่อ] → รูปสติกเกอร์ · [img:ชื่อ] → รูปพร้อมคำบรรยาย (ทำก่อน markdown)
+    s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => renderStickerToken(unescapeLite(n)));
+    s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => renderImgToken(unescapeLite(n)));
     s = s.replace(/`([^`<]+)`/g, '<code class="tinyfeed-code">$1</code>');
     s = s.replace(/\*\*([^*<]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/\*([^*<\n]+)\*/g, "<em>$1</em>");
@@ -1038,6 +1907,46 @@ function renderRich(html) {
 // escape สำหรับใส่ในค่า attribute (value="...")
 function escapeAttr(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+// แปลงโทเคนสติกเกอร์/รูปเป็น <img> (เรียกจาก renderRich) — ไม่เจอชื่อ = โชว์ placeholder
+function renderStickerToken(name) {
+    const s = findSticker(name);
+    if (s && s.url) {
+        return `<img class="tinyfeed-sticker-img" src="${escapeAttr(s.url)}" alt="${escapeText(s.name)}" title="${escapeText(s.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
+    }
+    return `<span class="tinyfeed-token-missing">[สติกเกอร์: ${escapeText(name)}]</span>`;
+}
+function renderImgToken(name) {
+    const im = findGalleryImage(name);
+    if (im && im.url) {
+        // คำบรรยายไม่โชว์ในเนื้อหา (ใช้เป็น prompt + โชว์ตอนดูรูปเต็มในคลังเท่านั้น)
+        return `<span class="tinyfeed-content-img-wrap"><img class="tinyfeed-content-img" src="${escapeAttr(im.url)}" alt="${escapeText(im.name)}" onerror="this.classList.add('tinyfeed-img-broken')" /></span>`;
+    }
+    return `<span class="tinyfeed-token-missing">[รูป: ${escapeText(name)}]</span>`;
+}
+
+// วาดเนื้อโพสต์ TinyFeed: ข้อความ/แคปชันอยู่บน · รูป/สติกเกอร์ย้ายลงล่างเสมอ
+function renderPostBody(text) {
+    let s = String(text == null ? "" : text);
+    const media = [];
+    s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => { media.push(renderStickerToken(unescapeLite(n))); return ""; });
+    s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => { media.push(renderImgToken(unescapeLite(n))); return ""; });
+    const textHtml = renderRich(s).replace(/^(?:<br>\s*)+|(?:<br>\s*)+$/g, "").trim();
+    const mediaHtml = media.length ? `<div class="tinyfeed-post-media">${media.join("")}</div>` : "";
+    return textHtml + mediaHtml;
+}
+
+// ตัดวงเล็บ [ ] ที่โมเดลครอบข้อความมา โดยไม่ทำลายโทเคน [sticker:..]/[img:..]
+function stripWrapBrackets(s) {
+    s = String(s == null ? "" : s).trim();
+    if (/^\[(?:sticker|img):[^\]]+\]$/i.test(s)) return s;   // เป็นโทเคนล้วน อย่าแตะ
+    if (s.startsWith("[") && !/^\[(?:sticker|img):/i.test(s)) s = s.slice(1);
+    if (s.endsWith("]")) {
+        const tail = s.slice(s.lastIndexOf("["));
+        if (!/^\[(?:sticker|img):[^\]]+\]$/i.test(tail)) s = s.slice(0, -1);   // ] ไม่ได้ปิดโทเคนท้ายข้อความ
+    }
+    return s.trim();
 }
 
 // วาดรายการ NPC ประจำในหน้า settings
@@ -1244,6 +2153,27 @@ function crossAppContext(exclude) {
     return `\n[เนื้อหาจากแอปอื่นในโทรศัพท์ อ้างอิงถึงได้ถ้าเข้ากับสถานการณ์]\n${blocks.join("\n\n")}\n`;
 }
 
+// บล็อกบอก "คลังสติกเกอร์/รูป" ให้บอทเลือกส่งได้ (แนบท้าย prompt ของแอปที่คุย/โพสต์)
+// max = จำกัดจำนวนรายชื่อที่ลิสต์ (กัน prompt ยาว)
+function galleryPromptBlock() {
+    if (!getSetting("galleryPrompt")) return "";
+    const g = getGallery();
+    // ขอบเขตอัลบั้มที่ให้ AI เข้าถึง
+    const selected = getSetting("galleryPromptScope") === "selected"
+        ? new Set((getSetting("galleryAlbums") || []).map((a) => String(a)))
+        : null;
+    const inScope = (it) => !selected || selected.has(String(it.album || "ทั่วไป"));
+    const capImg = Math.max(1, parseInt(getSetting("galleryMaxImages"), 10) || 24);
+    const capStk = Math.max(1, parseInt(getSetting("galleryMaxStickers"), 10) || 24);
+    const stk = g.stickers.filter(inScope).slice(0, capStk).map((s) => s.name).filter(Boolean);
+    const img = g.images.filter(inScope).slice(0, capImg).map((s) => s.caption ? `${s.name} (${htmlToPlain(s.caption)})` : s.name).filter(Boolean);
+    if (!stk.length && !img.length) return "";
+    let out = "\n[คลังสื่อในโทรศัพท์ — ส่งได้ถ้าเข้ากับสถานการณ์ อย่าฝืนใส่ทุกครั้ง]\n";
+    if (stk.length) out += `ส่งสติกเกอร์: พิมพ์ [sticker:ชื่อ] โดยเลือกจาก: ${stk.join(", ")}.\n`;
+    if (img.length) out += `แนบรูป: พิมพ์ [img:ชื่อ] โดยเลือกจาก: ${img.join(", ")}.\n`;
+    return out;
+}
+
 // Phase 2: แทรกฟีด/ข่าว/แชต/ไลฟ์ เข้าประวัติแชทหลัก ให้โมเดล RP รับรู้ (เรียลไทม์)
 function updateChatInjection() {
     const ctx = getContext();
@@ -1325,7 +2255,7 @@ function renderFeed() {
                 </div>
                 ${(post.isUser || post.isAI) ? `<span class="tinyfeed-delete" data-post="${post.id}" title="ลบโพสต์"><i class="fa-solid fa-trash"></i></span>` : ""}
             </div>
-            <div class="tinyfeed-post-body">${renderRich(post.text)}</div>
+            <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
             <div class="tinyfeed-post-actions">
                 <span class="tinyfeed-like ${post.liked ? "tinyfeed-liked" : ""}" data-post="${post.id}">
                     <i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}
@@ -1352,11 +2282,52 @@ function renderFeed() {
     updateChatInjection();
 }
 
-// อัปเดตรูป avatar ในช่องเขียนโพสต์ให้ตรงกับ persona ปัจจุบัน
+// ===== คนโพสต์ใน TinyFeed: เรา(persona) / ตัวละคร / NPC / อัตโนมัติ =====
+let feedPoster = POSTER_USER;   // ค่าเริ่มต้น = โพสต์เป็นตัวเราเอง
+
+// avatar ของคนโพสต์ที่เลือกอยู่ (เรียกในช่องเขียนโพสต์)
+function posterAvatarNode() {
+    if (feedPoster === POSTER_AUTO) return `<div class="tinyfeed-avatar tinyfeed-avatar-auto" title="อัตโนมัติ"><i class="fa-solid fa-wand-magic-sparkles"></i></div>`;
+    if (feedPoster === POSTER_USER) return makeAvatar({ isUser: true, author: getUserName() });
+    return makeAvatar(streamSpeakerAvatarItem(feedPoster));
+}
+
+// ปรับสภาพช่องเขียนโพสต์ตามคนโพสต์: เราเอง = พิมพ์เอง · ตัวละครอื่น/อัตโนมัติ = โหมด AI
+function applyFeedComposeMode() {
+    const aiMode = feedPoster !== POSTER_USER;
+    $("#tinyfeed-compose-avatar").html(posterAvatarNode());
+    $("#tinyfeed-compose-input")
+        .prop("disabled", aiMode)
+        .toggleClass("tinyfeed-input-disabled", aiMode)
+        .attr("placeholder", aiMode ? "ให้ตัวละครนี้โพสต์ให้ (กดปุ่มโพสต์)" : "คุณกำลังคิดอะไรอยู่?");
+    $("#tinyfeed-feed-guidance").toggleClass("tinyfeed-hidden", !aiMode);
+    $("#tinyfeed-compose-img, #tinyfeed-compose-sticker").prop("disabled", aiMode);
+    $(".tinyfeed-post-wand").toggleClass("tinyfeed-hidden", !aiMode);
+    // ปุ่มโพสต์: โหมด AI กดได้เสมอ · โหมดเรา กดได้เมื่อมีข้อความ
+    const emptyUser = String($("#tinyfeed-compose-input").val() || "").trim().length === 0;
+    $("#tinyfeed-compose-post").prop("disabled", aiMode ? false : emptyUser);
+}
+
+// อัปเดตรูป avatar ในช่องเขียนโพสต์ (ตามคนโพสต์ที่เลือก)
 function renderComposeAvatar() {
-    $("#tinyfeed-compose .tinyfeed-compose-avatar").html(
-        makeAvatar({ author: getUserName(), avatar: getUserAvatar() })
-    );
+    applyFeedComposeMode();
+}
+
+// สถานะกำลังเจนของปุ่มโพสต์ (คทาหมุน)
+function setPostGenerating(on) {
+    $(".tinyfeed-post-wand").toggleClass("tinyfeed-spin", on);
+    $("#tinyfeed-compose-post").prop("disabled", on);
+    $(".tinyfeed-post-label").text(on ? "กำลังสร้าง..." : "โพสต์");
+}
+
+// ยกเลิกการเจนโพสต์ (soft-abort: ทิ้งผลลัพธ์ที่ค้าง)
+let feedGenId = 0;
+function cancelFeedGen() {
+    feedGenId++;               // ทำให้ผลลัพธ์ที่ค้างถูกทิ้ง
+    isGenerating = false;
+    setPostGenerating(false);
+    $("#tinyfeed-feed-skel").remove();
+    toastr.info("ยกเลิกการสร้างโพสต์แล้ว", "TinyFeed");
 }
 
 function renderNews() {
@@ -1406,7 +2377,7 @@ function openPostDetail(postId) {
                     <span class="tinyfeed-post-time">${displayTime(post)}</span>
                 </div>
             </div>
-            <div class="tinyfeed-post-body">${renderRich(post.text)}</div>
+            <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
             <div class="tinyfeed-post-actions">
                 <span><span class="fa-regular fa-heart"></span> ${Number(post.likes || 0).toLocaleString()}</span>
                 <span><span class="fa-regular fa-comment"></span> ${post.comments.length.toLocaleString()}</span>
@@ -1419,20 +2390,18 @@ function openPostDetail(postId) {
                 <div class="tinyfeed-avatar tinyfeed-avatar-anon">…</div>
                 <div class="tinyfeed-comment-body"><span class="tinyfeed-comment-text">กำลังพิมพ์…</span></div>
             </div>` : ""}
-        ${post.comments.length === 0 ? `
-            <div class="tinyfeed-post-comment-tools">
-                <button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}">
-                    <i class="fa-solid fa-comment-medical"></i>
-                    <span>ให้ NPC คอมเมนต์</span>
-                </button>
-            </div>` : ""}
-        ${getSetting("commentReplyMode") === "manual" && post.comments.length ? `
-            <button class="tinyfeed-ai-reply tinyfeed-btn-generate" data-post="${post.id}">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตอบ</span>
-            </button>` : ""}
+        <div class="tinyfeed-post-comment-tools">
+            <input id="tinyfeed-comment-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางคอมเมนต์ AI (ไม่บังคับ)" />
+            ${post.comments.length === 0
+            ? `<button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}"><i class="fa-solid fa-comment-medical"></i> <span>ให้ NPC คอมเมนต์</span></button>`
+            : (getSetting("commentReplyMode") === "manual"
+                ? `<button class="tinyfeed-ai-reply tinyfeed-btn-generate" data-post="${post.id}"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตอบ</span></button>`
+                : "")}
+        </div>
         <div class="tinyfeed-comment-compose">
             ${makeAvatar({ isUser: true, author: getUserName() })}
             <input class="tinyfeed-comment-input" type="text" placeholder="เขียนคอมเมนต์..." data-post="${post.id}" />
+            <span class="tinyfeed-comment-sticker tinyfeed-compose-sticker" data-post="${post.id}" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
             <span class="tinyfeed-comment-send" data-post="${post.id}"><i class="fa-solid fa-paper-plane"></i></span>
         </div>
     `;
@@ -1574,6 +2543,20 @@ const PROMPT_DEFS = {
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] กระทู้ห้อง "{{room}}" หัวข้อ "{{title}}": {{body}}\n` +
             `เขียนคอมเมนต์ชาวเน็ตประมาณ {{batch}} อัน ให้หลากหลายคน สมจริงเหมือนเว็บบอร์ด (เห็นด้วย/เถียง/แซว/เล่าประสบการณ์/ถาม). {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}{{existing}}\n` +
             `ตอบบรรทัดละอันในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อ> | <ข้อความ>   (คอมเมนต์ใหม่)\nREPLY: <เลข> | <ชื่อ> | <ข้อความ>   (ตอบกลับคอมเมนต์เลขนั้น)`,
+    },
+    streamComments: {
+        label: "คอมเมนต์ผู้ชม (TinyStream)", marker: "COMMENT:", tokens: ["streamer", "title", "direction", "roster", "extra", "context", "recent"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือไลฟ์สดของ {{streamer}} หัวข้อ "{{title}}".{{direction}} ` +
+            `เขียนคอมเมนต์สดจากผู้ชม 3-5 คน (ชื่อผู้ชมสุ่มหลากหลาย{{roster}}) รีแอคกับไลฟ์แบบสมจริง สั้นๆ เหมือนแชตสด ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้.{{extra}}{{context}}{{recent}}\n` +
+            `ตอบแต่ละคอมเมนต์บรรทัดละอันในรูปแบบ:\nCOMMENT: <ชื่อผู้ชม> | <ข้อความ>`,
+    },
+    streamerSpeak: {
+        label: "สตรีมเมอร์พูด/ตอบ (TinyStream)", marker: "", tokens: ["streamer", "title", "direction", "task", "extra", "context", "transcript"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{streamer}} กำลังไลฟ์สดอยู่ หัวข้อ "{{title}}".{{direction}} ` +
+            `พูดในมุมมองบุคคลที่หนึ่งแบบสตรีมเมอร์กำลังพูดสดหน้ากล้อง (อ่านแชต/คุยกับผู้ชม) สั้นเป็นธรรมชาติ 1-2 ประโยค ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{task}}{{extra}}{{context}}{{transcript}}\n` +
+            `ตอบเฉพาะคำพูดของ {{streamer}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า ไม่ต้องมีเครื่องหมายคำพูด`,
     },
 };
 
@@ -1776,18 +2759,21 @@ async function generateFeedPost(opts) {
     }
 
     isGenerating = true;
-    const btn = $("#tinyfeed-generate");
-    btn.addClass("tinyfeed-generating").prop("disabled", true);
-    btn.find(".tinyfeed-generate-label").text("กำลังสร้าง...");
+    const genId = ++feedGenId;   // สำหรับ soft-cancel
+    setPostGenerating(true);
     $("#tinyfeed-feed-list").prepend(`<div id="tinyfeed-feed-skel">${skeletonCardHtml()}</div>`);
 
     const charName = char.name || "ตัวละคร";
 
     // 6.5: รายชื่อ NPC ประจำ → คุมให้ AI เลือกผู้โพสต์จากลิสต์
     const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
-    const rosterLine = npcNames.length
-        ? `ผู้โพสต์ต้องเป็น ${charName} หรือหนึ่งใน NPC ต่อไปนี้เท่านั้น (สะกดชื่อให้ตรงเป๊ะ): ${npcNames.join(", ")}. `
-        : `ผู้โพสต์จะเป็น ${charName} หรือ NPC ตัวใดตัวหนึ่งในโลกของเรื่องก็ได้. `;
+    // คนโพสต์ที่เลือกจากรูปโปรไฟล์ (auto = ให้ AI เลือก, __user__ ไม่มาถึงนี่)
+    const forcedPoster = (feedPoster && feedPoster !== POSTER_AUTO && feedPoster !== POSTER_USER) ? feedPoster : "";
+    const rosterLine = forcedPoster
+        ? `ผู้โพสต์ต้องเป็น ${forcedPoster} เท่านั้น เขียนในน้ำเสียง/มุมมองของ ${forcedPoster}. `
+        : (npcNames.length
+            ? `ผู้โพสต์ต้องเป็น ${charName} หรือหนึ่งใน NPC ต่อไปนี้เท่านั้น (สะกดชื่อให้ตรงเป๊ะ): ${npcNames.join(", ")}. `
+            : `ผู้โพสต์จะเป็น ${charName} หรือ NPC ตัวใดตัวหนึ่งในโลกของเรื่องก็ได้. `);
 
     // 6.6: แนบโพสต์ล่าสุดเป็น context กันโพสต์ซ้ำ
     let historyLine = "";
@@ -1805,7 +2791,10 @@ async function generateFeedPost(opts) {
     }
 
     const extra = String(getSetting("postExtraPrompt") || "").trim();
-    const extraLine = extra ? `คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}. ` : "";
+    const guidance = String($("#tinyfeed-feed-guidance").val() || "").trim();
+    const extraLine = (extra ? `คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}. ` : "")
+        + (guidance ? `แนวทางเฉพาะโพสต์นี้: ${guidance}. ` : "")
+        + galleryPromptBlock();
 
     const quietPrompt = buildPrompt("feedPost", {
         roster: rosterLine, extra: extraLine, history: historyLine, context: crossAppContext("feed"),
@@ -1813,7 +2802,11 @@ async function generateFeedPost(opts) {
 
     try {
         const raw = await tinyGenerate(quietPrompt, Math.max(1, parseInt(getSetting("postTokens"), 10) || 400));
-        const { author, text } = parseGeneratedPost(raw, charName);
+        if (genId !== feedGenId) return;   // ถูกยกเลิกระหว่างเจน → ทิ้งผล
+        const parsed = parseGeneratedPost(raw, charName);
+        const text = parsed.text;
+        // ผู้ใช้เลือกผู้โพสต์เจาะจง = บังคับใช้ชื่อนั้น ไม่ต้องเชื่อ author ที่ AI ตอบ
+        const author = forcedPoster || parsed.author;
         if (!text) {
             toastr.warning("AI ไม่ได้ส่งข้อความโพสต์กลับมา ลองใหม่อีกครั้งนะ", "TinyFeed");
             return;
@@ -1838,12 +2831,14 @@ async function generateFeedPost(opts) {
         await generateInitialComments(post);           // Stage 8: คอมเมนต์ NPC ติดมา (ตาม config)
     } catch (e) {
         console.error(`[${extensionName}] generate failed:`, e);
-        if (!opts.silent) toastr.error("สร้างโพสต์ไม่สำเร็จ ลองใหม่อีกครั้งนะ", "TinyFeed");
+        if (genId === feedGenId && !opts.silent) toastr.error("สร้างโพสต์ไม่สำเร็จ ลองใหม่อีกครั้งนะ", "TinyFeed");
     } finally {
-        $("#tinyfeed-feed-skel").remove();
-        isGenerating = false;
-        btn.removeClass("tinyfeed-generating").prop("disabled", false);
-        btn.find(".tinyfeed-generate-label").text("ให้ตัวละครโพสต์");
+        // รีเซ็ตสถานะเฉพาะเมื่อยังเป็นรอบเดิม (ไม่ถูกยกเลิก/แทนที่)
+        if (genId === feedGenId) {
+            $("#tinyfeed-feed-skel").remove();
+            isGenerating = false;
+            setPostGenerating(false);
+        }
     }
 }
 
@@ -1901,6 +2896,12 @@ function npcRosterLine(charName) {
         : `ผู้คอมเมนต์เป็นตัวละครหลัก (${charName}) หรือ NPC ตัวใดในโลกของเรื่องก็ได้. `;
 }
 
+// แนวทางคอมเมนต์แบบครั้งเดียว (อ่านจากช่องในหน้ารายละเอียดโพสต์ ถ้ามี)
+function commentGuidanceLine() {
+    const g = String($("#tinyfeed-comment-guidance").val() || "").trim();
+    return g ? `แนวทางคอมเมนต์รอบนี้: ${g}. ` : "";
+}
+
 // AI ตอบคอมเมนต์ 1 อัน (เลือกผู้ตอบเอง: เจ้าของโพสต์หรือ NPC)
 async function generateCommentReply(postId) {
     if (isReplying) return;
@@ -1914,7 +2915,7 @@ async function generateCommentReply(postId) {
     const thread = post.comments.slice(-6)
         .map((c) => `- ${c.author}: ${htmlToPlain(c.text)}`).join("\n");
     const q = buildPrompt("feedCommentReply", {
-        postText: htmlToPlain(post.text), author: post.author, thread: thread, roster: npcRosterLine(charName),
+        postText: htmlToPlain(post.text), author: post.author, thread: thread, roster: npcRosterLine(charName) + commentGuidanceLine(),
     });
 
     isReplying = postId;
@@ -1950,7 +2951,7 @@ async function runInitialComments(post, mode) {
         countLine = `เขียนคอมเมนต์ 0 ถึง 3 อันตามที่เหมาะสม (ถ้าไม่มีใครน่าคอมเมนต์ก็ไม่ต้องเขียน). `;
     }
     const q = buildPrompt("feedInitialComments", {
-        postText: htmlToPlain(post.text), author: post.author, roster: npcRosterLine(charName), count: countLine,
+        postText: htmlToPlain(post.text), author: post.author, roster: npcRosterLine(charName) + commentGuidanceLine(), count: countLine,
     });
     const raw = await tinyGenerate(q, 300);
     const comments = parseCommentLines(raw, charName)
@@ -2044,7 +3045,9 @@ async function generateNews(opts) {
     }
 
     const extra = String(getSetting("newsExtraPrompt") || "").trim();
-    const extraLine = extra ? ` คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}.` : "";
+    const newsGuidance = String($("#tinyfeed-news-guidance").val() || "").trim();
+    const extraLine = (extra ? ` คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}.` : "")
+        + (newsGuidance ? ` แนวทางเฉพาะข่าวนี้: ${newsGuidance}.` : "");
 
     const q = buildPrompt("news", {
         extra: extraLine, history: historyLine, context: crossAppContext("news"),
@@ -3232,7 +4235,7 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum"];
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank"];
 function saveLastScreen() {
     try {
         const data = getFeedData();
@@ -3264,26 +4267,13 @@ function restoreLastScreen() {
     }
 }
 
-// ขยายช่องเขียนโพสต์ (ช่องเดิมโตขึ้น + โชว์ปุ่ม)
-function openCompose() {
-    $("#tinyfeed-compose").addClass("tinyfeed-compose-open");
-    $("#tinyfeed-compose .tinyfeed-compose-actions").removeClass("tinyfeed-hidden");
-}
-
-// ยุบช่องกลับเป็นแถบเดียว
-function closeCompose() {
-    const input = $("#tinyfeed-compose-input");
-    input.val("").css("height", "");   // เคลียร์ค่าและความสูง inline (กลับไปใช้ความสูงจาก CSS)
-    $("#tinyfeed-compose-post").prop("disabled", true);
-    $("#tinyfeed-compose .tinyfeed-compose-actions").addClass("tinyfeed-hidden");
-    $("#tinyfeed-compose").removeClass("tinyfeed-compose-open");
-    input.trigger("blur");
-}
-
 // ปรับความสูง textarea ตามเนื้อหา
 function autoGrowCompose(el) {
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    const cap = 160;
+    el.style.height = Math.min(el.scrollHeight, cap) + "px";
+    // โชว์ scrollbar เฉพาะตอนเนื้อหายาวเกิน cap จริงๆ (กัน placeholder ยาวทำ scrollbar โผล่ตอนแคบ)
+    el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
 }
 
 // เปิดหน้าบทความข่าวเต็ม
@@ -3334,6 +4324,8 @@ const SETTINGS_LAYOUT = [
     { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
     { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
     { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
+    { head: "🖼️ TinyGallery", titles: ["TinyGallery (คลังรูป + สติกเกอร์)"] },
+    { head: "🏦 TinyBank", titles: ["TinyBank (ธนาคาร)"] },
     { head: "🧩 Prompt (ขั้นสูง)", titles: ["Prompt (ขั้นสูง)"] },
 ];
 
@@ -3427,11 +4419,14 @@ function populateSettings() {
     $("#tinyfeed-cfg-proactive-viafeed").prop("checked", Boolean(getSetting("proactiveViaFeed")));
     renderPromptEditors();
 
-    $("#tinyfeed-cfg-stream-streamer").val(getSetting("streamStreamer") || "char");
     $("#tinyfeed-cfg-stream-mode").val(getSetting("streamCommentMode") || "manual");
+    $("#tinyfeed-cfg-stream-bg").val(getSetting("streamBgUrl"));
+    $("#tinyfeed-cfg-stream-bg-theme").prop("checked", Boolean(getSetting("streamBgTheme")));
     $("#tinyfeed-cfg-stream-interval").val(getSetting("streamAutoInterval"));
     $("#tinyfeed-cfg-stream-tokens").val(getSetting("streamTokens"));
     $("#tinyfeed-cfg-stream-extra").val(getSetting("streamExtraPrompt"));
+    $("#tinyfeed-cfg-stream-reply").prop("checked", Boolean(getSetting("streamStreamerReply")));
+    $("#tinyfeed-cfg-stream-talk").prop("checked", Boolean(getSetting("streamStreamerTalk")));
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
@@ -3466,6 +4461,16 @@ function populateSettings() {
     $("#tinyfeed-cfg-forum-batch").val(getSetting("forumCommentBatch") || 8);
     $("#tinyfeed-cfg-forum-extra").val(getSetting("forumExtraPrompt"));
     renderForumRooms();
+    $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
+    $("#tinyfeed-cfg-gallery-scope").val(getSetting("galleryPromptScope") || "all");
+    $("#tinyfeed-cfg-gallery-max-images").val(getSetting("galleryMaxImages"));
+    $("#tinyfeed-cfg-gallery-max-stickers").val(getSetting("galleryMaxStickers"));
+    galleryCfgPage = 0;
+    renderGalleryCfgAlbums();
+    $("#tinyfeed-cfg-bank-currency").val(getSetting("bankCurrency") || "฿");
+    $("#tinyfeed-cfg-donate-enabled").prop("checked", Boolean(getSetting("streamDonateEnabled")));
+    $("#tinyfeed-cfg-bank-donate-max").val(getSetting("bankDonateMax"));
+    renderDonateTiers();
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
     $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
     $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
@@ -3518,7 +4523,12 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    if (currentApp === "connect" && isConnectThreadOpen()) {
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker"]
+        .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
+    if (overlayOpen) {
+        closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
+        closeCharPicker();
+    } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
         openForumList();     // จากหน้ากระทู้ → กลับรายการกระทู้
@@ -3723,6 +4733,8 @@ jQuery(async () => {
 
         // TinyStream: เริ่ม/จบไลฟ์ + โหลดคอมเมนต์ + ส่งคอมเมนต์
         $(document).on("click", "#tinyfeed-stream-toggle", toggleStream);
+        $(document).on("click", "#tinyfeed-stream-ai-title", fillStreamAiTitle);
+        $(document).on("click", "#tinyfeed-stream-speak", streamerSpeakButton);
         $(document).on("click", "#tinyfeed-stream-loadcomments", function () {
             loadLiveComments();
         });
@@ -3733,6 +4745,16 @@ jQuery(async () => {
             if (e.key === "Enter") {
                 e.preventDefault();
                 sendStreamComment($(this).val());
+            }
+        });
+        // เราเป็นสตรีมเมอร์เอง: พิมพ์คำพูดสตรีมเมอร์
+        $(document).on("click", "#tinyfeed-stream-streamer-send", function () {
+            sendStreamerLine($("#tinyfeed-stream-streamer-input").val());
+        });
+        $(document).on("keydown", "#tinyfeed-stream-streamer-input", function (e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendStreamerLine($(this).val());
             }
         });
 
@@ -3812,6 +4834,130 @@ jQuery(async () => {
             }
         });
 
+        // ===== TinyBank: เติม/จ่ายเงินเอง =====
+        $(document).on("click", "#tinyfeed-bank-in", function () { bankManualTxn("in"); });
+        $(document).on("click", "#tinyfeed-bank-out", function () { bankManualTxn("out"); });
+        $(document).on("keydown", "#tinyfeed-bank-amount, #tinyfeed-bank-label", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); bankManualTxn("in"); }
+        });
+
+        // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
+        $(document).on("click", ".tinyfeed-gallery-tab", function () {
+            switchGalleryTab($(this).data("gtab"));
+        });
+        $(document).on("change", "#tinyfeed-gallery-img-album", function () { renderGalleryGrid("image"); });
+        $(document).on("change", "#tinyfeed-gallery-stk-album", function () { renderGalleryGrid("sticker"); });
+        $(document).on("click", "#tinyfeed-gallery-img-add", addGalleryImage);
+        $(document).on("click", "#tinyfeed-gallery-stk-add", addGallerySticker);
+        $(document).on("keydown", "#tinyfeed-gallery-img-name", function (e) { if (e.key === "Enter") { e.preventDefault(); addGalleryImage(); } });
+        $(document).on("keydown", "#tinyfeed-gallery-stk-name", function (e) { if (e.key === "Enter") { e.preventDefault(); addGallerySticker(); } });
+        $(document).on("click", "#tinyfeed-gallery-img-album-add", function () { addGalleryAlbum("image"); });
+        $(document).on("click", "#tinyfeed-gallery-stk-album-add", function () { addGalleryAlbum("sticker"); });
+        $(document).on("click", "#tinyfeed-gallery-img-album-del", function () { deleteGalleryAlbum("image"); });
+        $(document).on("click", "#tinyfeed-gallery-stk-album-del", function () { deleteGalleryAlbum("sticker"); });
+        $(document).on("click", ".tinyfeed-gallery-item-del", function (e) {
+            e.stopPropagation();
+            const item = $(this).closest(".tinyfeed-gallery-item");
+            deleteGalleryItem(item.data("kind"), String(item.data("id")));
+        });
+        $(document).on("click", ".tinyfeed-gallery-item-edit", function (e) {
+            e.stopPropagation();
+            const item = $(this).closest(".tinyfeed-gallery-item");
+            openGalleryEdit(item.data("kind"), String(item.data("id")));
+        });
+        // คลิกรูปย่อ = ดูรูปเต็ม (โชว์คำบรรยาย)
+        $(document).on("click", ".tinyfeed-gallery-item .tinyfeed-gallery-thumb", function () {
+            const item = $(this).closest(".tinyfeed-gallery-item");
+            openGalleryView(item.data("kind"), String(item.data("id")));
+        });
+        // ดูรูปเต็ม
+        $(document).on("click", "#tinyfeed-gallery-view-close", closeGalleryView);
+        $(document).on("click", "#tinyfeed-gallery-view", function (e) {
+            if (e.target === this) closeGalleryView();
+        });
+        // แก้ไข/ย้ายอัลบั้ม
+        $(document).on("click", "#tinyfeed-gallery-edit-save", saveGalleryEdit);
+        $(document).on("click", "#tinyfeed-gallery-edit-cancel, #tinyfeed-gallery-edit-close", closeGalleryEdit);
+        $(document).on("click", "#tinyfeed-gallery-edit", function (e) {
+            if (e.target === this) closeGalleryEdit();
+        });
+        // picker
+        $(document).on("change", "#tinyfeed-gallery-picker-album", renderPickerGrid);
+        $(document).on("click", "#tinyfeed-gallery-picker-close", closeGalleryPicker);
+        $(document).on("click", "#tinyfeed-gallery-picker", function (e) {
+            if (e.target === this) closeGalleryPicker();   // คลิกฉากหลัง = ปิด
+        });
+        $(document).on("click", ".tinyfeed-gallery-pick", function () {
+            pickGalleryItem(String($(this).data("name")));
+        });
+        // ปุ่มสติกเกอร์/รูป ในแถบพิมพ์ของแต่ละแอป (ส่งทันที หรือแทรกลงช่องพิมพ์)
+        $(document).on("click", "#tinyfeed-connect-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendConnectMessage(token));
+        });
+        $(document).on("click", "#tinyfeed-connect-image", function () {
+            openGalleryPicker("image", (token) => sendConnectMessage(token));
+        });
+        $(document).on("click", "#tinyfeed-stream-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendStreamComment(token));
+        });
+        $(document).on("click", "#tinyfeed-stream-streamer-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendStreamerLine(token));
+        });
+        // แตะรูปผู้ไลฟ์: AI = ให้พูด (เจาะจงคนนั้น) · เรา = โฟกัสช่องพิมพ์คำพูดของเรา
+        $(document).on("click", ".tinyfeed-stream-host", function (e) {
+            if ($(e.target).closest(".tinyfeed-host-edit, .tinyfeed-host-remove").length) return;   // กดปุ่มย่อย
+            if (!getStreamData().live) return;
+            if ($(this).data("user")) {
+                $("#tinyfeed-stream-streamer-input").trigger("focus");
+            } else {
+                const nm = String($(this).data("name") || "");
+                if (nm && !isGeneratingStream) streamerSpeak(streamSpeakKind(), { host: nm });
+            }
+        });
+        // ดินสอบนสตรีมเมอร์หลัก = เปลี่ยนคนหลัก
+        $(document).on("click", ".tinyfeed-host-edit", function (e) {
+            e.stopPropagation();
+            openCharPicker({ includeUser: true, includeMain: true, includeAuto: false, title: "เลือกสตรีมเมอร์หลัก" }, (value) => {
+                const s = getStreamData();
+                s.mainStreamer = value;
+                const mainName = getStreamer().name;
+                s.coHosts = (s.coHosts || []).filter((v) => v !== value && v !== mainName);   // กันซ้ำกับหลัก
+                saveFeedData();
+                if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
+            });
+        });
+        // กากบาทบนตัวร่วมไลฟ์ = เอาออก
+        $(document).on("click", ".tinyfeed-host-remove", function (e) {
+            e.stopPropagation();
+            const val = String($(this).closest(".tinyfeed-stream-host").data("val"));
+            const s = getStreamData();
+            s.coHosts = (s.coHosts || []).filter((x) => String(x) !== val);
+            saveFeedData();
+            if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
+        });
+        // ปุ่ม + = เพิ่มตัวละคร/เราเอง มาไลฟ์ร่วม
+        $(document).on("click", "#tinyfeed-stream-addhost", function () {
+            const s = getStreamData();
+            const exclude = [getStreamer().name, ...(s.coHosts || [])];
+            if (streamerIsUser() || (s.coHosts || []).includes(POSTER_USER)) exclude.push(POSTER_USER);
+            openCharPicker({ includeUser: true, includeMain: true, includeAuto: false, exclude, title: "เพิ่มคนมาไลฟ์ร่วม" }, (value) => {
+                if (value === POSTER_AUTO) return;
+                const st = getStreamData();
+                if (!st.coHosts.includes(value)) st.coHosts.push(value);
+                saveFeedData();
+                if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
+            });
+        });
+        $(document).on("click", "#tinyfeed-forum-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendForumFromComposer(token));
+        });
+        $(document).on("click", "#tinyfeed-compose-sticker", function () {
+            openGalleryPicker("sticker", (token) => insertIntoInput("#tinyfeed-compose-input", token));
+        });
+        $(document).on("click", "#tinyfeed-compose-img", function () {
+            openGalleryPicker("image", (token) => insertIntoInput("#tinyfeed-compose-input", token));
+        });
+
         // Stage 2: render mock + ผูกแท็บ
         renderFeed();
         renderNews();
@@ -3852,25 +4998,49 @@ jQuery(async () => {
         });
 
         // Stage 4b: ผู้ใช้โพสต์เอง + ลบโพสต์
-        $(document).on("focus", "#tinyfeed-compose-input", openCompose);
-        $(document).on("click", "#tinyfeed-compose-cancel", closeCompose);
         $(document).on("input", "#tinyfeed-compose-input", function () {
             autoGrowCompose(this);
-            const empty = $(this).val().trim().length === 0;
-            $("#tinyfeed-compose-post").prop("disabled", empty);
+            if (feedPoster === POSTER_USER) {
+                $("#tinyfeed-compose-post").prop("disabled", $(this).val().trim().length === 0);
+            }
         });
+        // กดรูปโปรไฟล์ = เลือกคนโพสต์ (เรา/ตัวละคร/NPC/อัตโนมัติ)
+        $(document).on("click", "#tinyfeed-compose-avatar", function () {
+            openCharPicker({ includeUser: true, includeMain: true, includeAuto: true, title: "ใครเป็นคนโพสต์" }, (value) => {
+                feedPoster = value;
+                applyFeedComposeMode();
+            });
+        });
+        // ปุ่มโพสต์: เราเอง = โพสต์ปกติ · ตัวละครอื่น/อัตโนมัติ = ให้ AI โพสต์
         $(document).on("click", "#tinyfeed-compose-post", function () {
-            addUserPost($("#tinyfeed-compose-input").val());
-            closeCompose();
+            if (isGenerating) return;
+            if (feedPoster === POSTER_USER) {
+                addUserPost($("#tinyfeed-compose-input").val());
+                $("#tinyfeed-compose-input").val("").css("height", "");
+                applyFeedComposeMode();
+            } else {
+                generateFeedPost();
+            }
+        });
+        // ปุ่มยกเลิก: ระหว่างเจน = ยกเลิกการเจน · ปกติ = เคลียร์ช่อง + กลับเป็นโพสต์เอง
+        $(document).on("click", "#tinyfeed-compose-cancel", function () {
+            if (isGenerating) { cancelFeedGen(); return; }
+            $("#tinyfeed-compose-input").val("").css("height", "");
+            $("#tinyfeed-feed-guidance").val("");
+            feedPoster = POSTER_USER;
+            applyFeedComposeMode();
         });
         $(document).on("click", ".tinyfeed-delete", function (e) {
             e.stopPropagation();
             deleteUserPost($(this).data("post"));
         });
-
-        // Stage 6: ปุ่มให้ AI สร้างโพสต์
-        $(document).on("click", "#tinyfeed-generate", function () {
-            generateFeedPost();   // ปุ่ม manual: ไม่แจ้งเตือน (ผู้ใช้ดูอยู่แล้ว)
+        // char picker (ใช้ร่วม feed/stream)
+        $(document).on("click", "#tinyfeed-char-picker-close", closeCharPicker);
+        $(document).on("click", "#tinyfeed-char-picker", function (e) {
+            if (e.target === this) closeCharPicker();
+        });
+        $(document).on("click", ".tinyfeed-char-pick", function () {
+            pickChar(String($(this).data("value")));
         });
         // กดแจ้งเตือน → เปิดฟีด
         $(document).on("click", "#tinyfeed-notif", openFeedFromNotif);
@@ -3893,11 +5063,19 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-group-continue", function () {
             if (activeThread && findGroup(activeThread)) groupSelfChat(activeThread, {});
         });
+        // ให้ตัวละครตอบกลับ(แชต 1:1) — หลังผู้ใช้พิมพ์/แนบครบแล้ว
+        $(document).on("click", "#tinyfeed-connect-reply", function () {
+            if (activeThread && !findGroup(activeThread)) generateConnectReply();
+        });
 
         // Stage 8: คอมเมนต์
         $(document).on("click", ".tinyfeed-comment-send", function () {
             const input = $(this).closest(".tinyfeed-comment-compose").find(".tinyfeed-comment-input");
             addComment($(this).data("post"), input.val());
+        });
+        $(document).on("click", ".tinyfeed-comment-sticker", function () {
+            const postId = $(this).data("post");
+            openGalleryPicker("sticker", (token) => addComment(postId, token));
         });
         $(document).on("keydown", ".tinyfeed-comment-input", function (e) {
             if (e.key === "Enter") {
@@ -4090,13 +5268,17 @@ jQuery(async () => {
             setSetting("worldInfoLimit", v);
         });
         // TinyStream config
-        $(document).on("change", "#tinyfeed-cfg-stream-streamer", function () {
-            setSetting("streamStreamer", $(this).val());
-            if (currentApp === "stream") renderStream();
-        });
         $(document).on("change", "#tinyfeed-cfg-stream-mode", function () {
             setSetting("streamCommentMode", $(this).val());
             if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
+        });
+        $(document).on("input", "#tinyfeed-cfg-stream-bg", function () {
+            setSetting("streamBgUrl", $(this).val().trim());
+            applyStreamBg();
+        });
+        $(document).on("change", "#tinyfeed-cfg-stream-bg-theme", function () {
+            setSetting("streamBgTheme", $(this).prop("checked"));
+            applyStreamBg();
         });
         $(document).on("input", "#tinyfeed-cfg-stream-interval", function () {
             let v = parseInt($(this).val(), 10);
@@ -4109,6 +5291,13 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-stream-extra", function () {
             setSetting("streamExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-stream-reply", function () {
+            setSetting("streamStreamerReply", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-stream-talk", function () {
+            setSetting("streamStreamerTalk", $(this).prop("checked"));
+            if (currentApp === "stream") maybeStartStreamTimer();   // เปิด/ปิดมอโนล็อกทันที
         });
         $(document).on("input", "#tinyfeed-cfg-connect-tokens", function () {
             let v = parseInt($(this).val(), 10);
@@ -4241,6 +5430,75 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-forum-extra", function () {
             setSetting("forumExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
+            setSetting("galleryPrompt", $(this).prop("checked"));
+        });
+        // TinyBank config
+        $(document).on("input", "#tinyfeed-cfg-bank-currency", function () {
+            setSetting("bankCurrency", String($(this).val() || "฿").trim() || "฿");
+            if (currentApp === "bank") renderBank();
+        });
+        $(document).on("change", "#tinyfeed-cfg-donate-enabled", function () {
+            setSetting("streamDonateEnabled", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-bank-donate-max", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("bankDonateMax", Number.isFinite(v) && v > 0 ? v : 5000);
+        });
+        // ตัวแก้ tier โดเนท (ไม่ re-render ตอนพิมพ์ min/สี กันเคอร์เซอร์เด้ง)
+        $(document).on("input", ".tinyfeed-donate-tier-min", function () {
+            const i = $(this).closest(".tinyfeed-donate-tier-row").data("index");
+            const tiers = getDonateTiers();
+            if (!tiers[i]) return;
+            tiers[i].min = Math.max(0, parseInt($(this).val(), 10) || 0);
+            setSetting("donateTiers", tiers);
+        });
+        $(document).on("input", ".tinyfeed-donate-tier-color", function () {
+            const i = $(this).closest(".tinyfeed-donate-tier-row").data("index");
+            const tiers = getDonateTiers();
+            if (!tiers[i]) return;
+            tiers[i].color = String($(this).val() || "#1d9bf0");
+            setSetting("donateTiers", tiers);
+        });
+        $(document).on("click", ".tinyfeed-donate-tier-del", function () {
+            const i = $(this).closest(".tinyfeed-donate-tier-row").data("index");
+            const tiers = getDonateTiers();
+            tiers.splice(i, 1);
+            setSetting("donateTiers", tiers);
+            renderDonateTiers();
+        });
+        $(document).on("click", "#tinyfeed-donate-tier-add", function () {
+            const tiers = getDonateTiers();
+            const nextMin = tiers.length ? Math.max(...tiers.map((t) => t.min)) + 500 : 0;
+            tiers.push({ min: nextMin, color: "#888888" });
+            setSetting("donateTiers", tiers);
+            renderDonateTiers();
+        });
+        $(document).on("change", "#tinyfeed-cfg-gallery-scope", function () {
+            setSetting("galleryPromptScope", $(this).val());
+            galleryCfgPage = 0;
+            renderGalleryCfgAlbums();
+        });
+        $(document).on("change", ".tinyfeed-cfg-gallery-album", function () {
+            const val = String($(this).val());
+            const set = new Set((getSetting("galleryAlbums") || []).map((a) => String(a)));
+            if ($(this).prop("checked")) set.add(val); else set.delete(val);
+            setSetting("galleryAlbums", Array.from(set));
+        });
+        $(document).on("click", "#tinyfeed-cfg-gallery-albums-prev", function () {
+            galleryCfgPage--; renderGalleryCfgAlbums();
+        });
+        $(document).on("click", "#tinyfeed-cfg-gallery-albums-next", function () {
+            galleryCfgPage++; renderGalleryCfgAlbums();
+        });
+        $(document).on("input", "#tinyfeed-cfg-gallery-max-images", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("galleryMaxImages", Number.isFinite(v) && v > 0 ? v : 24);
+        });
+        $(document).on("input", "#tinyfeed-cfg-gallery-max-stickers", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("galleryMaxStickers", Number.isFinite(v) && v > 0 ? v : 24);
         });
         // ตัวแก้ห้อง (global setting forumRooms)
         $(document).on("input", ".tinyfeed-room-name", function () {
