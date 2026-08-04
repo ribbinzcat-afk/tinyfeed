@@ -1339,9 +1339,13 @@
     height: 170px;
     flex-shrink: 0;
     display: flex;
-    align-items: center;
+    align-items: flex-start;      /* ผู้ไลฟ์อยู่ครึ่งบน เว้นล่างไว้ให้ซับไตเติล */
     justify-content: center;
+    padding-top: 18px;
+    box-sizing: border-box;
     background: linear-gradient(135deg, #a855f7, #7e22ce);
+    background-size: cover;
+    background-position: center;
     overflow: hidden;
 }
 
@@ -1354,22 +1358,35 @@
 /* แคปชันบนเวที = คำพูดล่าสุดของสตรีมเมอร์ (ซับไตเติลไลฟ์) */
 .tinyfeed-stream-caption {
     position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 10px;
-    background: rgba(0, 0, 0, 0.55);
+    left: 10px;
+    right: 10px;
+    bottom: 8px;
+    background: rgba(0, 0, 0, 0.6);
     color: #fff;
-    font-size: 0.85em;
-    line-height: 1.4;
-    padding: 7px 11px;
-    border-radius: 10px;
+    font-size: 0.8em;
+    line-height: 1.35;
+    padding: 6px 10px;
+    border-radius: 9px;
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    max-height: 46px;
+    box-sizing: border-box;
 }
+/* สติกเกอร์/รูปในซับไตเติล = ย่อเล็ก ไม่ให้ล้นจอ */
+.tinyfeed-stream-caption .tinyfeed-sticker-img,
+.tinyfeed-stream-caption .tinyfeed-content-img {
+    max-height: 30px;
+    max-width: 54px;
+    margin: 0 2px;
+    display: inline-block;
+    vertical-align: middle;
+    border-radius: 5px;
+}
+.tinyfeed-stream-caption .tinyfeed-content-img-wrap { display: inline; }
 
 /* ฟอร์มตั้งหัวข้อไลฟ์ (ก่อนเริ่ม) */
 .tinyfeed-stream-startform {
@@ -3186,3 +3203,88 @@
 .tinyfeed-host-remove { right: -2px; }
 .tinyfeed-host-edit:hover { background: var(--tf-accent); }
 .tinyfeed-host-remove:hover { background: #f4212e; }
+
+/* ===== TinyBank ===== */
+.tinyfeed-bank-card {
+    margin: 12px 14px;
+    padding: 18px 18px 20px;
+    border-radius: 16px;
+    color: #fff;
+    background: linear-gradient(135deg, #10b981, #047857);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    flex-shrink: 0;
+}
+.tinyfeed-bank-card-label { font-size: 0.82em; opacity: 0.85; }
+.tinyfeed-bank-card-balance { font-size: 1.9em; font-weight: 800; margin-top: 4px; letter-spacing: 0.5px; }
+
+.tinyfeed-bank-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 0 14px;
+    flex-shrink: 0;
+}
+.tinyfeed-bank-form input {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.tinyfeed-bank-form input:focus { border-color: var(--tf-accent); }
+.tinyfeed-bank-form-actions { display: flex; gap: 8px; }
+.tinyfeed-bank-form-actions button { flex: 1; }
+
+.tinyfeed-bank-txns-head {
+    padding: 14px 14px 6px;
+    font-size: 0.82em;
+    color: var(--tf-text-muted);
+    font-weight: 600;
+    flex-shrink: 0;
+}
+.tinyfeed-bank-txns { padding: 0 14px 16px; overflow-y: auto; }
+.tinyfeed-bank-txn {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+}
+.tinyfeed-bank-txn-icon {
+    flex-shrink: 0;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 0.9em;
+}
+.tinyfeed-bank-txn-icon.tinyfeed-bank-in { background: color-mix(in srgb, #10b981 22%, transparent); color: #10b981; }
+.tinyfeed-bank-txn-icon.tinyfeed-bank-out { background: color-mix(in srgb, #f4212e 20%, transparent); color: #f4212e; }
+.tinyfeed-bank-txn-body { flex: 1; min-width: 0; }
+.tinyfeed-bank-txn-label { font-size: 0.9em; color: var(--tf-text); word-break: break-word; }
+.tinyfeed-bank-txn-sub { font-size: 0.75em; color: var(--tf-text-muted); }
+.tinyfeed-bank-txn-amt { flex-shrink: 0; font-weight: 700; font-size: 0.95em; }
+.tinyfeed-bank-txn-amt.tinyfeed-bank-in { color: #10b981; }
+.tinyfeed-bank-txn-amt.tinyfeed-bank-out { color: #f4212e; }
+
+/* โดเนทบนจอไลฟ์ */
+.tinyfeed-stream-donation {
+    margin: 6px 0;
+    padding: 9px 12px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, color-mix(in srgb, #f59e0b 30%, transparent), color-mix(in srgb, #f59e0b 14%, transparent));
+    border: 1px solid color-mix(in srgb, #f59e0b 45%, transparent);
+    color: var(--tf-text);
+    font-size: 0.9em;
+    animation: tinyfeed-rise 0.3s ease backwards;
+}
+.tinyfeed-stream-donation i { color: #f59e0b; margin-right: 3px; }
+.tinyfeed-stream-donation-amt { font-weight: 800; color: #d97706; }

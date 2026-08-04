@@ -70,6 +70,8 @@ const defaultSettings = {
     streamStreamerReply: true,    // สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบอัตโนมัติ
     streamStreamerTalk: false,    // สตรีมเมอร์เล่าเรื่องเองเป็นระยะ (มอโนล็อก)
     streamCommentMode: "manual",  // "manual" | "auto" | "onupdate"
+    streamBgUrl: "",              // ลิงก์รูปพื้นหลังกรอบสตรีม ("" = ใช้สีพื้น)
+    streamBgTheme: false,         // ใช้สีพื้นหลังตามธีม (accent) เมื่อไม่มีลิงก์รูป
     streamAutoInterval: 12,        // วินาที (โหมด auto)
     streamTokens: 300,
     streamExtraPrompt: "",
@@ -106,6 +108,11 @@ const defaultSettings = {
     forumRooms: ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"],
     injectForum: false,           // แทรกกระทู้ เข้า RP หลัก
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
+    // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
+    bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
+    bankAutoEnabled: false,       // ระบบอัตโนมัติ (AI สุ่มโดเนท/โอน) — master switch
+    bankDonateChance: 20,         // โอกาส (%) ที่รอบโหลดคอมเมนต์สดจะมีคนโดเนท
+    bankDonateMax: 500,           // ยอดโดเนทสุ่มสูงสุด
     // TinyGallery (คลังรูป + สติกเกอร์ — global ข้ามแชท ไม่ผูกกับแชทไหน)
     gallery: { images: [], stickers: [], imageAlbums: ["ทั่วไป"], stickerAlbums: ["ทั่วไป"] },
     galleryPrompt: true,          // ให้บอทรู้จักคลัง + ส่งสติกเกอร์/รูปได้ด้วย [sticker:ชื่อ] / [img:ชื่อ]
@@ -207,7 +214,7 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (app !== "feed" && app !== "connect" && app !== "stream" && app !== "memo" && app !== "forum" && app !== "gallery") {
+    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank"].includes(app)) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
@@ -246,6 +253,11 @@ function openApp(app) {
         $("#tinyfeed-app-gallery").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyGallery");
         openGallery();
+    } else if (app === "bank") {
+        currentApp = "bank";
+        $("#tinyfeed-app-bank").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyBank");
+        renderBank();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -378,6 +390,20 @@ function renderStreamHosts() {
     $("#tinyfeed-stream-hosts").html(html);
 }
 
+// พื้นหลังกรอบสตรีม: ลิงก์รูป > สีตามธีม > สีพื้นม่วงเริ่มต้น
+function applyStreamBg() {
+    const stage = $("#tinyfeed-app-stream .tinyfeed-stream-stage");
+    if (!stage.length) return;
+    const url = String(getSetting("streamBgUrl") || "").trim();
+    if (url) {
+        stage.css("background-image", `url("${url.replace(/["\\]/g, encodeURIComponent)}")`);
+    } else if (getSetting("streamBgTheme")) {
+        stage.css("background-image", "linear-gradient(135deg, var(--tf-accent), color-mix(in srgb, var(--tf-accent) 50%, #000))");
+    } else {
+        stage.css("background-image", "linear-gradient(135deg, #a855f7, #7e22ce)");
+    }
+}
+
 function clearStreamTimer() {
     if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
 }
@@ -403,6 +429,7 @@ function renderStream() {
     const s = getStreamData();
     const streamer = getStreamer();
     renderStreamHosts();
+    applyStreamBg();
     $("#tinyfeed-app-stream .tinyfeed-stream-title").text(s.live ? (s.title || "กำลังไลฟ์สด") : "ยังไม่ได้เริ่มไลฟ์");
     // ชื่อผู้ไลฟ์: รวมตัวละครร่วมไลฟ์ (+ เราเอง ถ้าเรามาไลฟ์ร่วม/เป็นหลัก)
     const hostNames = getStreamHosts();
@@ -432,6 +459,12 @@ function renderStream() {
     const rows = s.comments.map((c) => {
         if (c.isSystem) {
             return `<div class="tinyfeed-stream-divider"><span>${c.text}</span></div>`;
+        }
+        if (c.isDonation) {
+            return `<div class="tinyfeed-stream-donation">
+                <i class="fa-solid fa-gift"></i> <b>${escapeText(c.author)}</b> โดเนท
+                <span class="tinyfeed-stream-donation-amt">${formatMoney(c.amount)}</span>
+            </div>`;
         }
         if (c.isStreamer) {
             // ใช้ avatar ของผู้พูดจริง (รองรับไลฟ์หลายตัวละคร)
@@ -509,6 +542,27 @@ async function toggleStream() {
     }
 }
 
+// สุ่มให้ผู้ชมโดเนทเข้าบัญชีเรา (TinyStream → TinyBank) เมื่อเปิดระบบเงินอัตโนมัติ
+function maybeStreamDonation(candidateNames) {
+    if (!getSetting("bankAutoEnabled")) return;
+    const chance = Math.min(100, Math.max(0, parseInt(getSetting("bankDonateChance"), 10) || 0));
+    if (Math.random() * 100 >= chance) return;
+    const s = getStreamData();
+    const you = getUserName().trim().toLowerCase();
+    const streamerName = getStreamer().name.trim().toLowerCase();
+    let pool = (candidateNames || []).map((n) => String(n).trim()).filter((n) => {
+        const a = n.toLowerCase();
+        return a && a !== you && a !== streamerName;
+    });
+    if (!pool.length) pool = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
+    const donor = pool.length ? pool[Math.floor(Math.random() * pool.length)] : "ผู้ชม";
+    const max = Math.max(10, parseInt(getSetting("bankDonateMax"), 10) || 500);
+    const amount = (Math.floor(Math.random() * Math.floor(max / 10)) + 1) * 10;   // ลงท้าย 0 สวยๆ
+    if (bankAdd(amount, `โดเนทจาก ${donor}`, "stream", { silentToast: true })) {
+        s.comments.push({ isDonation: true, author: donor, amount, ts: Date.now() });
+    }
+}
+
 async function loadLiveComments(opts) {
     opts = opts || {};
     const s = getStreamData();
@@ -540,6 +594,7 @@ async function loadLiveComments(opts) {
             .map((c) => ({ author: c.author, avatar: getNpcAvatar(c.author), text: c.text, ts: Date.now() }));
         if (list.length) {
             s.comments.push(...list);
+            maybeStreamDonation(list.map((c) => c.author));   // สุ่มโดเนท (ถ้าเปิดระบบอัตโนมัติ)
             saveFeedData();
             renderStream();
         }
@@ -567,8 +622,9 @@ async function streamerSpeak(kind, opts) {
     else if (hosts.length > 1) speaker = nextStreamHost(hosts);
     else speaker = hosts[0];
     isGeneratingStream = true;
+    $("#tinyfeed-stream-speak").addClass("tinyfeed-generating").prop("disabled", true);   // ไอคอนหมุนบอกว่ากำลังเจน
     try {
-        const transcript = s.comments.slice(-8).filter((c) => !c.isSystem)
+        const transcript = s.comments.slice(-8).filter((c) => !c.isSystem && !c.isDonation)
             .map((c) => `${c.isStreamer ? c.author + " (สตรีมเมอร์)" : c.author}: ${htmlToPlain(c.text)}`).join("\n");
         const taskText = kind === "open"
             ? `เพิ่งเปิดไลฟ์ — ทักทายผู้ชมและเกริ่นสั้นๆ ว่าจะไลฟ์เรื่องอะไร`
@@ -608,6 +664,7 @@ async function streamerSpeak(kind, opts) {
         if (!opts.silent) toastr.error("สตรีมเมอร์พูดไม่สำเร็จ", "TinyStream");
     } finally {
         isGeneratingStream = false;
+        $("#tinyfeed-stream-speak").removeClass("tinyfeed-generating").prop("disabled", false);
     }
 }
 
@@ -673,6 +730,86 @@ async function sendStreamerLine(text) {
     // โหมด onupdate: คำพูดสตรีมเมอร์ทำให้ผู้ชมรีแอค
     if (getSetting("streamCommentMode") === "onupdate") {
         await loadLiveComments({ silent: true });
+    }
+}
+
+// ===== TinyBank: ธนาคาร/การเงิน (ผูกกับแชท) =====
+function getBankData() {
+    const data = getFeedData();
+    if (!data.bank || typeof data.bank !== "object") data.bank = { balance: 0, txns: [] };
+    if (typeof data.bank.balance !== "number" || !isFinite(data.bank.balance)) data.bank.balance = 0;
+    if (!Array.isArray(data.bank.txns)) data.bank.txns = [];
+    return data.bank;
+}
+
+function formatMoney(n) {
+    const cur = getSetting("bankCurrency") || "฿";
+    return `${cur}${Number(n || 0).toLocaleString()}`;
+}
+
+// แกนธุรกรรม: dir "in" = เงินเข้า, "out" = เงินออก · app = แหล่งที่มา (bank/stream/connect/shop)
+// คืน true ถ้าสำเร็จ · opts.silentToast = ไม่เด้ง toast ยอดไม่พอ
+function bankTxn(dir, amount, label, app, opts) {
+    opts = opts || {};
+    const amt = Math.abs(Math.round(Number(amount) || 0));
+    if (!amt) return false;
+    const b = getBankData();
+    if (dir === "out" && amt > b.balance) {
+        if (!opts.silentToast) toastr.warning("ยอดเงินไม่พอ", "TinyBank");
+        return false;
+    }
+    b.balance += dir === "in" ? amt : -amt;
+    b.txns.unshift({
+        id: "tx" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+        dir, amount: amt, label: String(label || ""), app: app || "bank", ts: Date.now(),
+    });
+    if (b.txns.length > 200) b.txns.length = 200;
+    saveFeedData();
+    if (currentApp === "bank") renderBank();
+    return true;
+}
+function bankAdd(amount, label, app, opts) { return bankTxn("in", amount, label, app, opts); }
+function bankDeduct(amount, label, app, opts) { return bankTxn("out", amount, label, app, opts); }
+
+// ไอคอน + ป้ายชื่อแอปต้นทางของธุรกรรม
+function bankTxnMeta(app) {
+    switch (app) {
+        case "stream": return { icon: "fa-video", name: "TinyStream" };
+        case "connect": return { icon: "fa-comment-dots", name: "TinyConnect" };
+        case "shop": return { icon: "fa-bag-shopping", name: "ร้านค้า" };
+        default: return { icon: "fa-wallet", name: "ธนาคาร" };
+    }
+}
+
+function renderBank() {
+    const b = getBankData();
+    $("#tinyfeed-bank-balance").text(formatMoney(b.balance));
+    if (!b.txns.length) {
+        $("#tinyfeed-bank-txns").html(emptyStateHtml("fa-receipt", "ยังไม่มีธุรกรรม", "เติมเงิน/จ่ายเงินเอง หรือรับโดเนทจากไลฟ์"));
+        return;
+    }
+    $("#tinyfeed-bank-txns").html(b.txns.map((t) => {
+        const m = bankTxnMeta(t.app);
+        const sign = t.dir === "in" ? "+" : "−";
+        return `<div class="tinyfeed-bank-txn">
+            <div class="tinyfeed-bank-txn-icon tinyfeed-bank-${t.dir}"><i class="fa-solid ${m.icon}"></i></div>
+            <div class="tinyfeed-bank-txn-body">
+                <div class="tinyfeed-bank-txn-label">${escapeText(t.label || (t.dir === "in" ? "เงินเข้า" : "เงินออก"))}</div>
+                <div class="tinyfeed-bank-txn-sub">${m.name} · ${timeAgo(t.ts)}</div>
+            </div>
+            <div class="tinyfeed-bank-txn-amt tinyfeed-bank-${t.dir}">${sign}${formatMoney(t.amount)}</div>
+        </div>`;
+    }).join(""));
+}
+
+// ปุ่มเติม/จ่ายเงินเอง (อ่านจากฟอร์มในแอป)
+function bankManualTxn(dir) {
+    const amt = parseInt($("#tinyfeed-bank-amount").val(), 10);
+    const label = String($("#tinyfeed-bank-label").val() || "").trim();
+    if (!Number.isFinite(amt) || amt <= 0) { toastr.info("ใส่จำนวนเงินก่อนนะ", "TinyBank"); return; }
+    const ok = bankTxn(dir, amt, label || (dir === "in" ? "เติมเงิน" : "จ่ายเงิน"), "bank");
+    if (ok) {
+        $("#tinyfeed-bank-amount, #tinyfeed-bank-label").val("");
     }
 }
 
@@ -4045,7 +4182,7 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery"];
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank"];
 function saveLastScreen() {
     try {
         const data = getFeedData();
@@ -4135,6 +4272,7 @@ const SETTINGS_LAYOUT = [
     { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
     { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
     { head: "🖼️ TinyGallery", titles: ["TinyGallery (คลังรูป + สติกเกอร์)"] },
+    { head: "🏦 TinyBank", titles: ["TinyBank (ธนาคาร)"] },
     { head: "🧩 Prompt (ขั้นสูง)", titles: ["Prompt (ขั้นสูง)"] },
 ];
 
@@ -4229,6 +4367,8 @@ function populateSettings() {
     renderPromptEditors();
 
     $("#tinyfeed-cfg-stream-mode").val(getSetting("streamCommentMode") || "manual");
+    $("#tinyfeed-cfg-stream-bg").val(getSetting("streamBgUrl"));
+    $("#tinyfeed-cfg-stream-bg-theme").prop("checked", Boolean(getSetting("streamBgTheme")));
     $("#tinyfeed-cfg-stream-interval").val(getSetting("streamAutoInterval"));
     $("#tinyfeed-cfg-stream-tokens").val(getSetting("streamTokens"));
     $("#tinyfeed-cfg-stream-extra").val(getSetting("streamExtraPrompt"));
@@ -4274,6 +4414,10 @@ function populateSettings() {
     $("#tinyfeed-cfg-gallery-max-stickers").val(getSetting("galleryMaxStickers"));
     galleryCfgPage = 0;
     renderGalleryCfgAlbums();
+    $("#tinyfeed-cfg-bank-currency").val(getSetting("bankCurrency") || "฿");
+    $("#tinyfeed-cfg-bank-auto").prop("checked", Boolean(getSetting("bankAutoEnabled")));
+    $("#tinyfeed-cfg-bank-donate-chance").val(getSetting("bankDonateChance"));
+    $("#tinyfeed-cfg-bank-donate-max").val(getSetting("bankDonateMax"));
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
     $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
     $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
@@ -4635,6 +4779,13 @@ jQuery(async () => {
                 e.preventDefault();
                 sendForumFromComposer($(this).val());
             }
+        });
+
+        // ===== TinyBank: เติม/จ่ายเงินเอง =====
+        $(document).on("click", "#tinyfeed-bank-in", function () { bankManualTxn("in"); });
+        $(document).on("click", "#tinyfeed-bank-out", function () { bankManualTxn("out"); });
+        $(document).on("keydown", "#tinyfeed-bank-amount, #tinyfeed-bank-label", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); bankManualTxn("in"); }
         });
 
         // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
@@ -5068,6 +5219,14 @@ jQuery(async () => {
             setSetting("streamCommentMode", $(this).val());
             if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
         });
+        $(document).on("input", "#tinyfeed-cfg-stream-bg", function () {
+            setSetting("streamBgUrl", $(this).val().trim());
+            applyStreamBg();
+        });
+        $(document).on("change", "#tinyfeed-cfg-stream-bg-theme", function () {
+            setSetting("streamBgTheme", $(this).prop("checked"));
+            applyStreamBg();
+        });
         $(document).on("input", "#tinyfeed-cfg-stream-interval", function () {
             let v = parseInt($(this).val(), 10);
             setSetting("streamAutoInterval", Number.isFinite(v) && v >= 4 ? v : 12);
@@ -5221,6 +5380,22 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
             setSetting("galleryPrompt", $(this).prop("checked"));
+        });
+        // TinyBank config
+        $(document).on("input", "#tinyfeed-cfg-bank-currency", function () {
+            setSetting("bankCurrency", String($(this).val() || "฿").trim() || "฿");
+            if (currentApp === "bank") renderBank();
+        });
+        $(document).on("change", "#tinyfeed-cfg-bank-auto", function () {
+            setSetting("bankAutoEnabled", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-bank-donate-chance", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("bankDonateChance", Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 20);
+        });
+        $(document).on("input", "#tinyfeed-cfg-bank-donate-max", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("bankDonateMax", Number.isFinite(v) && v > 0 ? v : 500);
         });
         $(document).on("change", "#tinyfeed-cfg-gallery-scope", function () {
             setSetting("galleryPromptScope", $(this).val());

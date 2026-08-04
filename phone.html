@@ -71,6 +71,10 @@
                     <div class="tinyfeed-app-tile" style="--app-a:#ec4899; --app-b:#be185d;"><i class="fa-solid fa-images"></i></div>
                     <span class="tinyfeed-app-name">TinyGallery</span>
                 </div>
+                <div class="tinyfeed-app-icon" data-app="bank">
+                    <div class="tinyfeed-app-tile" style="--app-a:#10b981; --app-b:#047857;"><i class="fa-solid fa-wallet"></i></div>
+                    <span class="tinyfeed-app-name">TinyBank</span>
+                </div>
             </div>
         </div>
 
@@ -234,6 +238,14 @@
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">TinyStream (ไลฟ์สตรีม)</div>
                     <small class="tinyfeed-field-hint">เลือกสตรีมเมอร์หลัก + ตัวละครร่วมไลฟ์ได้ที่<b>หน้าแอป TinyStream</b> (กดที่รูปโปรไฟล์ในกรอบสตรีม · ปุ่ม + เพื่อเพิ่มตัวละครร่วม)</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">พื้นหลังกรอบสตรีม (ลิงก์รูป — เว้นว่าง = สีพื้น)</span>
+                        <input id="tinyfeed-cfg-stream-bg" type="text" placeholder="https://..." />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ใช้สีพื้นหลังตามธีม (เมื่อไม่ใส่ลิงก์รูป)</span>
+                        <input id="tinyfeed-cfg-stream-bg-theme" type="checkbox" />
+                    </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">คอมเมนต์สดมายังไง</span>
                         <select id="tinyfeed-cfg-stream-mode">
@@ -622,6 +634,27 @@
                 </div>
 
                 <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">TinyBank (ธนาคาร)</div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สัญลักษณ์สกุลเงิน</span>
+                        <input id="tinyfeed-cfg-bank-currency" type="text" maxlength="4" placeholder="฿" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>เปิดระบบเงินอัตโนมัติ (AI สุ่มโดเนท/โอน)</span>
+                        <input id="tinyfeed-cfg-bank-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โอกาสมีคนโดเนทต่อการโหลดคอมเมนต์สด (%)</span>
+                        <input id="tinyfeed-cfg-bank-donate-chance" type="number" min="0" max="100" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ยอดโดเนทสุ่มสูงสุด</span>
+                        <input id="tinyfeed-cfg-bank-donate-max" type="number" min="1" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ยอดเงิน + ประวัติธุรกรรม<b>ผูกกับแชท</b> (แยกตามเนื้อเรื่อง) · เปิดระบบอัตโนมัติแล้ว เวลาโหลดคอมเมนต์สดใน TinyStream ผู้ชมอาจสุ่มโดเนทเข้าบัญชีเรา (เด้งบนจอไลฟ์) · ปิดไว้ = เพิ่ม/จ่ายเงินเองเท่านั้น</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
                     <div id="tinyfeed-prompt-list"></div>
@@ -831,6 +864,25 @@
                     </div>
                     <div id="tinyfeed-gallery-stk-grid" class="tinyfeed-gallery-grid tinyfeed-gallery-grid-sticker"></div>
                 </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-app-bank" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-screen">
+                <div class="tinyfeed-bank-card">
+                    <div class="tinyfeed-bank-card-label">ยอดเงินคงเหลือ</div>
+                    <div id="tinyfeed-bank-balance" class="tinyfeed-bank-card-balance">฿0</div>
+                </div>
+                <div class="tinyfeed-bank-form">
+                    <input id="tinyfeed-bank-amount" type="number" min="1" placeholder="จำนวนเงิน" />
+                    <input id="tinyfeed-bank-label" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <div class="tinyfeed-bank-form-actions">
+                        <button id="tinyfeed-bank-in" class="tinyfeed-btn-primary"><i class="fa-solid fa-plus"></i> รับ/เติมเงิน</button>
+                        <button id="tinyfeed-bank-out" class="tinyfeed-btn-ghost"><i class="fa-solid fa-minus"></i> จ่าย/ถอน</button>
+                    </div>
+                </div>
+                <div class="tinyfeed-bank-txns-head">ประวัติธุรกรรม</div>
+                <div id="tinyfeed-bank-txns" class="tinyfeed-bank-txns"></div>
             </div>
         </div>
 
