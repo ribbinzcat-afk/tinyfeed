@@ -3277,6 +3277,7 @@
 
 /* โดเนทบนจอไลฟ์ (SuperChat — สีตาม tier ผ่าน --donate-color) */
 .tinyfeed-stream-donation {
+    flex-shrink: 0;   /* กันโดน flex column บีบยุบเป็นเส้น (overflow:hidden ทำ min-height=0) */
     margin: 7px 0;
     border-radius: 11px;
     overflow: hidden;
