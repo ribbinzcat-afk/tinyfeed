@@ -3163,3 +3163,26 @@
     margin-bottom: 18px;
 }
 .tinyfeed-stream-addhost:hover { background: rgba(255, 255, 255, 0.25); }
+
+/* ปุ่มย่อยบนรูปผู้ไลฟ์: ดินสอ (เปลี่ยนหลัก) / กากบาท (เอาตัวร่วมออก) */
+.tinyfeed-host-edit,
+.tinyfeed-host-remove {
+    position: absolute;
+    top: -2px;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 0.6em;
+    cursor: pointer;
+    z-index: 3;
+    transition: background 0.15s ease;
+}
+.tinyfeed-host-edit { left: -2px; }
+.tinyfeed-host-remove { right: -2px; }
+.tinyfeed-host-edit:hover { background: var(--tf-accent); }
+.tinyfeed-host-remove:hover { background: #f4212e; }

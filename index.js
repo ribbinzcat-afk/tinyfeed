@@ -300,37 +300,81 @@ function getStreamer() {
     return { name, avatarItem: { isMain: true, author: name } };
 }
 
-// รายชื่อผู้ไลฟ์ทั้งหมด (หลัก + ตัวละครร่วมไลฟ์) — สำหรับไลฟ์หลายผู้พูด (ไม่รวมผู้ใช้)
+// รายชื่อผู้ไลฟ์ที่เป็น AI (หลัก + ตัวละครร่วมไลฟ์) — ไม่รวมผู้ใช้ (ผู้ใช้พิมพ์เอง)
 function getStreamHosts() {
     const hosts = [];
     const seen = new Set();
     const add = (nm) => {
         const k = String(nm || "").trim();
-        if (k && k !== getUserName() && !seen.has(k.toLowerCase())) { seen.add(k.toLowerCase()); hosts.push(k); }
+        if (!k || k === POSTER_USER || k === getUserName()) return;   // ข้ามผู้ใช้ (ไม่ให้ AI พูดแทน)
+        if (!seen.has(k.toLowerCase())) { seen.add(k.toLowerCase()); hosts.push(k); }
     };
     if (!streamerIsUser()) add(getStreamer().name);
     for (const co of (getStreamData().coHosts || [])) add(co);
     return hosts;
 }
 
-// วาดรูปโปรไฟล์ผู้ไลฟ์ในกรอบสตรีม (หลัก + ร่วมไลฟ์ + ปุ่ม +) — มงกุฎบนสตรีมเมอร์หลักเมื่อมีหลายคน
+// ผู้ใช้เป็นหนึ่งในผู้ไลฟ์ไหม (เป็นหลัก หรือมาไลฟ์ร่วม) — โชว์ช่องพิมพ์คำพูดของเรา
+function userIsHost() {
+    return streamerIsUser() || (getStreamData().coHosts || []).includes(POSTER_USER);
+}
+
+// แปลงค่า host (ชื่อ หรือ POSTER_USER) เป็น { name, avatarItem } สำหรับแสดงผล
+function hostDisplay(hostVal) {
+    if (hostVal === POSTER_USER) return { name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
+    return { name: hostVal, avatarItem: streamSpeakerAvatarItem(hostVal) };
+}
+
+// ชนิดการพูด: มีคอมเมนต์ผู้ใช้ค้างล่าสุด = ตอบ, ไม่งั้น = เล่าเรื่อง
+function streamSpeakKind() {
+    const s = getStreamData();
+    for (let i = s.comments.length - 1; i >= 0; i--) {
+        const c = s.comments[i];
+        if (c.isStreamer) break;
+        if (c.isUser) return "reply";
+    }
+    return "talk";
+}
+
+// ผู้พูด AI คนถัดไป (วนเวียนจากคนที่พูดล่าสุด → การันตีว่าตัวร่วมได้คิว)
+function nextStreamHost(hosts) {
+    const last = String(getStreamData().lastSpeaker || "");
+    const idx = hosts.findIndex((h) => h.toLowerCase() === last.toLowerCase());
+    return hosts[(idx + 1) % hosts.length];
+}
+
+// วาดรูปโปรไฟล์ผู้ไลฟ์ในกรอบสตรีม — แตะรูป AI = ให้พูด · แตะรูปเรา = พิมพ์เอง
+// ปุ่มดินสอ = เปลี่ยนสตรีมเมอร์หลัก · ปุ่มกากบาท = เอาตัวร่วมออก · ปุ่ม + = เพิ่มตัวร่วม
 function renderStreamHosts() {
     const s = getStreamData();
     const main = getStreamer();
-    const co = (s.coHosts || []).filter((nm) => String(nm).trim() && nm !== main.name);
+    const mainVal = s.mainStreamer || "";
+    const mainIsUser = mainVal === POSTER_USER;
+    // ตัวร่วมไลฟ์ (ไม่ซ้ำกับหลัก) — อาจมี POSTER_USER (เรา)
+    const co = (s.coHosts || []).filter((v) => {
+        if (mainIsUser) return v !== POSTER_USER;
+        return v !== mainVal && v !== main.name;
+    });
     const multi = co.length > 0;
-    let html = `<div class="tinyfeed-stream-host tinyfeed-stream-host-main" data-role="main" title="เปลี่ยนสตรีมเมอร์หลัก">
+    const hint = (isUser) => isUser ? "แตะเพื่อพิมพ์คำพูดของเรา" : "แตะให้พูด";
+    // สตรีมเมอร์หลัก
+    let html = `<div class="tinyfeed-stream-host tinyfeed-stream-host-main" ${mainIsUser ? `data-user="1"` : `data-name="${escapeAttr(main.name)}"`} title="${hint(mainIsUser)}">
         ${multi ? `<span class="tinyfeed-host-crown"><i class="fa-solid fa-crown"></i></span>` : ""}
+        <span class="tinyfeed-host-edit" title="เปลี่ยนสตรีมเมอร์หลัก"><i class="fa-solid fa-pen"></i></span>
         ${makeAvatar(main.avatarItem)}
         <span class="tinyfeed-host-name">${escapeText(main.name)}</span>
     </div>`;
-    for (const nm of co) {
-        html += `<div class="tinyfeed-stream-host" data-role="co" data-name="${escapeAttr(nm)}" title="${escapeText(nm)} — แตะเพื่อเอาออก">
-            ${makeAvatar(streamSpeakerAvatarItem(nm))}
-            <span class="tinyfeed-host-name">${escapeText(nm)}</span>
+    // ตัวร่วมไลฟ์
+    for (const v of co) {
+        const d = hostDisplay(v);
+        const isUser = v === POSTER_USER;
+        html += `<div class="tinyfeed-stream-host" data-role="co" ${isUser ? `data-user="1"` : `data-name="${escapeAttr(d.name)}"`} data-val="${escapeAttr(v)}" title="${hint(isUser)}">
+            <span class="tinyfeed-host-remove" title="เอาออก"><i class="fa-solid fa-xmark"></i></span>
+            ${makeAvatar(d.avatarItem)}
+            <span class="tinyfeed-host-name">${escapeText(d.name)}</span>
         </div>`;
     }
-    html += `<div id="tinyfeed-stream-addhost" class="tinyfeed-stream-addhost" title="เพิ่มตัวละครร่วมไลฟ์"><i class="fa-solid fa-plus"></i></div>`;
+    html += `<div id="tinyfeed-stream-addhost" class="tinyfeed-stream-addhost" title="เพิ่มตัวละคร/เราเอง มาไลฟ์ร่วม"><i class="fa-solid fa-plus"></i></div>`;
     $("#tinyfeed-stream-hosts").html(html);
 }
 
@@ -360,18 +404,18 @@ function renderStream() {
     const streamer = getStreamer();
     renderStreamHosts();
     $("#tinyfeed-app-stream .tinyfeed-stream-title").text(s.live ? (s.title || "กำลังไลฟ์สด") : "ยังไม่ได้เริ่มไลฟ์");
-    // ชื่อผู้ไลฟ์: รวมตัวละครร่วมไลฟ์ (+ เราเอง ถ้าเป็นสตรีมเมอร์)
+    // ชื่อผู้ไลฟ์: รวมตัวละครร่วมไลฟ์ (+ เราเอง ถ้าเรามาไลฟ์ร่วม/เป็นหลัก)
     const hostNames = getStreamHosts();
-    if (streamerIsUser()) hostNames.unshift(getUserName());
+    if (userIsHost()) hostNames.unshift(getUserName());
     const byLine = hostNames.length ? hostNames.join(", ") : streamer.name;
     $("#tinyfeed-app-stream .tinyfeed-stream-streamer").text(s.live ? `โดย ${byLine}${s.direction ? " · " + s.direction : ""}` : "");
     $("#tinyfeed-stream-toggle").text(s.live ? "จบไลฟ์" : "เริ่มไลฟ์");
     $(".tinyfeed-stream-live").toggleClass("tinyfeed-hidden", !s.live);
     $(".tinyfeed-stream-viewers").toggleClass("tinyfeed-hidden", !s.live).text(`👁 ${formatCount(s.viewers)}`);
-    const userStreamer = streamerIsUser();
-    // ตอนไลฟ์ใช้แถบเดียว: เราเป็นสตรีมเมอร์ = แถบคำพูดสตรีมเมอร์ · ไม่งั้น = แถบคอมเมนต์ผู้ชม
-    $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !(s.live && !userStreamer));
-    $(".tinyfeed-stream-streamer-compose").toggleClass("tinyfeed-hidden", !(s.live && userStreamer));
+    const userHost = userIsHost();
+    // เราเป็นผู้ไลฟ์ (หลัก/ร่วม) = แถบพิมพ์คำพูดของเรา · ไม่งั้น = แถบคอมเมนต์ผู้ชม
+    $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !(s.live && !userHost));
+    $(".tinyfeed-stream-streamer-compose").toggleClass("tinyfeed-hidden", !(s.live && userHost));
     // ฟอร์มตั้งหัวข้อ + ปุ่มให้ AI ตั้งหัวข้อโชว์ตอนยังไม่ไลฟ์
     $("#tinyfeed-stream-startform").toggleClass("tinyfeed-hidden", s.live);
     $("#tinyfeed-stream-ai-title").toggleClass("tinyfeed-hidden", s.live);
@@ -508,15 +552,20 @@ async function loadLiveComments(opts) {
     }
 }
 
-// สตรีมเมอร์ (ตัวละคร) พูด/อ่านแชตแล้วตอบ — kind: "open" | "reply" | "talk"
-// รองรับไลฟ์หลายตัวละคร (สตรีมเมอร์หลัก + ตัวละครร่วมไลฟ์ พูดสลับกัน)
+// ให้สตรีมเมอร์ AI พูด 1 ประโยค — kind: "open" | "reply" | "talk"
+// opts.host = บังคับให้คนนี้พูด · ถ้าไม่ระบุและมีหลายคน = วนเวียนทีละคน (การันตีตัวร่วมได้คิว)
 async function streamerSpeak(kind, opts) {
     opts = opts || {};
     const s = getStreamData();
     if (!s.live || isGeneratingStream) return;
-    const streamer = getStreamer();
-    const hosts = getStreamHosts();
+    const hosts = getStreamHosts();   // เฉพาะ AI (ไม่รวมเรา)
+    if (!hosts.length) return;        // ไม่มีสตรีมเมอร์ AI (เช่นเราไลฟ์คนเดียว)
     const you = getUserName();
+    // เลือกผู้พูด
+    let speaker;
+    if (opts.host && hosts.some((h) => h.toLowerCase() === String(opts.host).toLowerCase())) speaker = opts.host;
+    else if (hosts.length > 1) speaker = nextStreamHost(hosts);
+    else speaker = hosts[0];
     isGeneratingStream = true;
     try {
         const transcript = s.comments.slice(-8).filter((c) => !c.isSystem)
@@ -526,40 +575,17 @@ async function streamerSpeak(kind, opts) {
             : kind === "reply"
                 ? `อ่านคอมเมนต์ล่าสุดของผู้ชม (โดยเฉพาะของ ${you}) แล้วโต้ตอบ/ตอบกลับแบบอ่านแชตสดๆ`
                 : `พูดคุย/เล่าเรื่องต่อเกี่ยวกับหัวข้อไลฟ์ ให้ต่อเนื่องเป็นธรรมชาติ`;
+        // เพื่อนร่วมไลฟ์คนอื่น (รวมเราถ้ามาไลฟ์ร่วม) — ให้พูดโต้ตอบกันได้
+        const others = hosts.filter((h) => h.toLowerCase() !== speaker.toLowerCase());
+        if (userIsHost() && !streamerIsUser()) others.push(you);
+        const coLine = others.length
+            ? ` คุณกำลังไลฟ์ร่วมกับ: ${others.join(", ")} — พูดในนามของ ${speaker} เท่านั้น จะทัก/โต้ตอบคนอื่นก็ได้ แต่ห้ามพูดแทน ${you}.`
+            : "";
         const extra = String(getSetting("streamExtraPrompt") || "").trim();
         const extraLine = (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + galleryPromptBlock();
-
-        // ===== ไลฟ์หลายตัวละคร: ให้ 1-2 คนพูดสลับกัน =====
-        if (hosts.length > 1) {
-            const q =
-                `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือไลฟ์สดที่มีสตรีมเมอร์หลายคน: ${hosts.join(", ")}. ` +
-                `หัวข้อไลฟ์: "${s.title}".${s.direction ? " แนวทางไลฟ์: " + s.direction + "." : ""} ` +
-                `ให้สตรีมเมอร์ 1-2 คน (เลือกเองตามที่เข้ากับสถานการณ์ ห้ามใช้ ${you}) ${taskText}. ` +
-                `พูดสั้นเป็นธรรมชาติเหมือนไลฟ์จริง ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.` +
-                extraLine +
-                crossAppContext("stream") +
-                (transcript ? `\nแชตล่าสุด:\n${transcript}\n` : "") +
-                `\nตอบบรรทัดละคนในรูปแบบนี้เท่านั้น:\nSPEAK: <ชื่อสตรีมเมอร์> | <ข้อความ>`;
-            const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
-            const list = parseCommentLines(raw, hosts[0], "SPEAK")
-                .filter((c) => c.author.trim().toLowerCase() !== you.trim().toLowerCase());
-            if (list.length) {
-                for (const c of list.slice(0, 3)) {
-                    // c.text ผ่าน escapeHtml มาแล้วจาก makeCommentObj
-                    s.comments.push({ isStreamer: true, author: c.author, text: c.text, ts: Date.now() });
-                }
-                saveFeedData();
-                renderStream();
-            } else if (!opts.silent) {
-                toastr.info("สตรีมเมอร์ยังไม่พูดอะไร ลองใหม่นะ", "TinyStream");
-            }
-            return;
-        }
-
-        // ===== ไลฟ์คนเดียว =====
         const q = buildPrompt("streamerSpeak", {
-            streamer: streamer.name, title: s.title,
-            direction: s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "",
+            streamer: speaker, title: s.title,
+            direction: (s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "") + coLine,
             task: " " + taskText + ".",
             extra: extraLine,
             context: crossAppContext("stream"),
@@ -567,10 +593,11 @@ async function streamerSpeak(kind, opts) {
         });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
         let line = stripWrapBrackets(stripReasoning(raw).trim());
-        const esc = streamer.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const esc = speaker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         line = line.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
         if (line) {
-            s.comments.push({ isStreamer: true, author: streamer.name, text: escapeHtml(line), ts: Date.now() });
+            s.comments.push({ isStreamer: true, author: speaker, text: escapeHtml(line), ts: Date.now() });
+            s.lastSpeaker = speaker;   // จำไว้เพื่อวนเวียนคนถัดไป
             saveFeedData();
             renderStream();
         } else if (!opts.silent) {
@@ -612,15 +639,8 @@ async function fillStreamAiTitle() {
 
 // ปุ่ม "ให้สตรีมเมอร์พูด" — ถ้ามีคอมเมนต์ผู้ใช้ค้าง = ตอบ, ไม่งั้น = เล่าเรื่อง
 function streamerSpeakButton() {
-    const s = getStreamData();
-    if (!s.live) return;
-    let kind = "talk";
-    for (let i = s.comments.length - 1; i >= 0; i--) {
-        const c = s.comments[i];
-        if (c.isStreamer) break;
-        if (c.isUser) { kind = "reply"; break; }
-    }
-    streamerSpeak(kind, {});
+    if (!getStreamData().live) return;
+    streamerSpeak(streamSpeakKind(), {});   // วนเวียนผู้พูดให้เอง
 }
 
 async function sendStreamComment(text) {
@@ -645,7 +665,7 @@ async function sendStreamComment(text) {
 async function sendStreamerLine(text) {
     const clean = String(text || "").trim();
     const s = getStreamData();
-    if (!clean || !s.live || !streamerIsUser()) return;
+    if (!clean || !s.live || !userIsHost()) return;
     s.comments.push({ isStreamer: true, author: getUserName(), text: escapeHtml(clean), ts: Date.now() });
     saveFeedData();
     $("#tinyfeed-stream-streamer-input").val("");
@@ -4679,32 +4699,45 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-stream-streamer-sticker", function () {
             openGalleryPicker("sticker", (token) => sendStreamerLine(token));
         });
-        // เลือกสตรีมเมอร์หลัก (กดรูปโปรไฟล์)
-        $(document).on("click", ".tinyfeed-stream-host-main", function () {
+        // แตะรูปผู้ไลฟ์: AI = ให้พูด (เจาะจงคนนั้น) · เรา = โฟกัสช่องพิมพ์คำพูดของเรา
+        $(document).on("click", ".tinyfeed-stream-host", function (e) {
+            if ($(e.target).closest(".tinyfeed-host-edit, .tinyfeed-host-remove").length) return;   // กดปุ่มย่อย
+            if (!getStreamData().live) return;
+            if ($(this).data("user")) {
+                $("#tinyfeed-stream-streamer-input").trigger("focus");
+            } else {
+                const nm = String($(this).data("name") || "");
+                if (nm && !isGeneratingStream) streamerSpeak(streamSpeakKind(), { host: nm });
+            }
+        });
+        // ดินสอบนสตรีมเมอร์หลัก = เปลี่ยนคนหลัก
+        $(document).on("click", ".tinyfeed-host-edit", function (e) {
+            e.stopPropagation();
             openCharPicker({ includeUser: true, includeMain: true, includeAuto: false, title: "เลือกสตรีมเมอร์หลัก" }, (value) => {
                 const s = getStreamData();
                 s.mainStreamer = value;
                 const mainName = getStreamer().name;
-                s.coHosts = (s.coHosts || []).filter((nm) => nm !== mainName);   // กันซ้ำกับหลัก
+                s.coHosts = (s.coHosts || []).filter((v) => v !== value && v !== mainName);   // กันซ้ำกับหลัก
                 saveFeedData();
                 if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
             });
         });
-        // เอาตัวละครร่วมไลฟ์ออก (แตะที่รูป)
-        $(document).on("click", ".tinyfeed-stream-host[data-role='co']", function (e) {
+        // กากบาทบนตัวร่วมไลฟ์ = เอาออก
+        $(document).on("click", ".tinyfeed-host-remove", function (e) {
             e.stopPropagation();
-            const nm = String($(this).data("name"));
+            const val = String($(this).closest(".tinyfeed-stream-host").data("val"));
             const s = getStreamData();
-            s.coHosts = (s.coHosts || []).filter((x) => x !== nm);
+            s.coHosts = (s.coHosts || []).filter((x) => String(x) !== val);
             saveFeedData();
             if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
         });
-        // เพิ่มตัวละครร่วมไลฟ์ (ปุ่ม +)
+        // ปุ่ม + = เพิ่มตัวละคร/เราเอง มาไลฟ์ร่วม
         $(document).on("click", "#tinyfeed-stream-addhost", function () {
             const s = getStreamData();
             const exclude = [getStreamer().name, ...(s.coHosts || [])];
-            openCharPicker({ includeUser: false, includeMain: true, includeAuto: false, exclude, title: "เพิ่มตัวละครร่วมไลฟ์" }, (value) => {
-                if (value === POSTER_USER || value === POSTER_AUTO) return;
+            if (streamerIsUser() || (s.coHosts || []).includes(POSTER_USER)) exclude.push(POSTER_USER);
+            openCharPicker({ includeUser: true, includeMain: true, includeAuto: false, exclude, title: "เพิ่มคนมาไลฟ์ร่วม" }, (value) => {
+                if (value === POSTER_AUTO) return;
                 const st = getStreamData();
                 if (!st.coHosts.includes(value)) st.coHosts.push(value);
                 saveFeedData();
