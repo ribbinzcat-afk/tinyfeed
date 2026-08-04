@@ -1297,8 +1297,8 @@
     outline: none;
     resize: none;
     line-height: 1.4;
-    max-height: 110px;
-    overflow-y: auto;
+    max-height: 160px;
+    overflow-y: hidden;   /* JS (autoGrowCompose) เปิด scroll ให้เองเมื่อเนื้อหายาวจริง */
     transition: border-color 0.2s ease;
 }
 
@@ -2608,7 +2608,8 @@
     border-radius: 12px;
     flex-shrink: 0;
 }
-.tinyfeed-gallery-addform input {
+.tinyfeed-gallery-addform input,
+.tinyfeed-gallery-addform textarea {
     box-sizing: border-box;
     width: 100%;
     background: var(--tf-topbar);
@@ -2621,7 +2622,9 @@
     outline: none;
     transition: border-color 0.2s ease;
 }
-.tinyfeed-gallery-addform input:focus { border-color: var(--tf-accent); }
+.tinyfeed-gallery-addform textarea { resize: vertical; min-height: 40px; line-height: 1.4; }
+.tinyfeed-gallery-addform input:focus,
+.tinyfeed-gallery-addform textarea:focus { border-color: var(--tf-accent); }
 .tinyfeed-gallery-addrow {
     display: flex;
     align-items: center;
@@ -2667,24 +2670,33 @@
     object-fit: cover;
     display: block;
 }
-.tinyfeed-gallery-item-del {
+.tinyfeed-gallery-item .tinyfeed-gallery-thumb { cursor: pointer; }
+.tinyfeed-gallery-item-actions {
     position: absolute;
     top: 4px;
     right: 4px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.tinyfeed-gallery-item:hover .tinyfeed-gallery-item-actions { opacity: 1; }
+.tinyfeed-gallery-item-edit,
+.tinyfeed-gallery-item-del {
     width: 24px;
     height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, 0.6);
     color: #fff;
-    font-size: 0.72em;
+    font-size: 0.68em;
     cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: background 0.15s ease;
 }
-.tinyfeed-gallery-item:hover .tinyfeed-gallery-item-del { opacity: 1; }
+.tinyfeed-gallery-item-edit:hover { background: var(--tf-accent); }
+.tinyfeed-gallery-item-del:hover { background: #f4212e; }
 .tinyfeed-gallery-item-name {
     font-size: 0.8em;
     color: var(--tf-text);
@@ -2810,3 +2822,107 @@
     height: auto;
     border-radius: 8px;
 }
+
+/* รูป/สติกเกอร์ในโพสต์ TinyFeed — อยู่ใต้แคปชันเสมอ */
+.tinyfeed-post-media {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 8px;
+}
+.tinyfeed-post-media .tinyfeed-content-img { max-height: 320px; }
+
+/* จอสัมผัส: ไม่มี hover → โชว์ปุ่มจัดการตลอด */
+@media (pointer: coarse) {
+    .tinyfeed-gallery-item-actions { opacity: 1; }
+}
+
+/* ดูรูปเต็ม (lightbox) */
+.tinyfeed-gallery-view {
+    position: absolute;
+    inset: 0;
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.82);
+}
+.tinyfeed-gallery-view-card {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+.tinyfeed-gallery-view-img {
+    max-width: 100%;
+    max-height: 62vh;
+    object-fit: contain;
+    border-radius: 10px;
+}
+.tinyfeed-gallery-view-name {
+    font-size: 0.95em;
+    font-weight: 600;
+    color: #fff;
+    text-align: center;
+    word-break: break-word;
+}
+.tinyfeed-gallery-view-cap {
+    font-size: 0.85em;
+    color: rgba(255, 255, 255, 0.82);
+    text-align: center;
+    line-height: 1.5;
+    max-height: 22vh;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+#tinyfeed-gallery-view-close {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    cursor: pointer;
+}
+
+/* ฟอร์มแก้ไขไอเท็มคลัง */
+.tinyfeed-gallery-editform {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+}
+.tinyfeed-gallery-edit-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.tinyfeed-gallery-edit-field input,
+.tinyfeed-gallery-edit-field textarea {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.tinyfeed-gallery-edit-field textarea { resize: vertical; min-height: 48px; line-height: 1.4; }
+.tinyfeed-gallery-edit-field input:focus,
+.tinyfeed-gallery-edit-field textarea:focus { border-color: var(--tf-accent); }

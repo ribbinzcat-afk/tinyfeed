@@ -207,7 +207,7 @@ function openApp(app) {
     }
     clearStreamTimer();   // ออกจากแอปอื่น = หยุด timer stream
     clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
-    closeGalleryPicker(); // กัน picker ค้างข้ามแอป
+    closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
@@ -621,10 +621,12 @@ function renderGalleryGrid(kind) {
         <div class="tinyfeed-gallery-item" data-kind="${kind}" data-id="${escapeAttr(it.id)}">
             <div class="tinyfeed-gallery-thumb-wrap">
                 <img class="tinyfeed-gallery-thumb" src="${escapeAttr(it.url)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />
-                <span class="tinyfeed-gallery-item-del" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+                <span class="tinyfeed-gallery-item-actions">
+                    <span class="tinyfeed-gallery-item-edit" title="แก้ไข/ย้ายอัลบั้ม"><i class="fa-solid fa-pen"></i></span>
+                    <span class="tinyfeed-gallery-item-del" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+                </span>
             </div>
             <div class="tinyfeed-gallery-item-name">${escapeText(it.name)}</div>
-            ${it.caption ? `<div class="tinyfeed-gallery-item-cap">${escapeText(it.caption)}</div>` : ""}
         </div>
     `).join(""));
 }
@@ -702,6 +704,72 @@ function deleteGalleryItem(kind, id) {
     arr.splice(idx, 1);
     saveGallery();
     renderGalleryGrid(kind);
+}
+
+// หาไอเท็มในคลังตาม kind + id
+function getGalleryItem(kind, id) {
+    const g = getGallery();
+    return (kind === "sticker" ? g.stickers : g.images).find((it) => String(it.id) === String(id)) || null;
+}
+
+// ===== ดูรูปเต็ม (lightbox) — โชว์รูปใหญ่ + ชื่อ + คำบรรยาย =====
+function openGalleryView(kind, id) {
+    const it = getGalleryItem(kind, id);
+    if (!it) return;
+    $("#tinyfeed-gallery-view-img").removeClass("tinyfeed-img-broken").attr("src", it.url);
+    $("#tinyfeed-gallery-view-name").text(it.name || "");
+    const cap = kind === "image" ? String(it.caption || "").trim() : "";
+    $("#tinyfeed-gallery-view-cap").text(cap).toggleClass("tinyfeed-hidden", !cap);
+    $("#tinyfeed-gallery-view").removeClass("tinyfeed-hidden");
+}
+function closeGalleryView() {
+    $("#tinyfeed-gallery-view").addClass("tinyfeed-hidden");
+}
+
+// ===== แก้ไขชื่อ/คำบรรยาย + ย้ายอัลบั้ม =====
+let galleryEditRef = null;   // { kind, id }
+function openGalleryEdit(kind, id) {
+    const it = getGalleryItem(kind, id);
+    if (!it) return;
+    galleryEditRef = { kind, id };
+    const g = getGallery();
+    const albums = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    $("#tinyfeed-gallery-edit-title").text(kind === "sticker" ? "แก้ไขสติกเกอร์" : "แก้ไขรูป");
+    $("#tinyfeed-gallery-edit-name").val(it.name || "");
+    $("#tinyfeed-gallery-edit-caption").val(it.caption || "");
+    $("#tinyfeed-gallery-edit-caption-field").toggleClass("tinyfeed-hidden", kind !== "image");
+    fillAlbumSelect($("#tinyfeed-gallery-edit-album"), albums, it.album || "ทั่วไป");
+    $("#tinyfeed-gallery-edit").removeClass("tinyfeed-hidden");
+}
+function closeGalleryEdit() {
+    $("#tinyfeed-gallery-edit").addClass("tinyfeed-hidden");
+    galleryEditRef = null;
+}
+function saveGalleryEdit() {
+    if (!galleryEditRef) return;
+    const { kind, id } = galleryEditRef;
+    const it = getGalleryItem(kind, id);
+    if (!it) { closeGalleryEdit(); return; }
+    const newName = String($("#tinyfeed-gallery-edit-name").val() || "").trim();
+    if (!newName) { toastr.info("ตั้งชื่อก่อนนะ", "TinyGallery"); return; }
+    const arr = kind === "sticker" ? getGallery().stickers : getGallery().images;
+    if (arr.some((x) => x.id !== it.id && String(x.name).trim().toLowerCase() === newName.toLowerCase())) {
+        toastr.info("มีชื่อนี้อยู่แล้ว ตั้งชื่ออื่นนะ", "TinyGallery"); return;
+    }
+    it.name = newName;
+    if (kind === "image") it.caption = String($("#tinyfeed-gallery-edit-caption").val() || "").trim();
+    it.album = String($("#tinyfeed-gallery-edit-album").val() || "ทั่วไป");
+    saveGallery();
+    closeGalleryEdit();
+    renderGalleryGrid(kind);
+    toastr.success("บันทึกแล้ว", "TinyGallery");
+}
+
+// ปิด overlay ทั้งหมดของคลัง (picker/ดูรูป/แก้ไข)
+function closeGalleryOverlays() {
+    closeGalleryPicker();
+    closeGalleryView();
+    closeGalleryEdit();
 }
 
 // ===== Picker: เลือกสติกเกอร์/รูป จากคลังมาส่งในแอปอื่น =====
@@ -1460,10 +1528,21 @@ function renderStickerToken(name) {
 function renderImgToken(name) {
     const im = findGalleryImage(name);
     if (im && im.url) {
-        const cap = im.caption ? `<span class="tinyfeed-content-img-cap">${escapeText(im.caption)}</span>` : "";
-        return `<span class="tinyfeed-content-img-wrap"><img class="tinyfeed-content-img" src="${escapeAttr(im.url)}" alt="${escapeText(im.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />${cap}</span>`;
+        // คำบรรยายไม่โชว์ในเนื้อหา (ใช้เป็น prompt + โชว์ตอนดูรูปเต็มในคลังเท่านั้น)
+        return `<span class="tinyfeed-content-img-wrap"><img class="tinyfeed-content-img" src="${escapeAttr(im.url)}" alt="${escapeText(im.name)}" onerror="this.classList.add('tinyfeed-img-broken')" /></span>`;
     }
     return `<span class="tinyfeed-token-missing">[รูป: ${escapeText(name)}]</span>`;
+}
+
+// วาดเนื้อโพสต์ TinyFeed: ข้อความ/แคปชันอยู่บน · รูป/สติกเกอร์ย้ายลงล่างเสมอ
+function renderPostBody(text) {
+    let s = String(text == null ? "" : text);
+    const media = [];
+    s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => { media.push(renderStickerToken(unescapeLite(n))); return ""; });
+    s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => { media.push(renderImgToken(unescapeLite(n))); return ""; });
+    const textHtml = renderRich(s).replace(/^(?:<br>\s*)+|(?:<br>\s*)+$/g, "").trim();
+    const mediaHtml = media.length ? `<div class="tinyfeed-post-media">${media.join("")}</div>` : "";
+    return textHtml + mediaHtml;
 }
 
 // ตัดวงเล็บ [ ] ที่โมเดลครอบข้อความมา โดยไม่ทำลายโทเคน [sticker:..]/[img:..]
@@ -1778,7 +1857,7 @@ function renderFeed() {
                 </div>
                 ${(post.isUser || post.isAI) ? `<span class="tinyfeed-delete" data-post="${post.id}" title="ลบโพสต์"><i class="fa-solid fa-trash"></i></span>` : ""}
             </div>
-            <div class="tinyfeed-post-body">${renderRich(post.text)}</div>
+            <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
             <div class="tinyfeed-post-actions">
                 <span class="tinyfeed-like ${post.liked ? "tinyfeed-liked" : ""}" data-post="${post.id}">
                     <i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}
@@ -1859,7 +1938,7 @@ function openPostDetail(postId) {
                     <span class="tinyfeed-post-time">${displayTime(post)}</span>
                 </div>
             </div>
-            <div class="tinyfeed-post-body">${renderRich(post.text)}</div>
+            <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
             <div class="tinyfeed-post-actions">
                 <span><span class="fa-regular fa-heart"></span> ${Number(post.likes || 0).toLocaleString()}</span>
                 <span><span class="fa-regular fa-comment"></span> ${post.comments.length.toLocaleString()}</span>
@@ -3750,7 +3829,10 @@ function closeCompose() {
 // ปรับความสูง textarea ตามเนื้อหา
 function autoGrowCompose(el) {
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    const cap = 160;
+    el.style.height = Math.min(el.scrollHeight, cap) + "px";
+    // โชว์ scrollbar เฉพาะตอนเนื้อหายาวเกิน cap จริงๆ (กัน placeholder ยาวทำ scrollbar โผล่ตอนแคบ)
+    el.style.overflowY = el.scrollHeight > cap ? "auto" : "hidden";
 }
 
 // เปิดหน้าบทความข่าวเต็ม
@@ -3990,8 +4072,10 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    if (!$("#tinyfeed-gallery-picker").hasClass("tinyfeed-hidden")) {
-        closeGalleryPicker();   // ปิด picker ก่อนถ้าเปิดอยู่
+    const galleryOverlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit"]
+        .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
+    if (galleryOverlayOpen) {
+        closeGalleryOverlays();   // ปิด overlay คลังก่อนถ้าเปิดอยู่
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -4317,6 +4401,27 @@ jQuery(async () => {
             const item = $(this).closest(".tinyfeed-gallery-item");
             deleteGalleryItem(item.data("kind"), String(item.data("id")));
         });
+        $(document).on("click", ".tinyfeed-gallery-item-edit", function (e) {
+            e.stopPropagation();
+            const item = $(this).closest(".tinyfeed-gallery-item");
+            openGalleryEdit(item.data("kind"), String(item.data("id")));
+        });
+        // คลิกรูปย่อ = ดูรูปเต็ม (โชว์คำบรรยาย)
+        $(document).on("click", ".tinyfeed-gallery-item .tinyfeed-gallery-thumb", function () {
+            const item = $(this).closest(".tinyfeed-gallery-item");
+            openGalleryView(item.data("kind"), String(item.data("id")));
+        });
+        // ดูรูปเต็ม
+        $(document).on("click", "#tinyfeed-gallery-view-close", closeGalleryView);
+        $(document).on("click", "#tinyfeed-gallery-view", function (e) {
+            if (e.target === this) closeGalleryView();
+        });
+        // แก้ไข/ย้ายอัลบั้ม
+        $(document).on("click", "#tinyfeed-gallery-edit-save", saveGalleryEdit);
+        $(document).on("click", "#tinyfeed-gallery-edit-cancel, #tinyfeed-gallery-edit-close", closeGalleryEdit);
+        $(document).on("click", "#tinyfeed-gallery-edit", function (e) {
+            if (e.target === this) closeGalleryEdit();
+        });
         // picker
         $(document).on("change", "#tinyfeed-gallery-picker-album", renderPickerGrid);
         $(document).on("click", "#tinyfeed-gallery-picker-close", closeGalleryPicker);
@@ -4329,6 +4434,9 @@ jQuery(async () => {
         // ปุ่มสติกเกอร์/รูป ในแถบพิมพ์ของแต่ละแอป (ส่งทันที หรือแทรกลงช่องพิมพ์)
         $(document).on("click", "#tinyfeed-connect-sticker", function () {
             openGalleryPicker("sticker", (token) => sendConnectMessage(token));
+        });
+        $(document).on("click", "#tinyfeed-connect-image", function () {
+            openGalleryPicker("image", (token) => sendConnectMessage(token));
         });
         $(document).on("click", "#tinyfeed-stream-sticker", function () {
             openGalleryPicker("sticker", (token) => sendStreamComment(token));

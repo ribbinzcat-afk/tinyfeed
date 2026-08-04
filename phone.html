@@ -636,6 +636,7 @@
                 </div>
                 <div class="tinyfeed-connect-compose">
                     <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
+                    <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
                     <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                     <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
                 </div>
@@ -782,7 +783,7 @@
                     </div>
                     <div class="tinyfeed-gallery-addform">
                         <input id="tinyfeed-gallery-img-url" type="text" placeholder="ลิงก์รูปภาพ (URL)" />
-                        <input id="tinyfeed-gallery-img-caption" type="text" placeholder="คำบรรยายรูปภาพ" />
+                        <textarea id="tinyfeed-gallery-img-caption" rows="2" placeholder="คำบรรยายรูปภาพ (ใช้เป็น prompt + โชว์ตอนดูรูปเต็ม)"></textarea>
                         <div class="tinyfeed-gallery-addrow">
                             <input id="tinyfeed-gallery-img-name" type="text" placeholder="ตั้งชื่อ (ใช้อ้างอิง)" />
                             <button id="tinyfeed-gallery-img-add" class="tinyfeed-btn-primary">เพิ่มรูป</button>
@@ -818,6 +819,42 @@
                 </div>
                 <select id="tinyfeed-gallery-picker-album" class="tinyfeed-gallery-album-select"></select>
                 <div id="tinyfeed-gallery-picker-grid" class="tinyfeed-gallery-grid"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-gallery-view" class="tinyfeed-gallery-view tinyfeed-hidden">
+            <div class="tinyfeed-gallery-view-card">
+                <span id="tinyfeed-gallery-view-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                <img id="tinyfeed-gallery-view-img" class="tinyfeed-gallery-view-img" src="" alt="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                <div id="tinyfeed-gallery-view-name" class="tinyfeed-gallery-view-name"></div>
+                <div id="tinyfeed-gallery-view-cap" class="tinyfeed-gallery-view-cap tinyfeed-hidden"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-gallery-edit" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span id="tinyfeed-gallery-edit-title">แก้ไข</span>
+                    <span id="tinyfeed-gallery-edit-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-gallery-editform">
+                    <label class="tinyfeed-gallery-edit-field">
+                        <span class="tinyfeed-field-label">ชื่อ (ใช้อ้างอิง)</span>
+                        <input id="tinyfeed-gallery-edit-name" type="text" placeholder="ชื่อ" />
+                    </label>
+                    <label id="tinyfeed-gallery-edit-caption-field" class="tinyfeed-gallery-edit-field">
+                        <span class="tinyfeed-field-label">คำบรรยาย</span>
+                        <textarea id="tinyfeed-gallery-edit-caption" rows="3" placeholder="คำบรรยาย (ใช้เป็น prompt + โชว์ตอนดูรูปเต็ม)"></textarea>
+                    </label>
+                    <label class="tinyfeed-gallery-edit-field">
+                        <span class="tinyfeed-field-label">อัลบั้ม</span>
+                        <select id="tinyfeed-gallery-edit-album" class="tinyfeed-gallery-album-select"></select>
+                    </label>
+                    <div class="tinyfeed-compose-actions">
+                        <button id="tinyfeed-gallery-edit-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                        <button id="tinyfeed-gallery-edit-save" class="tinyfeed-btn-primary">บันทึก</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
