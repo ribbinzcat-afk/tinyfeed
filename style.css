@@ -3275,16 +3275,63 @@
 .tinyfeed-bank-txn-amt.tinyfeed-bank-in { color: #10b981; }
 .tinyfeed-bank-txn-amt.tinyfeed-bank-out { color: #f4212e; }
 
-/* โดเนทบนจอไลฟ์ */
+/* โดเนทบนจอไลฟ์ (SuperChat — สีตาม tier ผ่าน --donate-color) */
 .tinyfeed-stream-donation {
-    margin: 6px 0;
-    padding: 9px 12px;
-    border-radius: 10px;
-    background: linear-gradient(135deg, color-mix(in srgb, #f59e0b 30%, transparent), color-mix(in srgb, #f59e0b 14%, transparent));
-    border: 1px solid color-mix(in srgb, #f59e0b 45%, transparent);
+    margin: 7px 0;
+    border-radius: 11px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--donate-color, #1d9bf0) 20%, transparent);
+    border: 1px solid var(--donate-color, #1d9bf0);
+    border-left: 4px solid var(--donate-color, #1d9bf0);
     color: var(--tf-text);
     font-size: 0.9em;
     animation: tinyfeed-rise 0.3s ease backwards;
 }
-.tinyfeed-stream-donation i { color: #f59e0b; margin-right: 3px; }
-.tinyfeed-stream-donation-amt { font-weight: 800; color: #d97706; }
+.tinyfeed-stream-donation-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 11px;
+    background: color-mix(in srgb, var(--donate-color, #1d9bf0) 26%, transparent);
+}
+.tinyfeed-stream-donation-who { font-weight: 700; }
+.tinyfeed-stream-donation-who i { color: var(--donate-color, #1d9bf0); margin-right: 4px; }
+.tinyfeed-stream-donation-amt {
+    font-weight: 800;
+    color: var(--donate-color, #1d9bf0);
+    filter: brightness(1.15);
+    white-space: nowrap;
+}
+.tinyfeed-stream-donation-msg { padding: 7px 11px; line-height: 1.4; word-break: break-word; }
+
+/* ตัวแก้ tier โดเนท (config) */
+.tinyfeed-donate-tiers { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.tinyfeed-donate-tier-row { display: flex; align-items: center; gap: 8px; }
+.tinyfeed-donate-tier-ge { color: var(--tf-text-muted); font-size: 0.9em; flex-shrink: 0; }
+.tinyfeed-donate-tier-min {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 0.88em;
+    outline: none;
+}
+.tinyfeed-donate-tier-min:focus { border-color: var(--tf-accent); }
+.tinyfeed-donate-tier-color {
+    flex-shrink: 0;
+    width: 42px;
+    height: 34px;
+    padding: 0;
+    border: 1px solid var(--tf-border);
+    border-radius: 8px;
+    background: none;
+    cursor: pointer;
+}
+.tinyfeed-donate-tier-del { flex-shrink: 0; color: var(--tf-text-muted); cursor: pointer; padding: 4px; }
+.tinyfeed-donate-tier-del:hover { color: #f4212e; }

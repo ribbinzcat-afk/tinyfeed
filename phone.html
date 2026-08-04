@@ -640,18 +640,19 @@
                         <input id="tinyfeed-cfg-bank-currency" type="text" maxlength="4" placeholder="฿" />
                     </label>
                     <label class="tinyfeed-field-row">
-                        <span>เปิดระบบเงินอัตโนมัติ (AI สุ่มโดเนท/โอน)</span>
-                        <input id="tinyfeed-cfg-bank-auto" type="checkbox" />
+                        <span>เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)</span>
+                        <input id="tinyfeed-cfg-donate-enabled" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">โอกาสมีคนโดเนทต่อการโหลดคอมเมนต์สด (%)</span>
-                        <input id="tinyfeed-cfg-bank-donate-chance" type="number" min="0" max="100" />
-                    </label>
-                    <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ยอดโดเนทสุ่มสูงสุด</span>
+                        <span class="tinyfeed-field-label">เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)</span>
                         <input id="tinyfeed-cfg-bank-donate-max" type="number" min="1" />
                     </label>
-                    <small class="tinyfeed-field-hint">ยอดเงิน + ประวัติธุรกรรม<b>ผูกกับแชท</b> (แยกตามเนื้อเรื่อง) · เปิดระบบอัตโนมัติแล้ว เวลาโหลดคอมเมนต์สดใน TinyStream ผู้ชมอาจสุ่มโดเนทเข้าบัญชีเรา (เด้งบนจอไลฟ์) · ปิดไว้ = เพิ่ม/จ่ายเงินเองเท่านั้น</small>
+                    <div class="tinyfeed-field-label">สี tier โดเนท (SuperChat — ยอด ≥ ขั้นต่ำ ใช้สีนั้น)</div>
+                    <div id="tinyfeed-donate-tiers" class="tinyfeed-donate-tiers"></div>
+                    <button id="tinyfeed-donate-tier-add" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-plus"></i> <span>เพิ่ม tier</span>
+                    </button>
+                    <small class="tinyfeed-field-hint">ยอดเงิน + ประวัติธุรกรรม<b>ผูกกับแชท</b> (แยกตามเนื้อเรื่อง) · เปิดระบบโดเนท → เวลาโหลดคอมเมนต์สดใน TinyStream, AI จะเลือกให้ผู้ชมโดเนท (กำหนดจำนวน+ข้อความเอง) เข้าบัญชีเรา เด้งการ์ดสีตาม tier บนจอไลฟ์ · ปิดไว้ = เพิ่ม/จ่ายเงินเองเท่านั้น</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">

@@ -110,9 +110,18 @@ const defaultSettings = {
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
     bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
-    bankAutoEnabled: false,       // ระบบอัตโนมัติ (AI สุ่มโดเนท/โอน) — master switch
-    bankDonateChance: 20,         // โอกาส (%) ที่รอบโหลดคอมเมนต์สดจะมีคนโดเนท
-    bankDonateMax: 500,           // ยอดโดเนทสุ่มสูงสุด
+    streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
+    bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
+    // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
+    donateTiers: [
+        { min: 0, color: "#1d9bf0" },
+        { min: 50, color: "#00b8d4" },
+        { min: 200, color: "#22c55e" },
+        { min: 500, color: "#ffca28" },
+        { min: 1000, color: "#ff9100" },
+        { min: 2000, color: "#ec407a" },
+        { min: 5000, color: "#e53935" },
+    ],
     // TinyGallery (คลังรูป + สติกเกอร์ — global ข้ามแชท ไม่ผูกกับแชทไหน)
     gallery: { images: [], stickers: [], imageAlbums: ["ทั่วไป"], stickerAlbums: ["ทั่วไป"] },
     galleryPrompt: true,          // ให้บอทรู้จักคลัง + ส่งสติกเกอร์/รูปได้ด้วย [sticker:ชื่อ] / [img:ชื่อ]
@@ -461,9 +470,13 @@ function renderStream() {
             return `<div class="tinyfeed-stream-divider"><span>${c.text}</span></div>`;
         }
         if (c.isDonation) {
-            return `<div class="tinyfeed-stream-donation">
-                <i class="fa-solid fa-gift"></i> <b>${escapeText(c.author)}</b> โดเนท
-                <span class="tinyfeed-stream-donation-amt">${formatMoney(c.amount)}</span>
+            const color = donateTierColor(c.amount);
+            return `<div class="tinyfeed-stream-donation" style="--donate-color:${color}">
+                <div class="tinyfeed-stream-donation-head">
+                    <span class="tinyfeed-stream-donation-who"><i class="fa-solid fa-gift"></i> ${escapeText(c.author)}</span>
+                    <span class="tinyfeed-stream-donation-amt">${formatMoney(c.amount)}</span>
+                </div>
+                ${c.text ? `<div class="tinyfeed-stream-donation-msg">${renderRich(c.text)}</div>` : ""}
             </div>`;
         }
         if (c.isStreamer) {
@@ -542,24 +555,62 @@ async function toggleStream() {
     }
 }
 
-// สุ่มให้ผู้ชมโดเนทเข้าบัญชีเรา (TinyStream → TinyBank) เมื่อเปิดระบบเงินอัตโนมัติ
-function maybeStreamDonation(candidateNames) {
-    if (!getSetting("bankAutoEnabled")) return;
-    const chance = Math.min(100, Math.max(0, parseInt(getSetting("bankDonateChance"), 10) || 0));
-    if (Math.random() * 100 >= chance) return;
+// tier โดเนท (คงลำดับที่เก็บไว้ — ไม่ sort เพื่อให้แก้ไขไม่เด้ง) + สีตามจำนวนเงิน (SuperChat)
+function getDonateTiers() {
+    const t = getSetting("donateTiers");
+    return (Array.isArray(t) && t.length ? t : defaultSettings.donateTiers)
+        .map((x) => ({ min: Math.max(0, parseInt(x.min, 10) || 0), color: String(x.color || "#1d9bf0") }));
+}
+function donateTierColor(amount) {
+    const amt = Number(amount) || 0;
+    const tiers = getDonateTiers().sort((a, b) => a.min - b.min);
+    let color = tiers.length ? tiers[0].color : "#1d9bf0";
+    for (const t of tiers) { if (amt >= t.min) color = t.color; }
+    return color;
+}
+
+// วาดตัวแก้ tier โดเนทในหน้า config
+function renderDonateTiers() {
+    const tiers = getDonateTiers();
+    $("#tinyfeed-donate-tiers").html(tiers.map((t, i) => `
+        <div class="tinyfeed-donate-tier-row" data-index="${i}">
+            <span class="tinyfeed-donate-tier-ge">≥</span>
+            <input class="tinyfeed-donate-tier-min" type="number" min="0" value="${t.min}" />
+            <input class="tinyfeed-donate-tier-color" type="color" value="${escapeAttr(t.color)}" />
+            <span class="tinyfeed-donate-tier-del" title="ลบ tier"><i class="fa-solid fa-trash"></i></span>
+        </div>
+    `).join("") || `<span class="tinyfeed-field-hint">ยังไม่มี tier</span>`);
+}
+
+// แยกบรรทัดโดเนทจากผลลัพธ์ AI: DONATE: ชื่อ | จำนวนเงิน | ข้อความ
+function parseDonations(raw) {
+    const s = stripReasoning(raw);
+    const out = [];
+    const re = /DONATE:\s*(.+)/gi;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+        const parts = m[1].split("|");
+        if (parts.length < 2) continue;
+        const author = parts[0].replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const amount = Math.abs(Math.round(parseFloat(String(parts[1]).replace(/[^\d.]/g, "")) || 0));
+        const text = parts.slice(2).join("|").trim();
+        if (author && amount) out.push({ author, amount, text });
+    }
+    return out;
+}
+
+// ประมวลผลโดเนทที่ AI สร้าง: เข้าบัญชี + ดันการ์ดโดเนทลงคอมเมนต์ไลฟ์
+function processDonations(raw) {
+    if (!getSetting("streamDonateEnabled")) return;
     const s = getStreamData();
     const you = getUserName().trim().toLowerCase();
-    const streamerName = getStreamer().name.trim().toLowerCase();
-    let pool = (candidateNames || []).map((n) => String(n).trim()).filter((n) => {
-        const a = n.toLowerCase();
-        return a && a !== you && a !== streamerName;
-    });
-    if (!pool.length) pool = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
-    const donor = pool.length ? pool[Math.floor(Math.random() * pool.length)] : "ผู้ชม";
-    const max = Math.max(10, parseInt(getSetting("bankDonateMax"), 10) || 500);
-    const amount = (Math.floor(Math.random() * Math.floor(max / 10)) + 1) * 10;   // ลงท้าย 0 สวยๆ
-    if (bankAdd(amount, `โดเนทจาก ${donor}`, "stream", { silentToast: true })) {
-        s.comments.push({ isDonation: true, author: donor, amount, ts: Date.now() });
+    const cap = Math.max(1, parseInt(getSetting("bankDonateMax"), 10) || 5000);
+    for (const d of parseDonations(raw)) {
+        if (d.author.trim().toLowerCase() === you) continue;   // ผู้ใช้ไม่โดเนทให้ตัวเอง
+        const amount = Math.min(cap, d.amount);
+        if (bankAdd(amount, `โดเนทจาก ${d.author}`, "stream", { silentToast: true })) {
+            s.comments.push({ isDonation: true, author: d.author, amount, text: escapeHtml(d.text || ""), ts: Date.now() });
+        }
     }
 }
 
@@ -576,11 +627,15 @@ async function loadLiveComments(opts) {
         const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
         const recent = s.comments.slice(-6).map((c) => `${c.author}: ${htmlToPlain(c.text)}`).join("\n");
         const extra = String(getSetting("streamExtraPrompt") || "").trim();
+        // ระบบโดเนท: ให้ AI เลือกให้ผู้ชมโดเนทเอง (กำหนดจำนวน + ข้อความ)
+        const donateLine = getSetting("streamDonateEnabled")
+            ? ` [ระบบโดเนท] ผู้ชมบางคนอาจโดเนทเงินให้สตรีมเมอร์ได้ (0-1 คนต่อรอบ ไม่ต้องมีทุกครั้ง). ถ้าจะให้ใครโดเนท ใส่บรรทัดแยกในรูปแบบนี้: DONATE: <ชื่อผู้ชม> | <จำนวนเงินเป็นตัวเลข เช่น 20-2000> | <ข้อความโดเนทสั้นๆ>.`
+            : "";
         const q = buildPrompt("streamComments", {
             streamer: streamer.name, title: s.title,
             direction: s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "",
             roster: npcNames.length ? " หรือใช้ NPC เหล่านี้บ้าง: " + npcNames.join(", ") : "",
-            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            extra: (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + donateLine,
             context: crossAppContext("stream"),
             recent: recent ? `\nคอมเมนต์ล่าสุด (อย่าซ้ำ):\n${recent}\n` : "",
         });
@@ -592,12 +647,10 @@ async function loadLiveComments(opts) {
                 return a !== streamer.name.trim().toLowerCase() && a !== you.trim().toLowerCase();
             })
             .map((c) => ({ author: c.author, avatar: getNpcAvatar(c.author), text: c.text, ts: Date.now() }));
-        if (list.length) {
-            s.comments.push(...list);
-            maybeStreamDonation(list.map((c) => c.author));   // สุ่มโดเนท (ถ้าเปิดระบบอัตโนมัติ)
-            saveFeedData();
-            renderStream();
-        }
+        const before = s.comments.length;
+        s.comments.push(...list);
+        processDonations(raw);   // โดเนทที่ AI กำหนด → เข้าบัญชี + การ์ดโดเนท
+        if (s.comments.length > before) { saveFeedData(); renderStream(); }
     } catch (e) {
         console.error(`[${extensionName}] live comments failed:`, e);
         if (!opts.silent) toastr.error("โหลดคอมเมนต์ไม่สำเร็จ", "TinyStream");
@@ -4415,9 +4468,9 @@ function populateSettings() {
     galleryCfgPage = 0;
     renderGalleryCfgAlbums();
     $("#tinyfeed-cfg-bank-currency").val(getSetting("bankCurrency") || "฿");
-    $("#tinyfeed-cfg-bank-auto").prop("checked", Boolean(getSetting("bankAutoEnabled")));
-    $("#tinyfeed-cfg-bank-donate-chance").val(getSetting("bankDonateChance"));
+    $("#tinyfeed-cfg-donate-enabled").prop("checked", Boolean(getSetting("streamDonateEnabled")));
     $("#tinyfeed-cfg-bank-donate-max").val(getSetting("bankDonateMax"));
+    renderDonateTiers();
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
     $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
     $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
@@ -5386,16 +5439,41 @@ jQuery(async () => {
             setSetting("bankCurrency", String($(this).val() || "฿").trim() || "฿");
             if (currentApp === "bank") renderBank();
         });
-        $(document).on("change", "#tinyfeed-cfg-bank-auto", function () {
-            setSetting("bankAutoEnabled", $(this).prop("checked"));
-        });
-        $(document).on("input", "#tinyfeed-cfg-bank-donate-chance", function () {
-            let v = parseInt($(this).val(), 10);
-            setSetting("bankDonateChance", Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 20);
+        $(document).on("change", "#tinyfeed-cfg-donate-enabled", function () {
+            setSetting("streamDonateEnabled", $(this).prop("checked"));
         });
         $(document).on("input", "#tinyfeed-cfg-bank-donate-max", function () {
             let v = parseInt($(this).val(), 10);
-            setSetting("bankDonateMax", Number.isFinite(v) && v > 0 ? v : 500);
+            setSetting("bankDonateMax", Number.isFinite(v) && v > 0 ? v : 5000);
+        });
+        // ตัวแก้ tier โดเนท (ไม่ re-render ตอนพิมพ์ min/สี กันเคอร์เซอร์เด้ง)
+        $(document).on("input", ".tinyfeed-donate-tier-min", function () {
+            const i = $(this).closest(".tinyfeed-donate-tier-row").data("index");
+            const tiers = getDonateTiers();
+            if (!tiers[i]) return;
+            tiers[i].min = Math.max(0, parseInt($(this).val(), 10) || 0);
+            setSetting("donateTiers", tiers);
+        });
+        $(document).on("input", ".tinyfeed-donate-tier-color", function () {
+            const i = $(this).closest(".tinyfeed-donate-tier-row").data("index");
+            const tiers = getDonateTiers();
+            if (!tiers[i]) return;
+            tiers[i].color = String($(this).val() || "#1d9bf0");
+            setSetting("donateTiers", tiers);
+        });
+        $(document).on("click", ".tinyfeed-donate-tier-del", function () {
+            const i = $(this).closest(".tinyfeed-donate-tier-row").data("index");
+            const tiers = getDonateTiers();
+            tiers.splice(i, 1);
+            setSetting("donateTiers", tiers);
+            renderDonateTiers();
+        });
+        $(document).on("click", "#tinyfeed-donate-tier-add", function () {
+            const tiers = getDonateTiers();
+            const nextMin = tiers.length ? Math.max(...tiers.map((t) => t.min)) + 500 : 0;
+            tiers.push({ min: nextMin, color: "#888888" });
+            setSetting("donateTiers", tiers);
+            renderDonateTiers();
         });
         $(document).on("change", "#tinyfeed-cfg-gallery-scope", function () {
             setSetting("galleryPromptScope", $(this).val());
