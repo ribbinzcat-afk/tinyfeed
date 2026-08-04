@@ -405,6 +405,7 @@
 .tinyfeed-news-tools {
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
     padding-bottom: 10px;
     margin-bottom: 4px;
     border-bottom: 1px solid var(--tf-border);
@@ -2498,10 +2499,11 @@
 .tinyfeed-notif-item-time { font-size: 0.72em; color: var(--tf-text-muted); margin-top: 2px; }
 
 /* ปุ่มให้กลุ่มคุยกันต่อ */
-#tinyfeed-group-chat-tools {
+.tinyfeed-connect-thread-tools {
     flex-shrink: 0;
     display: flex;
     justify-content: center;
+    gap: 8px;
     padding: 8px 12px 0;
 }
 
@@ -2926,3 +2928,87 @@
 .tinyfeed-gallery-edit-field textarea { resize: vertical; min-height: 48px; line-height: 1.4; }
 .tinyfeed-gallery-edit-field input:focus,
 .tinyfeed-gallery-edit-field textarea:focus { border-color: var(--tf-accent); }
+
+/* config: เลือกอัลบั้มที่ให้ AI เข้าถึง (checkbox + แบ่งหน้า) */
+.tinyfeed-gallery-cfg-albums {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+}
+.tinyfeed-gallery-cfg-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 10px;
+}
+.tinyfeed-gallery-cfg-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.88em;
+    color: var(--tf-text);
+    cursor: pointer;
+    min-width: 0;
+}
+.tinyfeed-gallery-cfg-item span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tinyfeed-gallery-cfg-item input { flex-shrink: 0; }
+.tinyfeed-gallery-cfg-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    font-size: 0.85em;
+    color: var(--tf-text-muted);
+}
+.tinyfeed-gallery-cfg-page {
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 8px;
+    color: var(--tf-accent);
+}
+.tinyfeed-gallery-cfg-page:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+
+/* ตัวเลือกการสร้างเนื้อหา (ผู้โพสต์ + แนวทางครั้งเดียว) */
+.tinyfeed-compose-genopts {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.tinyfeed-mini-select {
+    flex-shrink: 0;
+    max-width: 45%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font: inherit;
+    font-size: 0.85em;
+    outline: none;
+    cursor: pointer;
+}
+.tinyfeed-gen-guidance {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font: inherit;
+    font-size: 0.85em;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.tinyfeed-gen-guidance:focus { border-color: var(--tf-accent); }
+.tinyfeed-news-tools .tinyfeed-gen-guidance { margin-top: 8px; flex-basis: 100%; }
+#tinyfeed-comment-guidance { margin: 4px 0 8px; }

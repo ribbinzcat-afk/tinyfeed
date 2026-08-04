@@ -95,6 +95,10 @@
                         <button id="tinyfeed-compose-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
                         <button id="tinyfeed-compose-post" class="tinyfeed-btn-primary" disabled>โพสต์</button>
                     </div>
+                    <div class="tinyfeed-compose-genopts">
+                        <select id="tinyfeed-feed-poster" class="tinyfeed-mini-select" title="ใครเป็นคนโพสต์"></select>
+                        <input id="tinyfeed-feed-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางโพสต์นี้ (ครั้งเดียว, ไม่บังคับ)" />
+                    </div>
                     <div class="tinyfeed-compose-tools">
                         <button id="tinyfeed-generate" class="tinyfeed-btn-generate">
                             <i class="fa-solid fa-wand-magic-sparkles"></i>
@@ -116,6 +120,7 @@
                         <i class="fa-solid fa-wand-magic-sparkles"></i>
                         <span class="tinyfeed-generate-news-label">สร้างข่าวใหม่</span>
                     </button>
+                    <input id="tinyfeed-news-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางข่าวนี้ (ครั้งเดียว, ไม่บังคับ)" />
                 </div>
                 <div id="tinyfeed-news-list"></div>
             </div>
@@ -231,12 +236,21 @@
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">TinyStream (ไลฟ์สตรีม)</div>
                     <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ใครเป็นสตรีมเมอร์</span>
+                        <span class="tinyfeed-field-label">ใครเป็นสตรีมเมอร์หลัก</span>
                         <select id="tinyfeed-cfg-stream-streamer">
                             <option value="char">ตัวละครหลัก</option>
+                            <option value="npc">NPC (เลือกเอง)</option>
                             <option value="user">เราเอง</option>
                         </select>
                     </label>
+                    <label id="tinyfeed-cfg-stream-npc-field" class="tinyfeed-field tinyfeed-hidden">
+                        <span class="tinyfeed-field-label">เลือก NPC ที่เป็นสตรีมเมอร์</span>
+                        <select id="tinyfeed-cfg-stream-npc"></select>
+                    </label>
+                    <div id="tinyfeed-cfg-stream-cohosts-field" class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ตัวละครร่วมไลฟ์ (เลือกได้หลายคน = พูดสลับกัน)</span>
+                        <div id="tinyfeed-cfg-stream-cohosts" class="tinyfeed-gallery-cfg-list"></div>
+                    </div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">คอมเมนต์สดมายังไง</span>
                         <select id="tinyfeed-cfg-stream-mode">
@@ -598,7 +612,30 @@
                         <span>ให้บอทเลือกส่งสติกเกอร์/รูปจากคลังได้</span>
                         <input id="tinyfeed-cfg-gallery-prompt" type="checkbox" />
                     </label>
-                    <small class="tinyfeed-field-hint">คลังรูป/สติกเกอร์เป็น <b>global</b> ใช้ร่วมทุกแชท ไม่เปลี่ยนตามแชท · เปิดตัวเลือกนี้จะแนบรายชื่อสติกเกอร์/รูปเข้าไปตอน AI คุย/โพสต์ เพื่อให้เลือกส่งด้วย <code>[sticker:ชื่อ]</code> / <code>[img:ชื่อ]</code> · ผู้ใช้กดปุ่ม 😊 ในแถบพิมพ์เพื่อส่งเองได้ทุกแอป</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ขอบเขตอัลบั้มที่ให้ AI เข้าถึง</span>
+                        <select id="tinyfeed-cfg-gallery-scope">
+                            <option value="all">ทุกอัลบั้ม</option>
+                            <option value="selected">เฉพาะอัลบั้มที่เลือก</option>
+                        </select>
+                    </label>
+                    <div id="tinyfeed-cfg-gallery-albums" class="tinyfeed-gallery-cfg-albums tinyfeed-hidden">
+                        <div id="tinyfeed-cfg-gallery-albums-list" class="tinyfeed-gallery-cfg-list"></div>
+                        <div id="tinyfeed-cfg-gallery-albums-pager" class="tinyfeed-gallery-cfg-pager tinyfeed-hidden">
+                            <span id="tinyfeed-cfg-gallery-albums-prev" class="tinyfeed-gallery-cfg-page"><i class="fa-solid fa-chevron-left"></i></span>
+                            <span id="tinyfeed-cfg-gallery-albums-info"></span>
+                            <span id="tinyfeed-cfg-gallery-albums-next" class="tinyfeed-gallery-cfg-page"><i class="fa-solid fa-chevron-right"></i></span>
+                        </div>
+                    </div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">จำนวนรูปสูงสุดที่ AI เข้าถึง</span>
+                        <input id="tinyfeed-cfg-gallery-max-images" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">จำนวนสติกเกอร์สูงสุดที่ AI เข้าถึง</span>
+                        <input id="tinyfeed-cfg-gallery-max-stickers" type="number" min="1" />
+                    </label>
+                    <small class="tinyfeed-field-hint">คลังรูป/สติกเกอร์เป็น <b>global</b> ใช้ร่วมทุกแชท ไม่เปลี่ยนตามแชท · เปิดตัวเลือกแรกจะแนบรายชื่อสติกเกอร์/รูป (ตามขอบเขต+จำนวนสูงสุด) เข้าไปตอน AI คุย/โพสต์ เพื่อให้เลือกส่งด้วย <code>[sticker:ชื่อ]</code> / <code>[img:ชื่อ]</code> · ผู้ใช้กดปุ่ม 😊 ในแถบพิมพ์เพื่อส่งเองได้ทุกแอป</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -629,8 +666,11 @@
             <div id="tinyfeed-connect-list" class="tinyfeed-connect-list"></div>
             <div id="tinyfeed-connect-thread" class="tinyfeed-connect-thread tinyfeed-hidden">
                 <div id="tinyfeed-connect-messages" class="tinyfeed-connect-messages"></div>
-                <div id="tinyfeed-group-chat-tools" class="tinyfeed-hidden">
-                    <button id="tinyfeed-group-continue" class="tinyfeed-btn-generate">
+                <div id="tinyfeed-connect-thread-tools" class="tinyfeed-connect-thread-tools tinyfeed-hidden">
+                    <button id="tinyfeed-connect-reply" class="tinyfeed-btn-generate tinyfeed-hidden">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ตอบกลับ</span>
+                    </button>
+                    <button id="tinyfeed-group-continue" class="tinyfeed-btn-generate tinyfeed-hidden">
                         <i class="fa-solid fa-comments"></i> <span>ให้กลุ่มคุยกันต่อ</span>
                     </button>
                 </div>
