@@ -348,9 +348,12 @@
 /* ปุ่มให้ NPC คอมเมนต์ใต้โพสต์ — ชิดขวา */
 .tinyfeed-post-comment-tools {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
     margin-top: 10px;
 }
+.tinyfeed-post-comment-tools .tinyfeed-gen-guidance { flex: 1; min-width: 0; }
+.tinyfeed-post-comment-tools .tinyfeed-btn-generate { flex-shrink: 0; }
 
 .tinyfeed-btn-generate {
     display: inline-flex;
@@ -404,12 +407,13 @@
 /* แถบปุ่มสร้างข่าว */
 .tinyfeed-news-tools {
     display: flex;
-    justify-content: flex-end;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
     padding-bottom: 10px;
     margin-bottom: 4px;
     border-bottom: 1px solid var(--tf-border);
 }
+.tinyfeed-news-tools #tinyfeed-generate-news { flex-shrink: 0; }
 
 .tinyfeed-news-head-right {
     display: flex;
@@ -3010,5 +3014,152 @@
     transition: border-color 0.2s ease;
 }
 .tinyfeed-gen-guidance:focus { border-color: var(--tf-accent); }
-.tinyfeed-news-tools .tinyfeed-gen-guidance { margin-top: 8px; flex-basis: 100%; }
-#tinyfeed-comment-guidance { margin: 4px 0 8px; }
+.tinyfeed-news-tools .tinyfeed-gen-guidance { flex: 1; min-width: 0; }
+
+/* ===== TinyFeed compose bar (redesign) ===== */
+.tinyfeed-compose-avatar { cursor: pointer; position: relative; }
+/* ช่องแนวทางโพสต์: block เต็มความกว้าง เยื้องให้ยาวเท่าช่อง "คุณกำลังคิดอะไรอยู่" (avatar 40 + gap 10) */
+#tinyfeed-feed-guidance {
+    display: block;
+    box-sizing: border-box;
+    width: calc(100% - 50px);
+    margin: 8px 0 0 50px;
+}
+.tinyfeed-compose-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+}
+.tinyfeed-compose-bar-left,
+.tinyfeed-compose-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tinyfeed-compose-iconbtn {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--tf-text-muted);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1em;
+    transition: color 0.2s ease, background 0.2s ease;
+}
+.tinyfeed-compose-iconbtn:hover:not(:disabled) {
+    color: var(--tf-accent);
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+}
+.tinyfeed-compose-iconbtn:disabled { opacity: 0.4; cursor: default; }
+
+/* textarea ตอนโหมด AI (คนอื่นโพสต์) = สีเทา */
+.tinyfeed-input-disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    background: var(--tf-bg) !important;
+}
+
+/* avatar "อัตโนมัติ" */
+.tinyfeed-avatar-auto {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--tf-accent), color-mix(in srgb, var(--tf-accent) 55%, #000));
+    color: #fff;
+}
+
+/* คทาบนปุ่มโพสต์ + หมุนตอนเจน */
+#tinyfeed-compose-post { display: inline-flex; align-items: center; gap: 7px; }
+.tinyfeed-post-wand.tinyfeed-spin { animation: tinyfeed-spin 0.9s linear infinite; }
+
+/* ตัวเลือกตัวละคร (char picker) */
+.tinyfeed-char-picker-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+}
+.tinyfeed-char-pick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.tinyfeed-char-pick:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+.tinyfeed-char-pick .tinyfeed-avatar { width: 40px; height: 40px; flex-shrink: 0; }
+.tinyfeed-char-pick-name {
+    font-size: 0.92em;
+    color: var(--tf-text);
+    word-break: break-word;
+}
+
+/* ===== TinyStream: ผู้ไลฟ์หลายคนในกรอบสตรีม ===== */
+.tinyfeed-stream-hosts {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 0 12px;
+    max-width: 100%;
+    z-index: 1;
+}
+.tinyfeed-stream-host {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    max-width: 84px;
+}
+.tinyfeed-stream-stage .tinyfeed-stream-host .tinyfeed-avatar {
+    width: 60px;
+    height: 60px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+    border: 2px solid rgba(255, 255, 255, 0.55);
+}
+.tinyfeed-stream-host-main .tinyfeed-avatar { border-color: #ffd54a; }
+.tinyfeed-host-name {
+    font-size: 0.72em;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+    max-width: 84px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tinyfeed-host-crown {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #ffd54a;
+    font-size: 0.82em;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    z-index: 2;
+}
+.tinyfeed-stream-addhost {
+    width: 46px;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 2px dashed rgba(255, 255, 255, 0.7);
+    color: #fff;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.12);
+    transition: background 0.2s ease;
+    margin-bottom: 18px;
+}
+.tinyfeed-stream-addhost:hover { background: rgba(255, 255, 255, 0.25); }

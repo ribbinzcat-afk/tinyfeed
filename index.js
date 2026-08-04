@@ -214,6 +214,7 @@ function openApp(app) {
     clearStreamTimer();   // ออกจากแอปอื่น = หยุด timer stream
     clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
     closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
+    closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
@@ -224,7 +225,7 @@ function openApp(app) {
         $("#tinyfeed-app-feed").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyFeed");
         $(".tinyfeed-tabs").removeClass("tinyfeed-hidden");
-        populateFeedPoster();
+        applyFeedComposeMode();
         switchTab(activeTab);
     } else if (app === "connect") {
         currentApp = "connect";
@@ -266,12 +267,15 @@ function getStreamData() {
     }
     if (!Array.isArray(data.stream.comments)) data.stream.comments = [];
     if (typeof data.stream.direction !== "string") data.stream.direction = "";
+    // เลือกสตรีมเมอร์ในหน้าแอป (ผูกกับแชท): mainStreamer "" = ตัวละครหลัก, POSTER_USER = เรา, หรือชื่อ NPC/ตัวละคร
+    if (typeof data.stream.mainStreamer !== "string") data.stream.mainStreamer = "";
+    if (!Array.isArray(data.stream.coHosts)) data.stream.coHosts = [];
     return data.stream;
 }
 
-// true = ผู้ใช้เป็นสตรีมเมอร์เอง (ไม่ใช่ตัวละคร AI)
+// true = ผู้ใช้เป็นสตรีมเมอร์หลักเอง (ไม่ใช่ตัวละคร AI)
 function streamerIsUser() {
-    return getSetting("streamStreamer") === "user";
+    return getStreamData().mainStreamer === POSTER_USER;
 }
 
 // avatarItem จากชื่อผู้พูดในไลฟ์ (ผู้ใช้ / ตัวละครหลัก / NPC)
@@ -283,17 +287,14 @@ function streamSpeakerAvatarItem(name) {
     return { author: who, avatar: getNpcAvatar(who) };
 }
 
-// สตรีมเมอร์หลักปัจจุบัน { name, avatarItem }
+// สตรีมเมอร์หลักปัจจุบัน { name, avatarItem } — เลือกในหน้าแอป (เก็บใน stream data)
 function getStreamer() {
-    const mode = getSetting("streamStreamer");
-    if (mode === "user") {
+    const main = getStreamData().mainStreamer || "";
+    if (main === POSTER_USER) {
         return { name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
     }
-    if (mode === "npc") {
-        const npcName = String(getSetting("streamStreamerNpc") || "").trim();
-        if (npcName) return { name: npcName, avatarItem: streamSpeakerAvatarItem(npcName) };
-        // ไม่ได้ตั้ง NPC → fallback ตัวละครหลัก
-    }
+    if (main) return { name: main, avatarItem: streamSpeakerAvatarItem(main) };
+    // ค่าเริ่มต้น = ตัวละครหลัก
     const char = getCurrentCharacter();
     const name = (char && char.name) || "ตัวละคร";
     return { name, avatarItem: { isMain: true, author: name } };
@@ -308,8 +309,29 @@ function getStreamHosts() {
         if (k && k !== getUserName() && !seen.has(k.toLowerCase())) { seen.add(k.toLowerCase()); hosts.push(k); }
     };
     if (!streamerIsUser()) add(getStreamer().name);
-    for (const co of (getSetting("streamCoStreamers") || [])) add(co);
+    for (const co of (getStreamData().coHosts || [])) add(co);
     return hosts;
+}
+
+// วาดรูปโปรไฟล์ผู้ไลฟ์ในกรอบสตรีม (หลัก + ร่วมไลฟ์ + ปุ่ม +) — มงกุฎบนสตรีมเมอร์หลักเมื่อมีหลายคน
+function renderStreamHosts() {
+    const s = getStreamData();
+    const main = getStreamer();
+    const co = (s.coHosts || []).filter((nm) => String(nm).trim() && nm !== main.name);
+    const multi = co.length > 0;
+    let html = `<div class="tinyfeed-stream-host tinyfeed-stream-host-main" data-role="main" title="เปลี่ยนสตรีมเมอร์หลัก">
+        ${multi ? `<span class="tinyfeed-host-crown"><i class="fa-solid fa-crown"></i></span>` : ""}
+        ${makeAvatar(main.avatarItem)}
+        <span class="tinyfeed-host-name">${escapeText(main.name)}</span>
+    </div>`;
+    for (const nm of co) {
+        html += `<div class="tinyfeed-stream-host" data-role="co" data-name="${escapeAttr(nm)}" title="${escapeText(nm)} — แตะเพื่อเอาออก">
+            ${makeAvatar(streamSpeakerAvatarItem(nm))}
+            <span class="tinyfeed-host-name">${escapeText(nm)}</span>
+        </div>`;
+    }
+    html += `<div id="tinyfeed-stream-addhost" class="tinyfeed-stream-addhost" title="เพิ่มตัวละครร่วมไลฟ์"><i class="fa-solid fa-plus"></i></div>`;
+    $("#tinyfeed-stream-hosts").html(html);
 }
 
 function clearStreamTimer() {
@@ -336,7 +358,7 @@ function maybeStartStreamTimer() {
 function renderStream() {
     const s = getStreamData();
     const streamer = getStreamer();
-    $("#tinyfeed-app-stream .tinyfeed-stream-avatar").html(makeAvatar(streamer.avatarItem));
+    renderStreamHosts();
     $("#tinyfeed-app-stream .tinyfeed-stream-title").text(s.live ? (s.title || "กำลังไลฟ์สด") : "ยังไม่ได้เริ่มไลฟ์");
     // ชื่อผู้ไลฟ์: รวมตัวละครร่วมไลฟ์ (+ เราเอง ถ้าเป็นสตรีมเมอร์)
     const hostNames = getStreamHosts();
@@ -562,38 +584,6 @@ async function streamerSpeak(kind, opts) {
     }
 }
 
-// toggle "สตรีมเมอร์อ่านคอมเมนต์/มอโนล็อก" ใช้ได้เฉพาะสตรีมเมอร์ตัวละคร — เทาไว้ถ้าเราเป็นสตรีมเมอร์เอง
-function refreshStreamerCfg() {
-    const dis = streamerIsUser();
-    $("#tinyfeed-cfg-stream-reply, #tinyfeed-cfg-stream-talk").prop("disabled", dis);
-    $("#tinyfeed-cfg-stream-reply-row, #tinyfeed-cfg-stream-talk-row").toggleClass("tinyfeed-field-disabled", dis);
-}
-
-// วาด config: NPC สตรีมเมอร์ + checkbox ตัวละครร่วมไลฟ์
-function renderStreamStreamerCfg() {
-    const mode = getSetting("streamStreamer") || "char";
-    $("#tinyfeed-cfg-stream-npc-field").toggleClass("tinyfeed-hidden", mode !== "npc");
-    const npcs = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
-    // dropdown NPC สตรีมเมอร์
-    const curNpc = String(getSetting("streamStreamerNpc") || "");
-    $("#tinyfeed-cfg-stream-npc").html(
-        npcs.length ? npcs.map((n) => `<option value="${escapeAttr(n)}">${escapeText(n)}</option>`).join("")
-            : `<option value="">(ยังไม่มี NPC ประจำ — เพิ่มที่ตั้งค่า NPC)</option>`);
-    if (curNpc && npcs.includes(curNpc)) $("#tinyfeed-cfg-stream-npc").val(curNpc);
-    // checkbox ตัวละครร่วมไลฟ์ (ตัวละครหลัก + NPC)
-    const names = [];
-    const char = getCurrentCharacter();
-    if (char && char.name) names.push(char.name);
-    npcs.forEach((n) => names.push(n));
-    const selected = new Set((getSetting("streamCoStreamers") || []).map((a) => String(a)));
-    $("#tinyfeed-cfg-stream-cohosts").html(
-        names.length ? names.map((n) => `
-            <label class="tinyfeed-gallery-cfg-item">
-                <input type="checkbox" class="tinyfeed-cfg-stream-cohost" value="${escapeAttr(n)}" ${selected.has(n) ? "checked" : ""} />
-                <span>${escapeText(n)}</span>
-            </label>`).join("")
-            : `<span class="tinyfeed-field-hint">ยังไม่มีตัวละคร/NPC</span>`);
-}
 
 // เติมหัวข้อไลฟ์ให้ช่อง input ด้วย AI (ปุ่มในฟอร์มเริ่มไลฟ์)
 async function fillStreamAiTitle() {
@@ -869,6 +859,59 @@ function closeGalleryOverlays() {
     closeGalleryPicker();
     closeGalleryView();
     closeGalleryEdit();
+}
+
+// ===== ตัวเลือกตัวละคร (กดรูปโปรไฟล์ → เลือก) ใช้ร่วม TinyFeed + TinyStream =====
+const POSTER_USER = "__user__";
+const POSTER_AUTO = "__auto__";
+let charPickTarget = null;   // callback(value) เมื่อเลือก
+
+// สร้างรายการตัวเลือก [{ value, name, node(html avatar) }]
+function charPickerItems(opts) {
+    opts = opts || {};
+    const out = [];
+    const exclude = new Set((opts.exclude || []).map(String));
+    if (opts.includeUser && !exclude.has(POSTER_USER)) {
+        out.push({ value: POSTER_USER, name: getUserName() + " (เรา)", node: makeAvatar({ isUser: true, author: getUserName() }) });
+    }
+    const char = getCurrentCharacter();
+    if (opts.includeMain !== false && char && char.name && !exclude.has(char.name)) {
+        out.push({ value: char.name, name: char.name, node: makeAvatar({ isMain: true, author: char.name }) });
+    }
+    for (const npc of getNpcs()) {
+        const nm = String(npc.name || "").trim();
+        if (nm && !exclude.has(nm)) out.push({ value: nm, name: nm, node: makeAvatar({ author: nm, avatar: npc.avatar || "" }) });
+    }
+    // "อัตโนมัติ" อยู่ล่างสุดเสมอ
+    if (opts.includeAuto) {
+        out.push({ value: POSTER_AUTO, name: "อัตโนมัติ (AI เลือก)", node: `<div class="tinyfeed-avatar tinyfeed-avatar-auto"><i class="fa-solid fa-wand-magic-sparkles"></i></div>` });
+    }
+    return out;
+}
+
+function openCharPicker(opts, onPick) {
+    const items = charPickerItems(opts);
+    if (!items.length) { toastr.info("ยังไม่มีตัวละคร/NPC ให้เลือก", "TinyPhone"); return; }
+    charPickTarget = onPick;
+    $("#tinyfeed-char-picker-title").text((opts && opts.title) || "เลือกตัวละคร");
+    $("#tinyfeed-char-picker-list").html(items.map((it) => `
+        <div class="tinyfeed-char-pick" data-value="${escapeAttr(it.value)}">
+            ${it.node}
+            <span class="tinyfeed-char-pick-name">${escapeText(it.name)}</span>
+        </div>
+    `).join(""));
+    $("#tinyfeed-char-picker").removeClass("tinyfeed-hidden");
+}
+
+function closeCharPicker() {
+    $("#tinyfeed-char-picker").addClass("tinyfeed-hidden");
+    charPickTarget = null;
+}
+
+function pickChar(value) {
+    const cb = charPickTarget;
+    closeCharPicker();
+    if (typeof cb === "function") cb(value);
 }
 
 // ===== config: เลือกอัลบั้มที่ให้ AI เข้าถึง (checkbox + แบ่งหน้า) =====
@@ -2029,11 +2072,52 @@ function renderFeed() {
     updateChatInjection();
 }
 
-// อัปเดตรูป avatar ในช่องเขียนโพสต์ให้ตรงกับ persona ปัจจุบัน
+// ===== คนโพสต์ใน TinyFeed: เรา(persona) / ตัวละคร / NPC / อัตโนมัติ =====
+let feedPoster = POSTER_USER;   // ค่าเริ่มต้น = โพสต์เป็นตัวเราเอง
+
+// avatar ของคนโพสต์ที่เลือกอยู่ (เรียกในช่องเขียนโพสต์)
+function posterAvatarNode() {
+    if (feedPoster === POSTER_AUTO) return `<div class="tinyfeed-avatar tinyfeed-avatar-auto" title="อัตโนมัติ"><i class="fa-solid fa-wand-magic-sparkles"></i></div>`;
+    if (feedPoster === POSTER_USER) return makeAvatar({ isUser: true, author: getUserName() });
+    return makeAvatar(streamSpeakerAvatarItem(feedPoster));
+}
+
+// ปรับสภาพช่องเขียนโพสต์ตามคนโพสต์: เราเอง = พิมพ์เอง · ตัวละครอื่น/อัตโนมัติ = โหมด AI
+function applyFeedComposeMode() {
+    const aiMode = feedPoster !== POSTER_USER;
+    $("#tinyfeed-compose-avatar").html(posterAvatarNode());
+    $("#tinyfeed-compose-input")
+        .prop("disabled", aiMode)
+        .toggleClass("tinyfeed-input-disabled", aiMode)
+        .attr("placeholder", aiMode ? "ให้ตัวละครนี้โพสต์ให้ (กดปุ่มโพสต์)" : "คุณกำลังคิดอะไรอยู่?");
+    $("#tinyfeed-feed-guidance").toggleClass("tinyfeed-hidden", !aiMode);
+    $("#tinyfeed-compose-img, #tinyfeed-compose-sticker").prop("disabled", aiMode);
+    $(".tinyfeed-post-wand").toggleClass("tinyfeed-hidden", !aiMode);
+    // ปุ่มโพสต์: โหมด AI กดได้เสมอ · โหมดเรา กดได้เมื่อมีข้อความ
+    const emptyUser = String($("#tinyfeed-compose-input").val() || "").trim().length === 0;
+    $("#tinyfeed-compose-post").prop("disabled", aiMode ? false : emptyUser);
+}
+
+// อัปเดตรูป avatar ในช่องเขียนโพสต์ (ตามคนโพสต์ที่เลือก)
 function renderComposeAvatar() {
-    $("#tinyfeed-compose .tinyfeed-compose-avatar").html(
-        makeAvatar({ author: getUserName(), avatar: getUserAvatar() })
-    );
+    applyFeedComposeMode();
+}
+
+// สถานะกำลังเจนของปุ่มโพสต์ (คทาหมุน)
+function setPostGenerating(on) {
+    $(".tinyfeed-post-wand").toggleClass("tinyfeed-spin", on);
+    $("#tinyfeed-compose-post").prop("disabled", on);
+    $(".tinyfeed-post-label").text(on ? "กำลังสร้าง..." : "โพสต์");
+}
+
+// ยกเลิกการเจนโพสต์ (soft-abort: ทิ้งผลลัพธ์ที่ค้าง)
+let feedGenId = 0;
+function cancelFeedGen() {
+    feedGenId++;               // ทำให้ผลลัพธ์ที่ค้างถูกทิ้ง
+    isGenerating = false;
+    setPostGenerating(false);
+    $("#tinyfeed-feed-skel").remove();
+    toastr.info("ยกเลิกการสร้างโพสต์แล้ว", "TinyFeed");
 }
 
 function renderNews() {
@@ -2096,18 +2180,14 @@ function openPostDetail(postId) {
                 <div class="tinyfeed-avatar tinyfeed-avatar-anon">…</div>
                 <div class="tinyfeed-comment-body"><span class="tinyfeed-comment-text">กำลังพิมพ์…</span></div>
             </div>` : ""}
-        ${post.comments.length === 0 ? `
-            <div class="tinyfeed-post-comment-tools">
-                <button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}">
-                    <i class="fa-solid fa-comment-medical"></i>
-                    <span>ให้ NPC คอมเมนต์</span>
-                </button>
-            </div>` : ""}
-        ${getSetting("commentReplyMode") === "manual" && post.comments.length ? `
-            <button class="tinyfeed-ai-reply tinyfeed-btn-generate" data-post="${post.id}">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตอบ</span>
-            </button>` : ""}
-        <input id="tinyfeed-comment-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางคอมเมนต์ AI รอบนี้ (ครั้งเดียว, ไม่บังคับ)" />
+        <div class="tinyfeed-post-comment-tools">
+            <input id="tinyfeed-comment-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางคอมเมนต์ AI (ไม่บังคับ)" />
+            ${post.comments.length === 0
+            ? `<button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}"><i class="fa-solid fa-comment-medical"></i> <span>ให้ NPC คอมเมนต์</span></button>`
+            : (getSetting("commentReplyMode") === "manual"
+                ? `<button class="tinyfeed-ai-reply tinyfeed-btn-generate" data-post="${post.id}"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตอบ</span></button>`
+                : "")}
+        </div>
         <div class="tinyfeed-comment-compose">
             ${makeAvatar({ isUser: true, author: getUserName() })}
             <input class="tinyfeed-comment-input" type="text" placeholder="เขียนคอมเมนต์..." data-post="${post.id}" />
@@ -2451,22 +2531,6 @@ function parseGeneratedPost(raw, fallbackName) {
     return { author, text: body };
 }
 
-// เติม dropdown "ใครโพสต์" = อัตโนมัติ + ตัวละครหลัก + NPC ประจำ (คงค่าที่เลือกไว้)
-function populateFeedPoster() {
-    const sel = $("#tinyfeed-feed-poster");
-    if (!sel.length) return;
-    const cur = sel.val();
-    const char = getCurrentCharacter();
-    let opts = `<option value="auto">อัตโนมัติ (AI เลือก)</option>`;
-    if (char && char.name) opts += `<option value="${escapeAttr(char.name)}">${escapeText(char.name)}</option>`;
-    for (const npc of getNpcs()) {
-        const nm = String(npc.name || "").trim();
-        if (nm) opts += `<option value="${escapeAttr(nm)}">${escapeText(nm)}</option>`;
-    }
-    sel.html(opts);
-    if (cur) sel.val(cur);
-}
-
 let isGenerating = false;
 
 async function generateFeedPost(opts) {
@@ -2485,18 +2549,16 @@ async function generateFeedPost(opts) {
     }
 
     isGenerating = true;
-    const btn = $("#tinyfeed-generate");
-    btn.addClass("tinyfeed-generating").prop("disabled", true);
-    btn.find(".tinyfeed-generate-label").text("กำลังสร้าง...");
+    const genId = ++feedGenId;   // สำหรับ soft-cancel
+    setPostGenerating(true);
     $("#tinyfeed-feed-list").prepend(`<div id="tinyfeed-feed-skel">${skeletonCardHtml()}</div>`);
 
     const charName = char.name || "ตัวละคร";
 
     // 6.5: รายชื่อ NPC ประจำ → คุมให้ AI เลือกผู้โพสต์จากลิสต์
     const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
-    // ผู้ใช้เลือกผู้โพสต์เจาะจงได้ (auto = ให้ AI เลือก)
-    const posterSel = String($("#tinyfeed-feed-poster").val() || "auto");
-    const forcedPoster = posterSel && posterSel !== "auto" ? posterSel : "";
+    // คนโพสต์ที่เลือกจากรูปโปรไฟล์ (auto = ให้ AI เลือก, __user__ ไม่มาถึงนี่)
+    const forcedPoster = (feedPoster && feedPoster !== POSTER_AUTO && feedPoster !== POSTER_USER) ? feedPoster : "";
     const rosterLine = forcedPoster
         ? `ผู้โพสต์ต้องเป็น ${forcedPoster} เท่านั้น เขียนในน้ำเสียง/มุมมองของ ${forcedPoster}. `
         : (npcNames.length
@@ -2530,6 +2592,7 @@ async function generateFeedPost(opts) {
 
     try {
         const raw = await tinyGenerate(quietPrompt, Math.max(1, parseInt(getSetting("postTokens"), 10) || 400));
+        if (genId !== feedGenId) return;   // ถูกยกเลิกระหว่างเจน → ทิ้งผล
         const parsed = parseGeneratedPost(raw, charName);
         const text = parsed.text;
         // ผู้ใช้เลือกผู้โพสต์เจาะจง = บังคับใช้ชื่อนั้น ไม่ต้องเชื่อ author ที่ AI ตอบ
@@ -2558,12 +2621,14 @@ async function generateFeedPost(opts) {
         await generateInitialComments(post);           // Stage 8: คอมเมนต์ NPC ติดมา (ตาม config)
     } catch (e) {
         console.error(`[${extensionName}] generate failed:`, e);
-        if (!opts.silent) toastr.error("สร้างโพสต์ไม่สำเร็จ ลองใหม่อีกครั้งนะ", "TinyFeed");
+        if (genId === feedGenId && !opts.silent) toastr.error("สร้างโพสต์ไม่สำเร็จ ลองใหม่อีกครั้งนะ", "TinyFeed");
     } finally {
-        $("#tinyfeed-feed-skel").remove();
-        isGenerating = false;
-        btn.removeClass("tinyfeed-generating").prop("disabled", false);
-        btn.find(".tinyfeed-generate-label").text("ให้ตัวละครโพสต์");
+        // รีเซ็ตสถานะเฉพาะเมื่อยังเป็นรอบเดิม (ไม่ถูกยกเลิก/แทนที่)
+        if (genId === feedGenId) {
+            $("#tinyfeed-feed-skel").remove();
+            isGenerating = false;
+            setPostGenerating(false);
+        }
     }
 }
 
@@ -3992,22 +4057,6 @@ function restoreLastScreen() {
     }
 }
 
-// ขยายช่องเขียนโพสต์ (ช่องเดิมโตขึ้น + โชว์ปุ่ม)
-function openCompose() {
-    $("#tinyfeed-compose").addClass("tinyfeed-compose-open");
-    $("#tinyfeed-compose .tinyfeed-compose-actions").removeClass("tinyfeed-hidden");
-}
-
-// ยุบช่องกลับเป็นแถบเดียว
-function closeCompose() {
-    const input = $("#tinyfeed-compose-input");
-    input.val("").css("height", "");   // เคลียร์ค่าและความสูง inline (กลับไปใช้ความสูงจาก CSS)
-    $("#tinyfeed-compose-post").prop("disabled", true);
-    $("#tinyfeed-compose .tinyfeed-compose-actions").addClass("tinyfeed-hidden");
-    $("#tinyfeed-compose").removeClass("tinyfeed-compose-open");
-    input.trigger("blur");
-}
-
 // ปรับความสูง textarea ตามเนื้อหา
 function autoGrowCompose(el) {
     el.style.height = "auto";
@@ -4159,15 +4208,12 @@ function populateSettings() {
     $("#tinyfeed-cfg-proactive-viafeed").prop("checked", Boolean(getSetting("proactiveViaFeed")));
     renderPromptEditors();
 
-    $("#tinyfeed-cfg-stream-streamer").val(getSetting("streamStreamer") || "char");
     $("#tinyfeed-cfg-stream-mode").val(getSetting("streamCommentMode") || "manual");
     $("#tinyfeed-cfg-stream-interval").val(getSetting("streamAutoInterval"));
     $("#tinyfeed-cfg-stream-tokens").val(getSetting("streamTokens"));
     $("#tinyfeed-cfg-stream-extra").val(getSetting("streamExtraPrompt"));
     $("#tinyfeed-cfg-stream-reply").prop("checked", Boolean(getSetting("streamStreamerReply")));
     $("#tinyfeed-cfg-stream-talk").prop("checked", Boolean(getSetting("streamStreamerTalk")));
-    refreshStreamerCfg();
-    renderStreamStreamerCfg();
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
@@ -4260,10 +4306,11 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const galleryOverlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
-    if (galleryOverlayOpen) {
-        closeGalleryOverlays();   // ปิด overlay คลังก่อนถ้าเปิดอยู่
+    if (overlayOpen) {
+        closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
+        closeCharPicker();
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -4632,6 +4679,38 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-stream-streamer-sticker", function () {
             openGalleryPicker("sticker", (token) => sendStreamerLine(token));
         });
+        // เลือกสตรีมเมอร์หลัก (กดรูปโปรไฟล์)
+        $(document).on("click", ".tinyfeed-stream-host-main", function () {
+            openCharPicker({ includeUser: true, includeMain: true, includeAuto: false, title: "เลือกสตรีมเมอร์หลัก" }, (value) => {
+                const s = getStreamData();
+                s.mainStreamer = value;
+                const mainName = getStreamer().name;
+                s.coHosts = (s.coHosts || []).filter((nm) => nm !== mainName);   // กันซ้ำกับหลัก
+                saveFeedData();
+                if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
+            });
+        });
+        // เอาตัวละครร่วมไลฟ์ออก (แตะที่รูป)
+        $(document).on("click", ".tinyfeed-stream-host[data-role='co']", function (e) {
+            e.stopPropagation();
+            const nm = String($(this).data("name"));
+            const s = getStreamData();
+            s.coHosts = (s.coHosts || []).filter((x) => x !== nm);
+            saveFeedData();
+            if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
+        });
+        // เพิ่มตัวละครร่วมไลฟ์ (ปุ่ม +)
+        $(document).on("click", "#tinyfeed-stream-addhost", function () {
+            const s = getStreamData();
+            const exclude = [getStreamer().name, ...(s.coHosts || [])];
+            openCharPicker({ includeUser: false, includeMain: true, includeAuto: false, exclude, title: "เพิ่มตัวละครร่วมไลฟ์" }, (value) => {
+                if (value === POSTER_USER || value === POSTER_AUTO) return;
+                const st = getStreamData();
+                if (!st.coHosts.includes(value)) st.coHosts.push(value);
+                saveFeedData();
+                if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
+            });
+        });
         $(document).on("click", "#tinyfeed-forum-sticker", function () {
             openGalleryPicker("sticker", (token) => sendForumFromComposer(token));
         });
@@ -4682,25 +4761,49 @@ jQuery(async () => {
         });
 
         // Stage 4b: ผู้ใช้โพสต์เอง + ลบโพสต์
-        $(document).on("focus", "#tinyfeed-compose-input", openCompose);
-        $(document).on("click", "#tinyfeed-compose-cancel", closeCompose);
         $(document).on("input", "#tinyfeed-compose-input", function () {
             autoGrowCompose(this);
-            const empty = $(this).val().trim().length === 0;
-            $("#tinyfeed-compose-post").prop("disabled", empty);
+            if (feedPoster === POSTER_USER) {
+                $("#tinyfeed-compose-post").prop("disabled", $(this).val().trim().length === 0);
+            }
         });
+        // กดรูปโปรไฟล์ = เลือกคนโพสต์ (เรา/ตัวละคร/NPC/อัตโนมัติ)
+        $(document).on("click", "#tinyfeed-compose-avatar", function () {
+            openCharPicker({ includeUser: true, includeMain: true, includeAuto: true, title: "ใครเป็นคนโพสต์" }, (value) => {
+                feedPoster = value;
+                applyFeedComposeMode();
+            });
+        });
+        // ปุ่มโพสต์: เราเอง = โพสต์ปกติ · ตัวละครอื่น/อัตโนมัติ = ให้ AI โพสต์
         $(document).on("click", "#tinyfeed-compose-post", function () {
-            addUserPost($("#tinyfeed-compose-input").val());
-            closeCompose();
+            if (isGenerating) return;
+            if (feedPoster === POSTER_USER) {
+                addUserPost($("#tinyfeed-compose-input").val());
+                $("#tinyfeed-compose-input").val("").css("height", "");
+                applyFeedComposeMode();
+            } else {
+                generateFeedPost();
+            }
+        });
+        // ปุ่มยกเลิก: ระหว่างเจน = ยกเลิกการเจน · ปกติ = เคลียร์ช่อง + กลับเป็นโพสต์เอง
+        $(document).on("click", "#tinyfeed-compose-cancel", function () {
+            if (isGenerating) { cancelFeedGen(); return; }
+            $("#tinyfeed-compose-input").val("").css("height", "");
+            $("#tinyfeed-feed-guidance").val("");
+            feedPoster = POSTER_USER;
+            applyFeedComposeMode();
         });
         $(document).on("click", ".tinyfeed-delete", function (e) {
             e.stopPropagation();
             deleteUserPost($(this).data("post"));
         });
-
-        // Stage 6: ปุ่มให้ AI สร้างโพสต์
-        $(document).on("click", "#tinyfeed-generate", function () {
-            generateFeedPost();   // ปุ่ม manual: ไม่แจ้งเตือน (ผู้ใช้ดูอยู่แล้ว)
+        // char picker (ใช้ร่วม feed/stream)
+        $(document).on("click", "#tinyfeed-char-picker-close", closeCharPicker);
+        $(document).on("click", "#tinyfeed-char-picker", function (e) {
+            if (e.target === this) closeCharPicker();
+        });
+        $(document).on("click", ".tinyfeed-char-pick", function () {
+            pickChar(String($(this).data("value")));
         });
         // กดแจ้งเตือน → เปิดฟีด
         $(document).on("click", "#tinyfeed-notif", openFeedFromNotif);
@@ -4928,23 +5031,6 @@ jQuery(async () => {
             setSetting("worldInfoLimit", v);
         });
         // TinyStream config
-        $(document).on("change", "#tinyfeed-cfg-stream-streamer", function () {
-            setSetting("streamStreamer", $(this).val());
-            refreshStreamerCfg();
-            renderStreamStreamerCfg();
-            if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
-        });
-        $(document).on("change", "#tinyfeed-cfg-stream-npc", function () {
-            setSetting("streamStreamerNpc", $(this).val());
-            if (currentApp === "stream") renderStream();
-        });
-        $(document).on("change", ".tinyfeed-cfg-stream-cohost", function () {
-            const val = String($(this).val());
-            const set = new Set((getSetting("streamCoStreamers") || []).map((a) => String(a)));
-            if ($(this).prop("checked")) set.add(val); else set.delete(val);
-            setSetting("streamCoStreamers", Array.from(set));
-            if (currentApp === "stream") renderStream();
-        });
         $(document).on("change", "#tinyfeed-cfg-stream-mode", function () {
             setSetting("streamCommentMode", $(this).val());
             if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }

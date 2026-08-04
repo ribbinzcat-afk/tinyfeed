@@ -88,28 +88,26 @@
             <div id="tinyfeed-panel-feed" class="tinyfeed-panel">
                 <div id="tinyfeed-compose" class="tinyfeed-compose">
                     <div class="tinyfeed-compose-row">
-                        <div class="tinyfeed-compose-avatar"></div>
+                        <div class="tinyfeed-compose-avatar" id="tinyfeed-compose-avatar" title="เลือกคนโพสต์"></div>
                         <textarea id="tinyfeed-compose-input" rows="1" placeholder="คุณกำลังคิดอะไรอยู่?"></textarea>
                     </div>
-                    <div class="tinyfeed-compose-actions tinyfeed-hidden">
-                        <button id="tinyfeed-compose-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
-                        <button id="tinyfeed-compose-post" class="tinyfeed-btn-primary" disabled>โพสต์</button>
-                    </div>
-                    <div class="tinyfeed-compose-genopts">
-                        <select id="tinyfeed-feed-poster" class="tinyfeed-mini-select" title="ใครเป็นคนโพสต์"></select>
-                        <input id="tinyfeed-feed-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางโพสต์นี้ (ครั้งเดียว, ไม่บังคับ)" />
-                    </div>
-                    <div class="tinyfeed-compose-tools">
-                        <button id="tinyfeed-generate" class="tinyfeed-btn-generate">
-                            <i class="fa-solid fa-wand-magic-sparkles"></i>
-                            <span class="tinyfeed-generate-label">ให้ตัวละครโพสต์</span>
-                        </button>
-                        <button id="tinyfeed-compose-img" class="tinyfeed-btn-generate" title="แนบรูปจากคลัง">
-                            <i class="fa-solid fa-image"></i>
-                        </button>
-                        <button id="tinyfeed-compose-sticker" class="tinyfeed-btn-generate" title="แนบสติกเกอร์">
-                            <i class="fa-regular fa-face-smile"></i>
-                        </button>
+                    <input id="tinyfeed-feed-guidance" class="tinyfeed-gen-guidance tinyfeed-hidden" type="text" placeholder="แนวทางโพสต์นี้ (ไม่บังคับ)" />
+                    <div class="tinyfeed-compose-bar">
+                        <div class="tinyfeed-compose-bar-left">
+                            <button id="tinyfeed-compose-img" class="tinyfeed-compose-iconbtn" title="แนบรูปจากคลัง">
+                                <i class="fa-solid fa-image"></i>
+                            </button>
+                            <button id="tinyfeed-compose-sticker" class="tinyfeed-compose-iconbtn" title="แนบสติกเกอร์">
+                                <i class="fa-regular fa-face-smile"></i>
+                            </button>
+                        </div>
+                        <div class="tinyfeed-compose-bar-right">
+                            <button id="tinyfeed-compose-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                            <button id="tinyfeed-compose-post" class="tinyfeed-btn-primary" disabled>
+                                <i class="fa-solid fa-wand-magic-sparkles tinyfeed-post-wand tinyfeed-hidden"></i>
+                                <span class="tinyfeed-post-label">โพสต์</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div id="tinyfeed-feed-list"></div>
@@ -235,22 +233,7 @@
 
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">TinyStream (ไลฟ์สตรีม)</div>
-                    <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ใครเป็นสตรีมเมอร์หลัก</span>
-                        <select id="tinyfeed-cfg-stream-streamer">
-                            <option value="char">ตัวละครหลัก</option>
-                            <option value="npc">NPC (เลือกเอง)</option>
-                            <option value="user">เราเอง</option>
-                        </select>
-                    </label>
-                    <label id="tinyfeed-cfg-stream-npc-field" class="tinyfeed-field tinyfeed-hidden">
-                        <span class="tinyfeed-field-label">เลือก NPC ที่เป็นสตรีมเมอร์</span>
-                        <select id="tinyfeed-cfg-stream-npc"></select>
-                    </label>
-                    <div id="tinyfeed-cfg-stream-cohosts-field" class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ตัวละครร่วมไลฟ์ (เลือกได้หลายคน = พูดสลับกัน)</span>
-                        <div id="tinyfeed-cfg-stream-cohosts" class="tinyfeed-gallery-cfg-list"></div>
-                    </div>
+                    <small class="tinyfeed-field-hint">เลือกสตรีมเมอร์หลัก + ตัวละครร่วมไลฟ์ได้ที่<b>หน้าแอป TinyStream</b> (กดที่รูปโปรไฟล์ในกรอบสตรีม · ปุ่ม + เพื่อเพิ่มตัวละครร่วม)</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">คอมเมนต์สดมายังไง</span>
                         <select id="tinyfeed-cfg-stream-mode">
@@ -685,7 +668,7 @@
 
         <div id="tinyfeed-app-stream" class="tinyfeed-app tinyfeed-hidden">
             <div class="tinyfeed-stream-stage">
-                <div class="tinyfeed-stream-avatar"></div>
+                <div id="tinyfeed-stream-hosts" class="tinyfeed-stream-hosts"></div>
                 <span class="tinyfeed-stream-live tinyfeed-hidden">🔴 LIVE</span>
                 <span class="tinyfeed-stream-viewers tinyfeed-hidden"></span>
                 <div class="tinyfeed-stream-caption tinyfeed-hidden"></div>
@@ -859,6 +842,16 @@
                 </div>
                 <select id="tinyfeed-gallery-picker-album" class="tinyfeed-gallery-album-select"></select>
                 <div id="tinyfeed-gallery-picker-grid" class="tinyfeed-gallery-grid"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-char-picker" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span id="tinyfeed-char-picker-title">เลือกตัวละคร</span>
+                    <span id="tinyfeed-char-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-char-picker-list" class="tinyfeed-char-picker-list"></div>
             </div>
         </div>
 
