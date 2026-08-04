@@ -117,7 +117,8 @@
 /* แท็บ */
 .tinyfeed-tabs,
 .tinyfeed-memo-tabs,
-.tinyfeed-forum-tabs {
+.tinyfeed-forum-tabs,
+.tinyfeed-gallery-tabs {
     display: flex;
     border-bottom: 1px solid var(--tf-border);
     flex-shrink: 0;
@@ -125,7 +126,8 @@
 
 .tinyfeed-tab,
 .tinyfeed-memo-tab,
-.tinyfeed-forum-tab {
+.tinyfeed-forum-tab,
+.tinyfeed-gallery-tab {
     flex: 1;
     text-align: center;
     padding: 12px 0;
@@ -138,13 +140,15 @@
 
 .tinyfeed-tab:hover,
 .tinyfeed-memo-tab:hover,
-.tinyfeed-forum-tab:hover {
+.tinyfeed-forum-tab:hover,
+.tinyfeed-gallery-tab:hover {
     color: var(--tf-text);
 }
 
 .tinyfeed-tab-active,
 .tinyfeed-memo-tab-active,
-.tinyfeed-forum-tab-active {
+.tinyfeed-forum-tab-active,
+.tinyfeed-gallery-tab-active {
     color: var(--tf-text-strong);
     border-bottom: 2px solid var(--tf-accent);
 }
@@ -2545,4 +2549,264 @@
 }
 .tinyfeed-prompt-text.tinyfeed-prompt-invalid {
     border-color: #f4212e !important;
+}
+
+/* ===== TinyGallery: คลังรูป + สติกเกอร์ ===== */
+.tinyfeed-gallery-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px 16px;
+    overflow-y: auto;
+}
+
+/* แถบเลือกอัลบั้ม */
+.tinyfeed-gallery-albumbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.tinyfeed-gallery-album-select {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+}
+.tinyfeed-gallery-album-add,
+.tinyfeed-gallery-album-del {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    border: 1px solid var(--tf-border);
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease;
+}
+.tinyfeed-gallery-album-add:hover { color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 12%, transparent); }
+.tinyfeed-gallery-album-del:hover { color: #f4212e; background: color-mix(in srgb, #f4212e 12%, transparent); }
+
+/* ฟอร์มเพิ่มรูป/สติกเกอร์ */
+.tinyfeed-gallery-addform {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    flex-shrink: 0;
+}
+.tinyfeed-gallery-addform input {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.tinyfeed-gallery-addform input:focus { border-color: var(--tf-accent); }
+.tinyfeed-gallery-addrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tinyfeed-gallery-addrow input { flex: 1; }
+.tinyfeed-gallery-addrow .tinyfeed-btn-primary { flex-shrink: 0; white-space: nowrap; }
+
+/* กริดรายการ */
+.tinyfeed-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+.tinyfeed-gallery-grid-sticker {
+    grid-template-columns: repeat(4, 1fr);
+}
+.tinyfeed-gallery-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--tf-text-muted);
+    font-size: 0.88em;
+    padding: 24px 8px;
+}
+.tinyfeed-gallery-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: center;
+}
+.tinyfeed-gallery-thumb-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--tf-topbar);
+    border: 1px solid var(--tf-border);
+}
+.tinyfeed-gallery-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.tinyfeed-gallery-item-del {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 0.72em;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.tinyfeed-gallery-item:hover .tinyfeed-gallery-item-del { opacity: 1; }
+.tinyfeed-gallery-item-name {
+    font-size: 0.8em;
+    color: var(--tf-text);
+    word-break: break-word;
+    line-height: 1.25;
+}
+.tinyfeed-gallery-item-cap {
+    font-size: 0.72em;
+    color: var(--tf-text-muted);
+    word-break: break-word;
+    line-height: 1.2;
+}
+.tinyfeed-img-broken {
+    opacity: 0.35;
+    filter: grayscale(1);
+}
+
+/* ปุ่มสติกเกอร์ในแถบพิมพ์ (ทุกแอป) */
+.tinyfeed-compose-sticker {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease;
+}
+.tinyfeed-compose-sticker:hover {
+    color: var(--tf-accent);
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+}
+
+/* สติกเกอร์/รูป ที่ถูกส่งในข้อความ (render จากโทเคน) */
+.tinyfeed-sticker-img {
+    display: block;
+    max-width: 128px;
+    max-height: 128px;
+    margin: 4px 0;
+    object-fit: contain;
+}
+.tinyfeed-content-img-wrap {
+    display: inline-block;
+    max-width: 100%;
+    margin: 4px 0;
+}
+.tinyfeed-content-img {
+    display: block;
+    max-width: 100%;
+    max-height: 260px;
+    border-radius: 12px;
+    object-fit: cover;
+}
+.tinyfeed-content-img-cap {
+    display: block;
+    font-size: 0.8em;
+    color: var(--tf-text-muted);
+    margin-top: 2px;
+}
+.tinyfeed-token-missing {
+    font-size: 0.85em;
+    color: var(--tf-text-muted);
+    opacity: 0.7;
+}
+
+/* Picker overlay: เลือกสติกเกอร์/รูปมาส่ง */
+.tinyfeed-gallery-picker {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+}
+.tinyfeed-gallery-picker-card {
+    width: 100%;
+    max-height: 62%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    box-sizing: border-box;
+    background: var(--tf-bg);
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    border-top: 1px solid var(--tf-border);
+}
+.tinyfeed-gallery-picker-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.95em;
+    font-weight: 600;
+    color: var(--tf-text-strong);
+    flex-shrink: 0;
+}
+#tinyfeed-gallery-picker-close {
+    cursor: pointer;
+    color: var(--tf-text-muted);
+    padding: 4px;
+}
+#tinyfeed-gallery-picker-close:hover { color: var(--tf-text); }
+#tinyfeed-gallery-picker-grid {
+    grid-template-columns: repeat(4, 1fr);
+    overflow-y: auto;
+}
+.tinyfeed-gallery-pick {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    text-align: center;
+    cursor: pointer;
+    border-radius: 10px;
+    padding: 4px;
+    transition: background 0.15s ease;
+}
+.tinyfeed-gallery-pick:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+.tinyfeed-gallery-pick .tinyfeed-gallery-thumb {
+    aspect-ratio: 1 / 1;
+    height: auto;
+    border-radius: 8px;
 }

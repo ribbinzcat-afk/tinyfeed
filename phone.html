@@ -67,6 +67,10 @@
                     <div class="tinyfeed-app-tile" style="--app-a:#ef4444; --app-b:#b91c1c;"><i class="fa-solid fa-comments"></i></div>
                     <span class="tinyfeed-app-name">TinyForum</span>
                 </div>
+                <div class="tinyfeed-app-icon" data-app="gallery">
+                    <div class="tinyfeed-app-tile" style="--app-a:#ec4899; --app-b:#be185d;"><i class="fa-solid fa-images"></i></div>
+                    <span class="tinyfeed-app-name">TinyGallery</span>
+                </div>
             </div>
         </div>
 
@@ -95,6 +99,12 @@
                         <button id="tinyfeed-generate" class="tinyfeed-btn-generate">
                             <i class="fa-solid fa-wand-magic-sparkles"></i>
                             <span class="tinyfeed-generate-label">ให้ตัวละครโพสต์</span>
+                        </button>
+                        <button id="tinyfeed-compose-img" class="tinyfeed-btn-generate" title="แนบรูปจากคลัง">
+                            <i class="fa-solid fa-image"></i>
+                        </button>
+                        <button id="tinyfeed-compose-sticker" class="tinyfeed-btn-generate" title="แนบสติกเกอร์">
+                            <i class="fa-regular fa-face-smile"></i>
                         </button>
                     </div>
                 </div>
@@ -583,6 +593,15 @@
                 </div>
 
                 <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">TinyGallery (คลังรูป + สติกเกอร์)</div>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้บอทเลือกส่งสติกเกอร์/รูปจากคลังได้</span>
+                        <input id="tinyfeed-cfg-gallery-prompt" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">คลังรูป/สติกเกอร์เป็น <b>global</b> ใช้ร่วมทุกแชท ไม่เปลี่ยนตามแชท · เปิดตัวเลือกนี้จะแนบรายชื่อสติกเกอร์/รูปเข้าไปตอน AI คุย/โพสต์ เพื่อให้เลือกส่งด้วย <code>[sticker:ชื่อ]</code> / <code>[img:ชื่อ]</code> · ผู้ใช้กดปุ่ม 😊 ในแถบพิมพ์เพื่อส่งเองได้ทุกแอป</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
                     <div id="tinyfeed-prompt-list"></div>
@@ -617,6 +636,7 @@
                 </div>
                 <div class="tinyfeed-connect-compose">
                     <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
+                    <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                     <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
                 </div>
             </div>
@@ -652,10 +672,12 @@
             <div id="tinyfeed-stream-comments" class="tinyfeed-stream-comments"></div>
             <div class="tinyfeed-stream-streamer-compose tinyfeed-hidden">
                 <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
+                <span id="tinyfeed-stream-streamer-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                 <span id="tinyfeed-stream-streamer-send"><i class="fa-solid fa-microphone"></i></span>
             </div>
             <div class="tinyfeed-stream-compose tinyfeed-hidden">
                 <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
+                <span id="tinyfeed-stream-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                 <span id="tinyfeed-stream-send"><i class="fa-solid fa-paper-plane"></i></span>
             </div>
         </div>
@@ -736,8 +758,66 @@
                 </div>
                 <div class="tinyfeed-forum-compose">
                     <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
+                    <span id="tinyfeed-forum-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                     <span id="tinyfeed-forum-comment-send"><i class="fa-solid fa-paper-plane"></i></span>
                 </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-app-gallery" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-gallery-tabs">
+                <div class="tinyfeed-gallery-tab tinyfeed-gallery-tab-active" data-gtab="images">
+                    <span class="fa-solid fa-image"></span> รูปภาพ
+                </div>
+                <div class="tinyfeed-gallery-tab" data-gtab="stickers">
+                    <span class="fa-regular fa-face-smile"></span> สติกเกอร์
+                </div>
+            </div>
+            <div class="tinyfeed-screen">
+                <div id="tinyfeed-gallery-panel-images" class="tinyfeed-gallery-panel">
+                    <div class="tinyfeed-gallery-albumbar">
+                        <select id="tinyfeed-gallery-img-album" class="tinyfeed-gallery-album-select"></select>
+                        <span id="tinyfeed-gallery-img-album-add" class="tinyfeed-gallery-album-add" title="สร้างอัลบั้มใหม่"><i class="fa-solid fa-folder-plus"></i></span>
+                        <span id="tinyfeed-gallery-img-album-del" class="tinyfeed-gallery-album-del" title="ลบอัลบั้มนี้"><i class="fa-solid fa-trash"></i></span>
+                    </div>
+                    <div class="tinyfeed-gallery-addform">
+                        <input id="tinyfeed-gallery-img-url" type="text" placeholder="ลิงก์รูปภาพ (URL)" />
+                        <input id="tinyfeed-gallery-img-caption" type="text" placeholder="คำบรรยายรูปภาพ" />
+                        <div class="tinyfeed-gallery-addrow">
+                            <input id="tinyfeed-gallery-img-name" type="text" placeholder="ตั้งชื่อ (ใช้อ้างอิง)" />
+                            <button id="tinyfeed-gallery-img-add" class="tinyfeed-btn-primary">เพิ่มรูป</button>
+                        </div>
+                    </div>
+                    <div id="tinyfeed-gallery-img-grid" class="tinyfeed-gallery-grid"></div>
+                </div>
+                <div id="tinyfeed-gallery-panel-stickers" class="tinyfeed-gallery-panel tinyfeed-hidden">
+                    <div class="tinyfeed-gallery-albumbar">
+                        <select id="tinyfeed-gallery-stk-album" class="tinyfeed-gallery-album-select"></select>
+                        <span id="tinyfeed-gallery-stk-album-add" class="tinyfeed-gallery-album-add" title="สร้างอัลบั้มใหม่"><i class="fa-solid fa-folder-plus"></i></span>
+                        <span id="tinyfeed-gallery-stk-album-del" class="tinyfeed-gallery-album-del" title="ลบอัลบั้มนี้"><i class="fa-solid fa-trash"></i></span>
+                    </div>
+                    <div class="tinyfeed-gallery-addform">
+                        <div class="tinyfeed-gallery-addrow">
+                            <input id="tinyfeed-gallery-stk-url" type="text" placeholder="ลิงก์รูปสติกเกอร์ (URL)" />
+                        </div>
+                        <div class="tinyfeed-gallery-addrow">
+                            <input id="tinyfeed-gallery-stk-name" type="text" placeholder="ตั้งชื่อ (ใช้อ้างอิง)" />
+                            <button id="tinyfeed-gallery-stk-add" class="tinyfeed-btn-primary">เพิ่มสติกเกอร์</button>
+                        </div>
+                    </div>
+                    <div id="tinyfeed-gallery-stk-grid" class="tinyfeed-gallery-grid tinyfeed-gallery-grid-sticker"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-gallery-picker" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span id="tinyfeed-gallery-picker-title">เลือกสติกเกอร์</span>
+                    <span id="tinyfeed-gallery-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <select id="tinyfeed-gallery-picker-album" class="tinyfeed-gallery-album-select"></select>
+                <div id="tinyfeed-gallery-picker-grid" class="tinyfeed-gallery-grid"></div>
             </div>
         </div>
     </div>

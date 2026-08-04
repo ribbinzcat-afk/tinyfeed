@@ -104,6 +104,9 @@ const defaultSettings = {
     forumRooms: ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"],
     injectForum: false,           // แทรกกระทู้ เข้า RP หลัก
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
+    // TinyGallery (คลังรูป + สติกเกอร์ — global ข้ามแชท ไม่ผูกกับแชทไหน)
+    gallery: { images: [], stickers: [], imageAlbums: ["ทั่วไป"], stickerAlbums: ["ทั่วไป"] },
+    galleryPrompt: true,          // ให้บอทรู้จักคลัง + ส่งสติกเกอร์/รูปได้ด้วย [sticker:ชื่อ] / [img:ชื่อ]
     // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
     crossAppEnabled: false,       // master switch
     crossAppCount: 3,
@@ -198,12 +201,13 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (app !== "feed" && app !== "connect" && app !== "stream" && app !== "memo" && app !== "forum") {
+    if (app !== "feed" && app !== "connect" && app !== "stream" && app !== "memo" && app !== "forum" && app !== "gallery") {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
     clearStreamTimer();   // ออกจากแอปอื่น = หยุด timer stream
     clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
+    closeGalleryPicker(); // กัน picker ค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
@@ -229,6 +233,11 @@ function openApp(app) {
         currentApp = "forum";
         $("#tinyfeed-app-forum").removeClass("tinyfeed-hidden");
         openForumList();
+    } else if (app === "gallery") {
+        currentApp = "gallery";
+        $("#tinyfeed-app-gallery").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyGallery");
+        openGallery();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -299,8 +308,8 @@ function renderStream() {
     $(".tinyfeed-stream-live").toggleClass("tinyfeed-hidden", !s.live);
     $(".tinyfeed-stream-viewers").toggleClass("tinyfeed-hidden", !s.live).text(`👁 ${formatCount(s.viewers)}`);
     const userStreamer = streamerIsUser();
-    $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !s.live);
-    // ช่องพิมพ์คำพูดสตรีมเมอร์ = โชว์เฉพาะตอนไลฟ์ & เราเป็นสตรีมเมอร์เอง
+    // ตอนไลฟ์ใช้แถบเดียว: เราเป็นสตรีมเมอร์ = แถบคำพูดสตรีมเมอร์ · ไม่งั้น = แถบคอมเมนต์ผู้ชม
+    $(".tinyfeed-stream-compose").toggleClass("tinyfeed-hidden", !(s.live && !userStreamer));
     $(".tinyfeed-stream-streamer-compose").toggleClass("tinyfeed-hidden", !(s.live && userStreamer));
     // ฟอร์มตั้งหัวข้อ + ปุ่มให้ AI ตั้งหัวข้อโชว์ตอนยังไม่ไลฟ์
     $("#tinyfeed-stream-startform").toggleClass("tinyfeed-hidden", s.live);
@@ -457,12 +466,12 @@ async function streamerSpeak(kind, opts) {
             streamer: streamer.name, title: s.title,
             direction: s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "",
             task,
-            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            extra: (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + galleryPromptBlock(),
             context: crossAppContext("stream"),
             transcript: transcript ? `\nแชตล่าสุด:\n${transcript}\n` : "",
         });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
-        let line = stripReasoning(raw).trim().replace(/^\[|\]$/g, "").trim();
+        let line = stripWrapBrackets(stripReasoning(raw).trim());
         const esc = streamer.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         line = line.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
         if (line) {
@@ -556,6 +565,200 @@ async function sendStreamerLine(text) {
     if (getSetting("streamCommentMode") === "onupdate") {
         await loadLiveComments({ silent: true });
     }
+}
+
+// ===== TinyGallery: คลังรูป + สติกเกอร์ (global, ไม่ผูกกับแชท) =====
+let galleryTab = "images";        // "images" | "stickers"
+let galleryPickTarget = null;     // { kind, onPick } ตอนเปิด picker เลือกมาส่ง
+
+function galleryId() {
+    return "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function openGallery() {
+    renderGalleryAlbums();
+    switchGalleryTab(galleryTab);
+}
+
+function switchGalleryTab(tab) {
+    galleryTab = tab === "stickers" ? "stickers" : "images";
+    $(".tinyfeed-gallery-tab").removeClass("tinyfeed-gallery-tab-active");
+    $(`.tinyfeed-gallery-tab[data-gtab="${galleryTab}"]`).addClass("tinyfeed-gallery-tab-active");
+    $("#tinyfeed-gallery-panel-images").toggleClass("tinyfeed-hidden", galleryTab !== "images");
+    $("#tinyfeed-gallery-panel-stickers").toggleClass("tinyfeed-hidden", galleryTab !== "stickers");
+    renderGalleryGrid(galleryTab === "stickers" ? "sticker" : "image");
+}
+
+// เติม dropdown อัลบั้ม (คงค่าที่เลือกไว้ถ้ายังมีอยู่)
+function fillAlbumSelect($sel, albums, keep) {
+    const cur = keep != null ? keep : $sel.val();
+    $sel.html(albums.map((a) => `<option value="${escapeAttr(a)}">${escapeText(a)}</option>`).join(""));
+    if (cur && albums.includes(cur)) $sel.val(cur);
+}
+
+function renderGalleryAlbums() {
+    const g = getGallery();
+    fillAlbumSelect($("#tinyfeed-gallery-img-album"), g.imageAlbums);
+    fillAlbumSelect($("#tinyfeed-gallery-stk-album"), g.stickerAlbums);
+}
+
+// อัลบั้มที่กำลังเลือกในแท็บนั้น
+function currentAlbum(kind) {
+    const sel = kind === "sticker" ? "#tinyfeed-gallery-stk-album" : "#tinyfeed-gallery-img-album";
+    return String($(sel).val() || "ทั่วไป");
+}
+
+function renderGalleryGrid(kind) {
+    const g = getGallery();
+    const album = currentAlbum(kind);
+    const list = (kind === "sticker" ? g.stickers : g.images).filter((it) => (it.album || "ทั่วไป") === album);
+    const gridSel = kind === "sticker" ? "#tinyfeed-gallery-stk-grid" : "#tinyfeed-gallery-img-grid";
+    if (!list.length) {
+        $(gridSel).html(`<div class="tinyfeed-gallery-empty">ยังไม่มี${kind === "sticker" ? "สติกเกอร์" : "รูป"}ในอัลบั้มนี้ · เพิ่มด้านบนได้เลย</div>`);
+        return;
+    }
+    $(gridSel).html(list.map((it) => `
+        <div class="tinyfeed-gallery-item" data-kind="${kind}" data-id="${escapeAttr(it.id)}">
+            <div class="tinyfeed-gallery-thumb-wrap">
+                <img class="tinyfeed-gallery-thumb" src="${escapeAttr(it.url)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />
+                <span class="tinyfeed-gallery-item-del" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+            </div>
+            <div class="tinyfeed-gallery-item-name">${escapeText(it.name)}</div>
+            ${it.caption ? `<div class="tinyfeed-gallery-item-cap">${escapeText(it.caption)}</div>` : ""}
+        </div>
+    `).join(""));
+}
+
+function addGalleryImage() {
+    const url = String($("#tinyfeed-gallery-img-url").val() || "").trim();
+    const caption = String($("#tinyfeed-gallery-img-caption").val() || "").trim();
+    const name = String($("#tinyfeed-gallery-img-name").val() || "").trim();
+    if (!url) { toastr.info("ใส่ลิงก์รูปก่อนนะ", "TinyGallery"); return; }
+    const g = getGallery();
+    const finalName = name || `รูป-${g.images.length + 1}`;
+    if (g.images.some((im) => String(im.name).trim().toLowerCase() === finalName.toLowerCase())) {
+        toastr.info("มีชื่อนี้อยู่แล้ว ตั้งชื่ออื่นนะ (ชื่อใช้อ้างอิงตอนส่ง)", "TinyGallery"); return;
+    }
+    g.images.push({ id: galleryId(), url, caption, name: finalName, album: currentAlbum("image"), ts: Date.now() });
+    saveGallery();
+    $("#tinyfeed-gallery-img-url, #tinyfeed-gallery-img-caption, #tinyfeed-gallery-img-name").val("");
+    renderGalleryGrid("image");
+    toastr.success(`เพิ่มรูป "${finalName}" แล้ว`, "TinyGallery");
+}
+
+function addGallerySticker() {
+    const url = String($("#tinyfeed-gallery-stk-url").val() || "").trim();
+    const name = String($("#tinyfeed-gallery-stk-name").val() || "").trim();
+    if (!url) { toastr.info("ใส่ลิงก์สติกเกอร์ก่อนนะ", "TinyGallery"); return; }
+    const g = getGallery();
+    const finalName = name || `สติกเกอร์-${g.stickers.length + 1}`;
+    if (g.stickers.some((s) => String(s.name).trim().toLowerCase() === finalName.toLowerCase())) {
+        toastr.info("มีชื่อนี้อยู่แล้ว ตั้งชื่ออื่นนะ (ชื่อใช้อ้างอิงตอนส่ง)", "TinyGallery"); return;
+    }
+    g.stickers.push({ id: galleryId(), url, name: finalName, album: currentAlbum("sticker"), ts: Date.now() });
+    saveGallery();
+    $("#tinyfeed-gallery-stk-url, #tinyfeed-gallery-stk-name").val("");
+    renderGalleryGrid("sticker");
+    toastr.success(`เพิ่มสติกเกอร์ "${finalName}" แล้ว`, "TinyGallery");
+}
+
+function addGalleryAlbum(kind) {
+    const g = getGallery();
+    const arr = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    const name = String(window.prompt("ชื่ออัลบั้มใหม่:", "") || "").trim();
+    if (!name) return;
+    if (arr.some((a) => a.trim().toLowerCase() === name.toLowerCase())) {
+        toastr.info("มีอัลบั้มชื่อนี้แล้ว", "TinyGallery"); return;
+    }
+    arr.push(name);
+    saveGallery();
+    renderGalleryAlbums();
+    $(kind === "sticker" ? "#tinyfeed-gallery-stk-album" : "#tinyfeed-gallery-img-album").val(name);
+    renderGalleryGrid(kind);
+}
+
+function deleteGalleryAlbum(kind) {
+    const g = getGallery();
+    const arr = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    const album = currentAlbum(kind);
+    if (album === "ทั่วไป") { toastr.info("ลบอัลบั้ม 'ทั่วไป' ไม่ได้", "TinyGallery"); return; }
+    if (arr.length <= 1) { toastr.info("ต้องเหลืออัลบั้มอย่างน้อย 1 อัน", "TinyGallery"); return; }
+    if (!window.confirm(`ลบอัลบั้ม "${album}"? รายการในนั้นจะย้ายไปอัลบั้ม 'ทั่วไป'`)) return;
+    const items = kind === "sticker" ? g.stickers : g.images;
+    items.forEach((it) => { if ((it.album || "ทั่วไป") === album) it.album = "ทั่วไป"; });
+    const idx = arr.indexOf(album);
+    if (idx >= 0) arr.splice(idx, 1);
+    saveGallery();
+    renderGalleryAlbums();
+    $(kind === "sticker" ? "#tinyfeed-gallery-stk-album" : "#tinyfeed-gallery-img-album").val("ทั่วไป");
+    renderGalleryGrid(kind);
+}
+
+function deleteGalleryItem(kind, id) {
+    const g = getGallery();
+    const arr = kind === "sticker" ? g.stickers : g.images;
+    const idx = arr.findIndex((it) => String(it.id) === String(id));
+    if (idx < 0) return;
+    arr.splice(idx, 1);
+    saveGallery();
+    renderGalleryGrid(kind);
+}
+
+// ===== Picker: เลือกสติกเกอร์/รูป จากคลังมาส่งในแอปอื่น =====
+function openGalleryPicker(kind, onPick) {
+    const g = getGallery();
+    const items = kind === "sticker" ? g.stickers : g.images;
+    if (!items.length) {
+        toastr.info(`ยังไม่มี${kind === "sticker" ? "สติกเกอร์" : "รูป"}ในคลัง — เพิ่มที่แอป TinyGallery ก่อนนะ`, "TinyGallery");
+        return;
+    }
+    galleryPickTarget = { kind, onPick };
+    $("#tinyfeed-gallery-picker-title").text(kind === "sticker" ? "เลือกสติกเกอร์" : "เลือกรูป");
+    const albums = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
+    fillAlbumSelect($("#tinyfeed-gallery-picker-album"), albums, albums[0]);
+    renderPickerGrid();
+    $("#tinyfeed-gallery-picker").removeClass("tinyfeed-hidden");
+}
+
+function renderPickerGrid() {
+    if (!galleryPickTarget) return;
+    const kind = galleryPickTarget.kind;
+    const g = getGallery();
+    const album = String($("#tinyfeed-gallery-picker-album").val() || "ทั่วไป");
+    const list = (kind === "sticker" ? g.stickers : g.images).filter((it) => (it.album || "ทั่วไป") === album);
+    if (!list.length) {
+        $("#tinyfeed-gallery-picker-grid").html(`<div class="tinyfeed-gallery-empty">อัลบั้มนี้ว่าง</div>`);
+        return;
+    }
+    $("#tinyfeed-gallery-picker-grid").html(list.map((it) => `
+        <div class="tinyfeed-gallery-pick" data-name="${escapeAttr(it.name)}" title="${escapeText(it.name)}">
+            <img class="tinyfeed-gallery-thumb" src="${escapeAttr(it.url)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />
+            <div class="tinyfeed-gallery-item-name">${escapeText(it.name)}</div>
+        </div>
+    `).join(""));
+}
+
+function closeGalleryPicker() {
+    $("#tinyfeed-gallery-picker").addClass("tinyfeed-hidden");
+    galleryPickTarget = null;
+}
+
+function pickGalleryItem(name) {
+    if (!galleryPickTarget) return;
+    const kind = galleryPickTarget.kind;
+    const cb = galleryPickTarget.onPick;
+    const token = `[${kind === "sticker" ? "sticker" : "img"}:${name}]`;
+    closeGalleryPicker();
+    if (typeof cb === "function") cb(token, name, kind);
+}
+
+// แทรกโทเคนลงช่องพิมพ์ (สำหรับแอปที่พิมพ์ก่อนแล้วค่อยโพสต์ เช่น TinyFeed)
+function insertIntoInput(sel, token) {
+    const el = $(sel);
+    if (!el.length) return;
+    const cur = String(el.val() || "");
+    const glue = cur && !/\s$/.test(cur) ? " " : "";
+    el.val(cur + glue + token + " ").trigger("input").focus();
 }
 
 // ===== TinyConnect: แชตสไตล์ไลน์ =====
@@ -805,6 +1008,7 @@ async function generateConnectReply() {
             `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
             (extraG ? `คำสั่งเพิ่มเติม: ${extraG}.\n` : "") +
             crossAppContext("connect") +
+            galleryPromptBlock() +
             `บทแชตล่าสุด:\n${transcript}\n` +
             `ตอบบรรทัดละคนในรูปแบบนี้เท่านั้น:\nMSG: <ชื่อสมาชิก> | <ข้อความ>`;
         isConnectReplying = true;
@@ -837,6 +1041,7 @@ async function generateConnectReply() {
         `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
         (String(getSetting("connectExtraPrompt") || "").trim() ? `คำสั่งเพิ่มเติม: ${String(getSetting("connectExtraPrompt")).trim()}.\n` : "") +
         crossAppContext("connect") +
+        galleryPromptBlock() +
         `บทแชตล่าสุด:\n${transcript}\n` +
         `ตอบเฉพาะข้อความของ ${name} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`;
 
@@ -848,8 +1053,8 @@ async function generateConnectReply() {
         // ถ้าโมเดลห่อด้วย [... Message: ข้อความ] ให้ดึงเฉพาะเนื้อในออกมา
         const wrapped = [...reply.matchAll(/\[[^\]]*?Message:\s*([^\]]+)\]/gi)];
         if (wrapped.length) reply = wrapped.map((m) => m[1].trim()).join("\n");
-        // ตัดวงเล็บ/ป้ายกำกับที่หลงเหลือ + "ชื่อ:" นำหน้า
-        reply = reply.replace(/^\[|\]$/g, "").trim();
+        // ตัดวงเล็บ/ป้ายกำกับที่หลงเหลือ + "ชื่อ:" นำหน้า (ไม่ทำลายโทเคนสติกเกอร์/รูป)
+        reply = stripWrapBrackets(reply);
         const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         reply = reply.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
         if (reply) {
@@ -1080,6 +1285,44 @@ function getForumRooms() {
     return r;
 }
 
+// ===== TinyGallery: คลังรูป + สติกเกอร์ (global — เก็บใน extension_settings ไม่ผูกกับแชท) =====
+function getGallery() {
+    const store = extension_settings[extensionName] || {};
+    let g = store.gallery;
+    if (!g || typeof g !== "object") g = {};
+    if (!Array.isArray(g.images)) g.images = [];
+    if (!Array.isArray(g.stickers)) g.stickers = [];
+    if (!Array.isArray(g.imageAlbums) || !g.imageAlbums.length) g.imageAlbums = ["ทั่วไป"];
+    if (!Array.isArray(g.stickerAlbums) || !g.stickerAlbums.length) g.stickerAlbums = ["ทั่วไป"];
+    if (store.gallery !== g) setSetting("gallery", g);   // เขียนกลับถ้าเพิ่งสร้าง/ซ่อม
+    return g;
+}
+
+function saveGallery() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    extension_settings[extensionName].gallery = getGallery();
+    saveSettingsDebounced();
+}
+
+// ถอด HTML entity เบาๆ (สำหรับจับคู่ชื่อในโทเคน [sticker:...] / [img:...] ที่ผ่าน escape มาแล้ว)
+function unescapeLite(s) {
+    return String(s == null ? "" : s)
+        .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+}
+
+// หาสติกเกอร์/รูปในคลังตามชื่อ (case-insensitive) ไม่เจอคืน null
+function findSticker(name) {
+    const k = String(name || "").trim().toLowerCase();
+    if (!k) return null;
+    return getGallery().stickers.find((s) => String(s.name || "").trim().toLowerCase() === k) || null;
+}
+function findGalleryImage(name) {
+    const k = String(name || "").trim().toLowerCase();
+    if (!k) return null;
+    return getGallery().images.find((s) => String(s.name || "").trim().toLowerCase() === k) || null;
+}
+
 // หา URL รูปของ NPC จากรายชื่อประจำ (ตามชื่อ) ไม่เจอคืน ""
 function getNpcAvatar(name) {
     const key = String(name || "").trim().toLowerCase();
@@ -1189,6 +1432,9 @@ function escapeHtml(str) {
 // (ปลอดภัยเพราะรับ input ที่ผ่าน escape มาแล้ว แท็กเดียวที่มีคือ <br>)
 function renderRich(html) {
     let s = String(html == null ? "" : html);
+    // โทเคนคลังรูป: [sticker:ชื่อ] → รูปสติกเกอร์ · [img:ชื่อ] → รูปพร้อมคำบรรยาย (ทำก่อน markdown)
+    s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => renderStickerToken(unescapeLite(n)));
+    s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => renderImgToken(unescapeLite(n)));
     s = s.replace(/`([^`<]+)`/g, '<code class="tinyfeed-code">$1</code>');
     s = s.replace(/\*\*([^*<]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/\*([^*<\n]+)\*/g, "<em>$1</em>");
@@ -1201,6 +1447,35 @@ function renderRich(html) {
 // escape สำหรับใส่ในค่า attribute (value="...")
 function escapeAttr(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+// แปลงโทเคนสติกเกอร์/รูปเป็น <img> (เรียกจาก renderRich) — ไม่เจอชื่อ = โชว์ placeholder
+function renderStickerToken(name) {
+    const s = findSticker(name);
+    if (s && s.url) {
+        return `<img class="tinyfeed-sticker-img" src="${escapeAttr(s.url)}" alt="${escapeText(s.name)}" title="${escapeText(s.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
+    }
+    return `<span class="tinyfeed-token-missing">[สติกเกอร์: ${escapeText(name)}]</span>`;
+}
+function renderImgToken(name) {
+    const im = findGalleryImage(name);
+    if (im && im.url) {
+        const cap = im.caption ? `<span class="tinyfeed-content-img-cap">${escapeText(im.caption)}</span>` : "";
+        return `<span class="tinyfeed-content-img-wrap"><img class="tinyfeed-content-img" src="${escapeAttr(im.url)}" alt="${escapeText(im.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />${cap}</span>`;
+    }
+    return `<span class="tinyfeed-token-missing">[รูป: ${escapeText(name)}]</span>`;
+}
+
+// ตัดวงเล็บ [ ] ที่โมเดลครอบข้อความมา โดยไม่ทำลายโทเคน [sticker:..]/[img:..]
+function stripWrapBrackets(s) {
+    s = String(s == null ? "" : s).trim();
+    if (/^\[(?:sticker|img):[^\]]+\]$/i.test(s)) return s;   // เป็นโทเคนล้วน อย่าแตะ
+    if (s.startsWith("[") && !/^\[(?:sticker|img):/i.test(s)) s = s.slice(1);
+    if (s.endsWith("]")) {
+        const tail = s.slice(s.lastIndexOf("["));
+        if (!/^\[(?:sticker|img):[^\]]+\]$/i.test(tail)) s = s.slice(0, -1);   // ] ไม่ได้ปิดโทเคนท้ายข้อความ
+    }
+    return s.trim();
 }
 
 // วาดรายการ NPC ประจำในหน้า settings
@@ -1405,6 +1680,21 @@ function crossAppContext(exclude) {
     const blocks = buildAppBlocks(want);
     if (!blocks.length) return "";
     return `\n[เนื้อหาจากแอปอื่นในโทรศัพท์ อ้างอิงถึงได้ถ้าเข้ากับสถานการณ์]\n${blocks.join("\n\n")}\n`;
+}
+
+// บล็อกบอก "คลังสติกเกอร์/รูป" ให้บอทเลือกส่งได้ (แนบท้าย prompt ของแอปที่คุย/โพสต์)
+// max = จำกัดจำนวนรายชื่อที่ลิสต์ (กัน prompt ยาว)
+function galleryPromptBlock(max) {
+    if (!getSetting("galleryPrompt")) return "";
+    const g = getGallery();
+    const cap = Math.max(1, parseInt(max, 10) || 24);
+    const stk = g.stickers.slice(0, cap).map((s) => s.name).filter(Boolean);
+    const img = g.images.slice(0, cap).map((s) => s.caption ? `${s.name} (${htmlToPlain(s.caption)})` : s.name).filter(Boolean);
+    if (!stk.length && !img.length) return "";
+    let out = "\n[คลังสื่อในโทรศัพท์ — ส่งได้ถ้าเข้ากับสถานการณ์ อย่าฝืนใส่ทุกครั้ง]\n";
+    if (stk.length) out += `ส่งสติกเกอร์: พิมพ์ [sticker:ชื่อ] โดยเลือกจาก: ${stk.join(", ")}.\n`;
+    if (img.length) out += `แนบรูป: พิมพ์ [img:ชื่อ] โดยเลือกจาก: ${img.join(", ")}.\n`;
+    return out;
 }
 
 // Phase 2: แทรกฟีด/ข่าว/แชต/ไลฟ์ เข้าประวัติแชทหลัก ให้โมเดล RP รับรู้ (เรียลไทม์)
@@ -1982,7 +2272,7 @@ async function generateFeedPost(opts) {
     }
 
     const extra = String(getSetting("postExtraPrompt") || "").trim();
-    const extraLine = extra ? `คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}. ` : "";
+    const extraLine = (extra ? `คำสั่งเพิ่มเติมจากผู้ใช้: ${extra}. ` : "") + galleryPromptBlock();
 
     const quietPrompt = buildPrompt("feedPost", {
         roster: rosterLine, extra: extraLine, history: historyLine, context: crossAppContext("feed"),
@@ -3409,7 +3699,7 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum"];
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery"];
 function saveLastScreen() {
     try {
         const data = getFeedData();
@@ -3511,6 +3801,7 @@ const SETTINGS_LAYOUT = [
     { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
     { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
     { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
+    { head: "🖼️ TinyGallery", titles: ["TinyGallery (คลังรูป + สติกเกอร์)"] },
     { head: "🧩 Prompt (ขั้นสูง)", titles: ["Prompt (ขั้นสูง)"] },
 ];
 
@@ -3646,6 +3937,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-forum-batch").val(getSetting("forumCommentBatch") || 8);
     $("#tinyfeed-cfg-forum-extra").val(getSetting("forumExtraPrompt"));
     renderForumRooms();
+    $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
     $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
     $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
@@ -3698,7 +3990,9 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    if (currentApp === "connect" && isConnectThreadOpen()) {
+    if (!$("#tinyfeed-gallery-picker").hasClass("tinyfeed-hidden")) {
+        closeGalleryPicker();   // ปิด picker ก่อนถ้าเปิดอยู่
+    } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
         openForumList();     // จากหน้ากระทู้ → กลับรายการกระทู้
@@ -4002,6 +4296,54 @@ jQuery(async () => {
                 e.preventDefault();
                 sendForumFromComposer($(this).val());
             }
+        });
+
+        // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
+        $(document).on("click", ".tinyfeed-gallery-tab", function () {
+            switchGalleryTab($(this).data("gtab"));
+        });
+        $(document).on("change", "#tinyfeed-gallery-img-album", function () { renderGalleryGrid("image"); });
+        $(document).on("change", "#tinyfeed-gallery-stk-album", function () { renderGalleryGrid("sticker"); });
+        $(document).on("click", "#tinyfeed-gallery-img-add", addGalleryImage);
+        $(document).on("click", "#tinyfeed-gallery-stk-add", addGallerySticker);
+        $(document).on("keydown", "#tinyfeed-gallery-img-name", function (e) { if (e.key === "Enter") { e.preventDefault(); addGalleryImage(); } });
+        $(document).on("keydown", "#tinyfeed-gallery-stk-name", function (e) { if (e.key === "Enter") { e.preventDefault(); addGallerySticker(); } });
+        $(document).on("click", "#tinyfeed-gallery-img-album-add", function () { addGalleryAlbum("image"); });
+        $(document).on("click", "#tinyfeed-gallery-stk-album-add", function () { addGalleryAlbum("sticker"); });
+        $(document).on("click", "#tinyfeed-gallery-img-album-del", function () { deleteGalleryAlbum("image"); });
+        $(document).on("click", "#tinyfeed-gallery-stk-album-del", function () { deleteGalleryAlbum("sticker"); });
+        $(document).on("click", ".tinyfeed-gallery-item-del", function (e) {
+            e.stopPropagation();
+            const item = $(this).closest(".tinyfeed-gallery-item");
+            deleteGalleryItem(item.data("kind"), String(item.data("id")));
+        });
+        // picker
+        $(document).on("change", "#tinyfeed-gallery-picker-album", renderPickerGrid);
+        $(document).on("click", "#tinyfeed-gallery-picker-close", closeGalleryPicker);
+        $(document).on("click", "#tinyfeed-gallery-picker", function (e) {
+            if (e.target === this) closeGalleryPicker();   // คลิกฉากหลัง = ปิด
+        });
+        $(document).on("click", ".tinyfeed-gallery-pick", function () {
+            pickGalleryItem(String($(this).data("name")));
+        });
+        // ปุ่มสติกเกอร์/รูป ในแถบพิมพ์ของแต่ละแอป (ส่งทันที หรือแทรกลงช่องพิมพ์)
+        $(document).on("click", "#tinyfeed-connect-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendConnectMessage(token));
+        });
+        $(document).on("click", "#tinyfeed-stream-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendStreamComment(token));
+        });
+        $(document).on("click", "#tinyfeed-stream-streamer-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendStreamerLine(token));
+        });
+        $(document).on("click", "#tinyfeed-forum-sticker", function () {
+            openGalleryPicker("sticker", (token) => sendForumFromComposer(token));
+        });
+        $(document).on("click", "#tinyfeed-compose-sticker", function () {
+            openGalleryPicker("sticker", (token) => insertIntoInput("#tinyfeed-compose-input", token));
+        });
+        $(document).on("click", "#tinyfeed-compose-img", function () {
+            openGalleryPicker("image", (token) => insertIntoInput("#tinyfeed-compose-input", token));
         });
 
         // Stage 2: render mock + ผูกแท็บ
@@ -4441,6 +4783,9 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-forum-extra", function () {
             setSetting("forumExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
+            setSetting("galleryPrompt", $(this).prop("checked"));
         });
         // ตัวแก้ห้อง (global setting forumRooms)
         $(document).on("input", ".tinyfeed-room-name", function () {
