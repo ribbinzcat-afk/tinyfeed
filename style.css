@@ -1740,7 +1740,7 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.55));
+    background: rgba(0, 0, 0, var(--tf-wp-overlay-alpha, 0.45));
     pointer-events: none;
 }
 
@@ -2421,11 +2421,10 @@
     color: var(--tf-text-muted);
 }
 /* มีวอลเปเปอร์: วิดเจ็ตอ่านง่ายขึ้น */
+/* วิดเจ็ตบนวอลเปเปอร์ยังใช้สี/ความทึบตามธีม+slider (base rule) — เพิ่มแค่เงาให้เด่น */
 #tinyfeed-home.tinyfeed-has-wallpaper .tinyfeed-widget {
-    background: rgba(0, 0, 0, 0.4);
-    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
 }
-#tinyfeed-home.tinyfeed-has-wallpaper .tinyfeed-widget-time { color: #fff; }
 
 /* ===== กระดิ่ง + ลิ้นชักแจ้งเตือน ===== */
 #tinyfeed-notif-bell {

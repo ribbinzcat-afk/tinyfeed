@@ -38,6 +38,7 @@ const defaultSettings = {
     promptOverrides: {},          // id → template override ("" / ไม่มี = ใช้ default)
     // Stage 5: override รูปโปรไฟล์ด้วยลิงก์ภายนอก
     wallpaperUrl: "",           // ลิงก์วอลเปเปอร์หน้าโฮม
+    wallpaperOverlay: 45,       // ความทึบสcrim ดำที่ทับวอลเปเปอร์ (0–100%)
     userAvatarUrl: "",          // รูปผู้ใช้ (global)
     charAvatarUrls: {},         // { "<ไฟล์ avatar การ์ด>": "url" } override รายตัวละคร
     // Stage 6: ช่วงยอดไลค์เริ่มต้นแบบสุ่มของโพสต์ AI
@@ -187,6 +188,11 @@ function applyWallpaper() {
     } else {
         home.css("background-image", "").removeClass("tinyfeed-has-wallpaper");
     }
+    // ความทึบ scrim ที่ทับวอลเปเปอร์ (0–100% → 0.0–1.0)
+    let ov = parseInt(getSetting("wallpaperOverlay"), 10);
+    if (!Number.isFinite(ov)) ov = 45;
+    ov = Math.min(100, Math.max(0, ov));
+    if (home.length) home[0].style.setProperty("--tf-wp-overlay-alpha", String(ov / 100));
 }
 
 // ซ่อน/แสดงปุ่มในเมนูตาม setting
@@ -4525,6 +4531,9 @@ function isSettingsOpen() {
 // เติมค่าปัจจุบันลงในฟอร์ม settings
 function populateSettings() {
     $("#tinyfeed-cfg-wallpaper").val(getSetting("wallpaperUrl") || "");
+    const wpo = parseInt(getSetting("wallpaperOverlay"), 10);
+    $("#tinyfeed-cfg-wp-overlay").val(Number.isFinite(wpo) ? wpo : 45);
+    $("#tinyfeed-wp-overlay-val").text(`${Number.isFinite(wpo) ? wpo : 45}%`);
     $("#tinyfeed-cfg-user-avatar").val(getSetting("userAvatarUrl") || "");
 
     // ปรับแต่งหน้าตา
@@ -5293,6 +5302,13 @@ jQuery(async () => {
         // วอลเปเปอร์หน้าโฮม
         $(document).on("input", "#tinyfeed-cfg-wallpaper", function () {
             setSetting("wallpaperUrl", $(this).val().trim());
+            applyWallpaper();
+        });
+        $(document).on("input", "#tinyfeed-cfg-wp-overlay", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 45;
+            setSetting("wallpaperOverlay", v);
+            $("#tinyfeed-wp-overlay-val").text(`${v}%`);
             applyWallpaper();
         });
         // ลิงก์รูปผู้ใช้ (override) — พิมพ์แล้วอัปเดตฟีดทันที
