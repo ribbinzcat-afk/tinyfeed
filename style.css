@@ -3501,3 +3501,43 @@
     font-weight: 600;
 }
 .tinyfeed-profile-head:first-child { border-top: none; padding-top: 0; }
+
+/* วิดเจ็ตแดชบอร์ดโทเคน */
+.tinyfeed-widget-tokens .tinyfeed-widget-head { margin-bottom: 8px; }
+.tinyfeed-token-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 0.8em;
+}
+.tinyfeed-token-app {
+    flex-shrink: 0;
+    width: 92px;
+    color: var(--tf-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tinyfeed-token-app i { width: 14px; margin-right: 4px; text-align: center; }
+.tinyfeed-token-bar {
+    flex: 1;
+    min-width: 0;
+    height: 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tf-text-muted) 25%, transparent);
+    overflow: hidden;
+}
+.tinyfeed-token-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    transition: width 0.3s ease;
+}
+.tinyfeed-token-num {
+    flex-shrink: 0;
+    width: 48px;
+    text-align: right;
+    color: var(--tf-text-muted);
+    font-variant-numeric: tabular-nums;
+}

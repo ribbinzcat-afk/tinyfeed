@@ -19,6 +19,7 @@ const defaultSettings = {
     homeBgHue: 210,           // hue พื้นหลังโฮม (สุ่มได้)
     widgetOpacity: 82,        // ความทึบพื้นหลังวิดเจ็ต (0–100%)
     widgetClock: true,        // วิดเจ็ตนาฬิกา+วันที่
+    widgetTokens: false,      // วิดเจ็ตแดชบอร์ดโทเคนต่อแอป
     widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
     customCss: "",            // CSS snippet ของผู้ใช้
     // ทักเชิงรุก (proactive) + แจ้งเตือน OS + กลุ่มคุยกันเอง
@@ -173,6 +174,7 @@ function loadSettings() {
     if (extension_settings[extensionName].injectMode === "both") {
         extension_settings[extensionName].injectMode = "posts_comments_news";
     }
+    migrateLegacyAvatars();   // ย้ายรูป override เก่าเข้าโปรไฟล์ persona/char
     const enabled = extension_settings[extensionName].enabled;
     $("#tinyfeed-enabled").prop("checked", enabled);
     applyMenuVisibility(enabled);
@@ -1801,6 +1803,36 @@ function updateHomeClock() {
     }
 }
 
+// นับโทเคนด้วย tokenizer ของ ST (มี fallback ประมาณ chars/4 ถ้าเวอร์ชันไม่มี)
+function tinyTokenCount(text) {
+    text = String(text || "");
+    if (!text) return 0;
+    try {
+        const ctx = getContext();
+        if (typeof ctx.getTokenCount === "function") {
+            const n = ctx.getTokenCount(text);
+            if (typeof n === "number" && n >= 0) return n;
+        }
+    } catch (e) { /* fallback */ }
+    return Math.ceil(text.length / 4);
+}
+
+// โทเคนของข้อมูลแต่ละแอปที่จะถูกส่งเข้า prompt (ประมาณการ) + รวม
+function tokenDashboardData() {
+    const N = 9999;
+    const rows = [
+        { label: "TinyFeed", icon: "fa-hashtag", color: "#1d9bf0", text: buildAppBlocks({ feed: true, comments: true, count: N }).join("\n") },
+        { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b", text: buildAppBlocks({ news: true, count: N }).join("\n") },
+        { label: "TinyConnect", icon: "fa-comment-dots", color: "#22c55e", text: buildAppBlocks({ connect: true, count: N }).join("\n") },
+        { label: "TinyStream", icon: "fa-video", color: "#a855f7", text: buildAppBlocks({ stream: true, count: N }).join("\n") },
+        { label: "TinyMemo", icon: "fa-calendar-check", color: "#f59e0b", text: buildAppBlocks({ memo: true, count: N }).join("\n") },
+        { label: "TinyForum", icon: "fa-comments", color: "#ef4444", text: buildAppBlocks({ forum: true, forumComments: true, count: N }).join("\n") },
+        { label: "คลังสื่อ", icon: "fa-images", color: "#ec4899", text: galleryPromptBlock() },
+    ].map((r) => ({ label: r.label, icon: r.icon, color: r.color, tokens: tinyTokenCount(r.text) }));
+    const total = rows.reduce((s, r) => s + r.tokens, 0);
+    return { rows, total };
+}
+
 function renderHomeWidgets() {
     const box = $("#tinyfeed-home-widgets");
     if (!box.length) return;
@@ -1819,6 +1851,20 @@ function renderHomeWidgets() {
         parts.push(`<div id="tinyfeed-widget-agenda" class="tinyfeed-widget tinyfeed-widget-agenda" data-app="memo">
             <div class="tinyfeed-widget-head"><i class="fa-solid fa-calendar-day"></i> กำหนดการ</div>
             ${rows}
+        </div>`);
+    }
+    if (getSetting("widgetTokens")) {
+        const d = tokenDashboardData();
+        const max = Math.max(1, ...d.rows.map((r) => r.tokens));
+        const trows = d.rows.filter((r) => r.tokens > 0).map((r) => `
+            <div class="tinyfeed-token-row">
+                <span class="tinyfeed-token-app"><i class="fa-solid ${r.icon}" style="color:${r.color}"></i> ${r.label}</span>
+                <span class="tinyfeed-token-bar"><span style="width:${Math.round(r.tokens / max * 100)}%;background:${r.color}"></span></span>
+                <span class="tinyfeed-token-num">${r.tokens.toLocaleString()}</span>
+            </div>`).join("") || `<div class="tinyfeed-widget-agenda-empty">ยังไม่มีข้อมูลที่ส่งออก</div>`;
+        parts.push(`<div id="tinyfeed-widget-tokens" class="tinyfeed-widget tinyfeed-widget-tokens">
+            <div class="tinyfeed-widget-head"><i class="fa-solid fa-gauge-high"></i> โทเคนที่ส่งออก (ประมาณ) · รวม <b>${d.total.toLocaleString()}</b></div>
+            ${trows}
         </div>`);
     }
     box.html(parts.join(""));
@@ -2003,7 +2049,7 @@ function getCurrentCharacter() {
 function getCharacterAvatar() {
     const char = getCurrentCharacter();
     if (!char) return "";
-    const override = getCharProfile().avatarUrl || (getSetting("charAvatarUrls") || {})[char.file];   // per-char → legacy
+    const override = getCharProfile().avatarUrl;   // per-char (เว้นว่าง = ใช้รูปการ์ดจริง)
     if (override) return override;
     if (!char.file || char.file === "none") return "";
     return `/thumbnail?type=avatar&file=${encodeURIComponent(char.file)}`;
@@ -2142,6 +2188,7 @@ function renderNpcList() {
 
 // เติมค่าโปรไฟล์ (ผู้ใช้ผูก persona · ตัวละครผูกการ์ด)
 function populateProfileSettings() {
+    migrateLegacyAvatars();   // เผื่อ init รันก่อน persona พร้อม
     const up = getUserProfile();
     $("#tinyfeed-cfg-persona-name").text(getRawUserName());
     $("#tinyfeed-cfg-user-avatar").val(up.avatarUrl);
@@ -2218,6 +2265,38 @@ function setProfileField(kind, field, value) {
     saveSettingsDebounced();
 }
 
+// ย้ายรูป override เก่า (global userAvatarUrl / charAvatarUrls รายไฟล์) เข้าโปรไฟล์ใหม่ ครั้งเดียว
+// แล้วล้างค่าเก่า เพื่อไม่ให้เป็น fallback ค้าง (เว้นช่องว่าง = ใช้รูปโปรไฟล์จริง)
+function migrateLegacyAvatars() {
+    let changed = false;
+    // char: { <file>: url } → charProfiles[<file>].avatarUrl (ปลอดภัยทุกเวลา — คีย์เป็นไฟล์)
+    const legacyChar = getSetting("charAvatarUrls");
+    if (legacyChar && typeof legacyChar === "object" && Object.keys(legacyChar).length) {
+        const store = getProfileStore("char");
+        for (const file of Object.keys(legacyChar)) {
+            const url = legacyChar[file];
+            if (!url) continue;
+            const cur = store[file] || {};
+            if (!cur.avatarUrl) { cur.avatarUrl = url; store[file] = cur; }
+        }
+        setSetting("charAvatarUrls", {});
+        changed = true;
+    }
+    // user: global → persona ปัจจุบัน (ทำเฉพาะเมื่อรู้ persona จริง กัน migrate ผิดคีย์)
+    const legacyUser = getSetting("userAvatarUrl");
+    if (legacyUser) {
+        const key = getPersonaKey();
+        if (key && key !== "default") {
+            const store = getProfileStore("user");
+            const cur = store[key] || {};
+            if (!cur.avatarUrl) { cur.avatarUrl = legacyUser; store[key] = cur; }
+            setSetting("userAvatarUrl", "");
+            changed = true;
+        }
+    }
+    if (changed) saveSettingsDebounced();
+}
+
 // ชื่อที่แอปใช้แสดง = username/alias ที่เลือกเป็นหลัก · ไม่ตั้ง = ชื่อดิบ
 function getUserName() {
     const p = getUserProfile();
@@ -2250,7 +2329,7 @@ function nameMatchesChar(name) {
 
 // URL avatar ของ persona ผู้ใช้ ถ้าไม่ได้คืน "" แล้วให้ fallback เป็น anon
 function getUserAvatar() {
-    const override = getUserProfile().avatarUrl || getSetting("userAvatarUrl");   // per-persona → legacy global
+    const override = getUserProfile().avatarUrl;   // per-persona (เว้นว่าง = ใช้รูป persona จริง)
     if (override) return override;   // ลิงก์ภายนอกจาก config
     try {
         const ctx = getContext();
@@ -4670,6 +4749,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-themed-home").prop("checked", Boolean(getSetting("themedHomeBg")));
     $("#tinyfeed-cfg-widget-clock").prop("checked", Boolean(getSetting("widgetClock")));
     $("#tinyfeed-cfg-widget-agenda").prop("checked", Boolean(getSetting("widgetAgenda")));
+    $("#tinyfeed-cfg-widget-tokens").prop("checked", Boolean(getSetting("widgetTokens")));
     const wop = parseInt(getSetting("widgetOpacity"), 10);
     $("#tinyfeed-cfg-widget-opacity").val(Number.isFinite(wop) ? wop : 82);
     $("#tinyfeed-widget-opacity-val").text(`${Number.isFinite(wop) ? wop : 82}%`);
@@ -4949,6 +5029,10 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-widget-agenda", function () {
             setSetting("widgetAgenda", $(this).prop("checked"));
+            if (currentApp === "home") renderHomeWidgets();
+        });
+        $(document).on("change", "#tinyfeed-cfg-widget-tokens", function () {
+            setSetting("widgetTokens", $(this).prop("checked"));
             if (currentApp === "home") renderHomeWidgets();
         });
         $(document).on("input", "#tinyfeed-cfg-widget-opacity", function () {
