@@ -2372,7 +2372,7 @@
     margin-bottom: 24px;
 }
 .tinyfeed-widget {
-    background: color-mix(in srgb, var(--tf-topbar) 82%, transparent);
+    background: color-mix(in srgb, var(--tf-topbar) var(--tf-widget-alpha, 82%), transparent);
     border: 1px solid var(--tf-border);
     border-radius: 16px;
     padding: 14px 16px;

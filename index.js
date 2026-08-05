@@ -17,6 +17,7 @@ const defaultSettings = {
     themedIcons: false,       // สีไอคอนแอปตามธีม
     themedHomeBg: false,      // พื้นหลังโฮมตามธีม (เมื่อไม่มีวอลเปเปอร์)
     homeBgHue: 210,           // hue พื้นหลังโฮม (สุ่มได้)
+    widgetOpacity: 82,        // ความทึบพื้นหลังวิดเจ็ต (0–100%)
     widgetClock: true,        // วิดเจ็ตนาฬิกา+วันที่
     widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
     customCss: "",            // CSS snippet ของผู้ใช้
@@ -110,6 +111,7 @@ const defaultSettings = {
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
     bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
+    bankCurrencyAfter: false,     // แสดงสัญลักษณ์ไว้ข้างหลังตัวเลข (เช่น 100฿) แทนข้างหน้า
     streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
     bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
     connectSlipEnabled: false,    // ให้คู่แชทส่งสลิปโอนเงินเข้าบัญชีเราได้ (AI)
@@ -805,7 +807,8 @@ function getBankData() {
 
 function formatMoney(n) {
     const cur = getSetting("bankCurrency") || "฿";
-    return `${cur}${Number(n || 0).toLocaleString()}`;
+    const num = Number(n || 0).toLocaleString();
+    return getSetting("bankCurrencyAfter") ? `${num}${cur}` : `${cur}${num}`;
 }
 
 // แกนธุรกรรม: dir "in" = เงินเข้า, "out" = เงินออก · app = แหล่งที่มา (bank/stream/connect/shop)
@@ -1739,6 +1742,11 @@ function applyAppearance() {
         let hue = parseInt(getSetting("homeBgHue"), 10);
         if (!Number.isFinite(hue)) hue = 210;
         phone.style.setProperty("--tf-home-hue", String(hue));
+        // ความทึบพื้นหลังวิดเจ็ต (สีตาม --tf-topbar = ตามธีม)
+        let wop = parseInt(getSetting("widgetOpacity"), 10);
+        if (!Number.isFinite(wop)) wop = 82;
+        wop = Math.min(100, Math.max(0, wop));
+        phone.style.setProperty("--tf-widget-alpha", `${wop}%`);
     }
 }
 
@@ -4456,20 +4464,31 @@ function closeDetail() {
 // ===== จัดกลุ่มหน้า settings: ตั้งค่าเครื่อง vs ตั้งค่าแอป =====
 const SETTINGS_LAYOUT = [
     {
-        head: "⚙️ ตั้งค่าเครื่อง",
-        titles: ["ปรับแต่งหน้าตา", "การแจ้งเตือน", "ทักเชิงรุก (ตัวละครทักเอง)", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
+        head: "⚙️ ทั่วไป (General)",
+        titles: ["การแจ้งเตือน", "ทักเชิงรุก (ตัวละครทักเอง)"],
     },
     {
-        head: "📱 TinyFeed",
-        titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร"],
+        head: "🎨 ธีม & CSS",
+        titles: ["ปรับแต่งหน้าตา", "วอลเปเปอร์"],
     },
-    { head: "💬 TinyConnect", titles: ["TinyConnect (แชต)"] },
-    { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
-    { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
-    { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
-    { head: "🖼️ TinyGallery", titles: ["TinyGallery (คลังรูป + สติกเกอร์)"] },
-    { head: "🏦 TinyBank", titles: ["TinyBank (ธนาคาร)"] },
-    { head: "🧩 Prompt (ขั้นสูง)", titles: ["Prompt (ขั้นสูง)"] },
+    {
+        head: "👤 ตัวละคร (Profile & NPC)",
+        titles: ["รูปโปรไฟล์", "NPC ประจำ (แชทนี้)"],
+    },
+    {
+        head: "💰 การเงิน",
+        titles: ["TinyBank (ธนาคาร)"],
+    },
+    {
+        head: "📱 ตั้งค่าเฉพาะแอป",
+        titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร",
+            "TinyConnect (แชต)", "TinyStream (ไลฟ์สตรีม)", "TinyMemo (กำหนดการ + โน้ต)",
+            "TinyForum (เว็บบอร์ด)", "TinyGallery (คลังรูป + สติกเกอร์)"],
+    },
+    {
+        head: "🔧 ตั้งค่าขั้นสูง",
+        titles: ["โมเดล / API", "แทรกฟีดเข้าประวัติแชท", "Prompt (ขั้นสูง)"],
+    },
 ];
 
 // เรียงกลุ่ม settings ใหม่ + ใส่หัวข้อใหญ่คั่น (ทำครั้งเดียว)
@@ -4518,6 +4537,9 @@ function populateSettings() {
     $("#tinyfeed-cfg-themed-home").prop("checked", Boolean(getSetting("themedHomeBg")));
     $("#tinyfeed-cfg-widget-clock").prop("checked", Boolean(getSetting("widgetClock")));
     $("#tinyfeed-cfg-widget-agenda").prop("checked", Boolean(getSetting("widgetAgenda")));
+    const wop = parseInt(getSetting("widgetOpacity"), 10);
+    $("#tinyfeed-cfg-widget-opacity").val(Number.isFinite(wop) ? wop : 82);
+    $("#tinyfeed-widget-opacity-val").text(`${Number.isFinite(wop) ? wop : 82}%`);
     $("#tinyfeed-cfg-customcss").val(getSetting("customCss") || "");
 
     const char = getCurrentCharacter();
@@ -4612,6 +4634,7 @@ function populateSettings() {
     galleryCfgPage = 0;
     renderGalleryCfgAlbums();
     $("#tinyfeed-cfg-bank-currency").val(getSetting("bankCurrency") || "฿");
+    $("#tinyfeed-cfg-bank-currency-pos").val(getSetting("bankCurrencyAfter") ? "after" : "before");
     $("#tinyfeed-cfg-donate-enabled").prop("checked", Boolean(getSetting("streamDonateEnabled")));
     $("#tinyfeed-cfg-bank-donate-max").val(getSetting("bankDonateMax"));
     renderDonateTiers();
@@ -4804,6 +4827,13 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-widget-agenda", function () {
             setSetting("widgetAgenda", $(this).prop("checked"));
             if (currentApp === "home") renderHomeWidgets();
+        });
+        $(document).on("input", "#tinyfeed-cfg-widget-opacity", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 82;
+            setSetting("widgetOpacity", v);
+            $("#tinyfeed-widget-opacity-val").text(`${v}%`);
+            applyAppearance();
         });
         $(document).on("input", "#tinyfeed-cfg-customcss", function () {
             setSetting("customCss", $(this).val());
@@ -5602,6 +5632,12 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-bank-currency", function () {
             setSetting("bankCurrency", String($(this).val() || "฿").trim() || "฿");
             if (currentApp === "bank") renderBank();
+            if (currentApp === "shop") renderShop();
+        });
+        $(document).on("change", "#tinyfeed-cfg-bank-currency-pos", function () {
+            setSetting("bankCurrencyAfter", $(this).val() === "after");
+            if (currentApp === "bank") renderBank();
+            if (currentApp === "shop") renderShop();
         });
         $(document).on("change", "#tinyfeed-cfg-donate-enabled", function () {
             setSetting("streamDonateEnabled", $(this).prop("checked"));

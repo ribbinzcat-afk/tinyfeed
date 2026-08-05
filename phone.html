@@ -168,6 +168,10 @@
                         <input id="tinyfeed-cfg-widget-agenda" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความทึบพื้นหลังวิดเจ็ต: <b id="tinyfeed-widget-opacity-val">82%</b></span>
+                        <input id="tinyfeed-cfg-widget-opacity" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">Custom CSS (สำหรับสายแต่ง)</span>
                         <textarea id="tinyfeed-cfg-customcss" rows="4" placeholder=".tinyfeed-msg-user .tinyfeed-msg-bubble::after { content: url('...'); }"></textarea>
                     </label>
@@ -647,6 +651,13 @@
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สัญลักษณ์สกุลเงิน</span>
                         <input id="tinyfeed-cfg-bank-currency" type="text" maxlength="4" placeholder="฿" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ตำแหน่งสัญลักษณ์</span>
+                        <select id="tinyfeed-cfg-bank-currency-pos">
+                            <option value="before">ข้างหน้าตัวเลข (฿100)</option>
+                            <option value="after">ข้างหลังตัวเลข (100฿)</option>
+                        </select>
                     </label>
                     <label class="tinyfeed-field-row">
                         <span>เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)</span>
