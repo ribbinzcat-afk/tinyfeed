@@ -1752,7 +1752,7 @@
 #tinyfeed-home.tinyfeed-has-wallpaper .tinyfeed-home-hello,
 #tinyfeed-home.tinyfeed-has-wallpaper .tinyfeed-home-sub,
 #tinyfeed-home.tinyfeed-has-wallpaper .tinyfeed-app-name {
-    color: #fff;
+    color: var(--tf-text);
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
 }
 
