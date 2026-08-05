@@ -75,6 +75,10 @@
                     <div class="tinyfeed-app-tile" style="--app-a:#10b981; --app-b:#047857;"><i class="fa-solid fa-wallet"></i></div>
                     <span class="tinyfeed-app-name">TinyBank</span>
                 </div>
+                <div class="tinyfeed-app-icon" data-app="shop">
+                    <div class="tinyfeed-app-tile" style="--app-a:#f97316; --app-b:#c2410c;"><i class="fa-solid fa-bag-shopping"></i></div>
+                    <span class="tinyfeed-app-name">TinyShop</span>
+                </div>
             </div>
         </div>
 
@@ -292,6 +296,11 @@
                         <span>แยกข้อความหลายบรรทัดเป็นหลายบับเบิล</span>
                         <input id="tinyfeed-cfg-connect-split" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชทโอนเงินเข้าบัญชีเราได้ (AI ส่งสลิป)</span>
+                        <input id="tinyfeed-cfg-connect-slip" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">เราโอนออกเองได้เสมอจากปุ่ม 💸 ในแชท (หักจาก TinyBank) · เปิดตัวเลือกนี้ = ตอนกด "ให้ตอบกลับ" คู่แชทอาจโอนเงินเข้าบัญชีเรา (ตามเนื้อเรื่อง) เข้า TinyBank อัตโนมัติ</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -693,6 +702,7 @@
                 </div>
                 <div class="tinyfeed-connect-compose">
                     <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
+                    <span id="tinyfeed-connect-slip" class="tinyfeed-compose-sticker" title="โอนเงิน"><i class="fa-solid fa-money-bill-transfer"></i></span>
                     <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
                     <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                     <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
@@ -887,6 +897,22 @@
             </div>
         </div>
 
+        <div id="tinyfeed-app-shop" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-shop-bar">ยอดเงิน: <b id="tinyfeed-shop-balance">฿0</b></div>
+            <div class="tinyfeed-screen">
+                <div class="tinyfeed-shop-addform">
+                    <input id="tinyfeed-shop-name" type="text" placeholder="ชื่อสินค้า" />
+                    <div class="tinyfeed-shop-addrow">
+                        <input id="tinyfeed-shop-price" type="number" min="1" placeholder="ราคา" />
+                        <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ)" />
+                    </div>
+                    <input id="tinyfeed-shop-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
+                </div>
+                <div id="tinyfeed-shop-grid" class="tinyfeed-shop-grid"></div>
+            </div>
+        </div>
+
         <div id="tinyfeed-gallery-picker" class="tinyfeed-gallery-picker tinyfeed-hidden">
             <div class="tinyfeed-gallery-picker-card">
                 <div class="tinyfeed-gallery-picker-head">
@@ -905,6 +931,20 @@
                     <span id="tinyfeed-char-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
                 <div id="tinyfeed-char-picker-list" class="tinyfeed-char-picker-list"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-slip-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>โอนเงินให้ <b id="tinyfeed-slip-to"></b></span>
+                    <span id="tinyfeed-slip-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-slip-amount" type="number" min="1" placeholder="จำนวนเงิน" />
+                    <input id="tinyfeed-slip-note" type="text" placeholder="โน้ต (ไม่บังคับ)" />
+                    <button id="tinyfeed-slip-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-money-bill-transfer"></i> โอนออก</button>
+                </div>
             </div>
         </div>
 

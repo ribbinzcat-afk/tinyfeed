@@ -112,6 +112,8 @@ const defaultSettings = {
     bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
     streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
     bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
+    connectSlipEnabled: false,    // ให้คู่แชทส่งสลิปโอนเงินเข้าบัญชีเราได้ (AI)
+    shop: [],                     // แคตตาล็อกร้านค้า (global) [{ id, name, price, image, desc }]
     // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
     donateTiers: [
         { min: 0, color: "#1d9bf0" },
@@ -223,7 +225,7 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank"].includes(app)) {
+    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop"].includes(app)) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
@@ -231,6 +233,7 @@ function openApp(app) {
     clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
     closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
     closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
+    closeSlipModal();       // กัน modal โอนเงินค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
@@ -267,6 +270,11 @@ function openApp(app) {
         $("#tinyfeed-app-bank").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyBank");
         renderBank();
+    } else if (app === "shop") {
+        currentApp = "shop";
+        $("#tinyfeed-app-shop").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyShop");
+        renderShop();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -866,6 +874,81 @@ function bankManualTxn(dir) {
     }
 }
 
+// ===== TinyShop: ร้านค้า (แคตตาล็อก global, ยอดซื้อผูกกับแชท) =====
+function getShop() {
+    const store = extension_settings[extensionName] || {};
+    if (!Array.isArray(store.shop)) { store.shop = []; setSetting("shop", store.shop); }
+    return store.shop;
+}
+function saveShop() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    extension_settings[extensionName].shop = getShop();
+    saveSettingsDebounced();
+}
+function getShopOwned() {
+    const data = getFeedData();
+    if (!data.shopOwned || typeof data.shopOwned !== "object") data.shopOwned = {};
+    return data.shopOwned;
+}
+function shopId() { return "sh" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+
+function renderShop() {
+    $("#tinyfeed-shop-balance").text(formatMoney(getBankData().balance));
+    const items = getShop();
+    if (!items.length) {
+        $("#tinyfeed-shop-grid").html(emptyStateHtml("fa-bag-shopping", "ยังไม่มีสินค้า", "เพิ่มสินค้าด้านบน แล้วซื้อด้วยเงินใน TinyBank"));
+        return;
+    }
+    const owned = getShopOwned();
+    $("#tinyfeed-shop-grid").html(items.map((it) => {
+        const n = owned[it.id] || 0;
+        return `<div class="tinyfeed-shop-item" data-id="${escapeAttr(it.id)}">
+            <div class="tinyfeed-shop-thumb-wrap">
+                ${it.image
+                    ? `<img class="tinyfeed-shop-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`
+                    : `<div class="tinyfeed-shop-thumb tinyfeed-shop-noimg"><i class="fa-solid fa-box"></i></div>`}
+                ${n ? `<span class="tinyfeed-shop-owned">มี ${n}</span>` : ""}
+                <span class="tinyfeed-shop-del" title="ลบสินค้า"><i class="fa-solid fa-trash"></i></span>
+            </div>
+            <div class="tinyfeed-shop-name">${escapeText(it.name)}</div>
+            ${it.desc ? `<div class="tinyfeed-shop-desc">${escapeText(it.desc)}</div>` : ""}
+            <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
+        </div>`;
+    }).join(""));
+}
+
+function addShopItem() {
+    const name = String($("#tinyfeed-shop-name").val() || "").trim();
+    const price = parseInt($("#tinyfeed-shop-price").val(), 10);
+    const image = String($("#tinyfeed-shop-image").val() || "").trim();
+    const desc = String($("#tinyfeed-shop-desc").val() || "").trim();
+    if (!name) { toastr.info("ตั้งชื่อสินค้าก่อนนะ", "TinyShop"); return; }
+    if (!Number.isFinite(price) || price <= 0) { toastr.info("ใส่ราคาสินค้าก่อนนะ", "TinyShop"); return; }
+    getShop().push({ id: shopId(), name, price, image, desc });
+    saveShop();
+    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-desc").val("");
+    renderShop();
+    toastr.success(`เพิ่มสินค้า "${name}" แล้ว`, "TinyShop");
+}
+function deleteShopItem(id) {
+    const shop = getShop();
+    const i = shop.findIndex((x) => String(x.id) === String(id));
+    if (i < 0) return;
+    shop.splice(i, 1);
+    saveShop();
+    renderShop();
+}
+function buyShopItem(id) {
+    const it = getShop().find((x) => String(x.id) === String(id));
+    if (!it) return;
+    if (!bankDeduct(it.price, `ซื้อ ${it.name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
+    const owned = getShopOwned();
+    owned[id] = (owned[id] || 0) + 1;
+    saveFeedData();
+    renderShop();
+    toastr.success(`ซื้อ "${it.name}" แล้ว`, "TinyShop");
+}
+
 // ===== TinyGallery: คลังรูป + สติกเกอร์ (global, ไม่ผูกกับแชท) =====
 let galleryTab = "images";        // "images" | "stickers"
 let galleryPickTarget = null;     // { kind, onPick } ตอนเปิด picker เลือกมาส่ง
@@ -1396,10 +1479,11 @@ function renderThread() {
         return list.map((s) => `<div class="tinyfeed-msg-bubble">${renderRich(s)}</div>`).join("");
     };
     const rows = msgs.map((m, i) => {
+        const content = m.isSlip ? slipCardHtml(m) : bubblesHtml(m.text);
         if (m.from === "user") {
             return `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
                 ${delBtn(i)}
-                <div class="tinyfeed-msg-stack">${bubblesHtml(m.text)}</div>
+                <div class="tinyfeed-msg-stack">${content}</div>
             </div>`;
         }
         // แชตกลุ่ม: ใช้ avatar/ชื่อของสมาชิกที่พูด
@@ -1411,7 +1495,7 @@ function renderThread() {
             ${makeAvatar(avaItem)}
             <div class="tinyfeed-msg-col">
                 ${group ? `<span class="tinyfeed-msg-author">${escapeText(who)}</span>` : ""}
-                <div class="tinyfeed-msg-stack">${bubblesHtml(m.text)}</div>
+                <div class="tinyfeed-msg-stack">${content}</div>
             </div>
             ${delBtn(i)}
         </div>`;
@@ -1439,6 +1523,54 @@ function deleteConnectMessage(idx) {
     renderThread();
 }
 
+// การ์ดสลิปโอนเงินในแชท
+function slipCardHtml(m) {
+    const inbound = m.dir === "in";
+    return `<div class="tinyfeed-slip ${inbound ? "tinyfeed-slip-in" : "tinyfeed-slip-out"}">
+        <div class="tinyfeed-slip-head"><i class="fa-solid fa-money-bill-transfer"></i> ${inbound ? "โอนเงินเข้า" : "โอนเงินออก"}</div>
+        <div class="tinyfeed-slip-amount">${formatMoney(m.amount)}</div>
+        ${m.note ? `<div class="tinyfeed-slip-note">${escapeText(m.note)}</div>` : ""}
+        <div class="tinyfeed-slip-badge"><i class="fa-solid fa-circle-check"></i> โอนสำเร็จ</div>
+    </div>`;
+}
+
+// เปิด/ปิด modal โอนเงินในแชทที่เปิดอยู่
+function openSlipModal() {
+    if (!activeThread) return;
+    $("#tinyfeed-slip-amount, #tinyfeed-slip-note").val("");
+    $("#tinyfeed-slip-to").text(activeThreadName || "");
+    $("#tinyfeed-slip-modal").removeClass("tinyfeed-hidden");
+    setTimeout(() => $("#tinyfeed-slip-amount").trigger("focus"), 30);
+}
+function closeSlipModal() { $("#tinyfeed-slip-modal").addClass("tinyfeed-hidden"); }
+
+// ผู้ใช้โอนเงินออก → หักบัญชี + ดันสลิปในแชท
+function sendUserSlip() {
+    if (!activeThread) return;
+    const amt = parseInt($("#tinyfeed-slip-amount").val(), 10);
+    const note = String($("#tinyfeed-slip-note").val() || "").trim();
+    if (!Number.isFinite(amt) || amt <= 0) { toastr.info("ใส่จำนวนเงินก่อนนะ", "TinyConnect"); return; }
+    const toName = activeThreadName || "ผู้รับ";
+    if (!bankDeduct(amt, `โอนให้ ${toName}`, "connect")) return;   // ยอดไม่พอ → มี toast ในตัว
+    getThread(activeThread).push({ from: "user", isSlip: true, dir: "out", amount: amt, note, ts: Date.now() });
+    saveFeedData();
+    closeSlipModal();
+    renderThread();
+}
+
+// คู่แชท (1:1) ส่งสลิปโอนเข้า: SLIP: จำนวนเงิน | โน้ต
+function processConnectSlip(raw, fromName) {
+    if (!getSetting("connectSlipEnabled") || !activeThread) return;
+    const m = /SLIP:\s*([^\n|]+)(?:\|([^\n]*))?/i.exec(stripReasoning(raw));
+    if (!m) return;
+    const amount = Math.abs(Math.round(parseFloat(String(m[1]).replace(/[^\d.]/g, "")) || 0));
+    if (!amount) return;
+    const note = String(m[2] || "").trim();
+    if (bankAdd(amount, `รับโอนจาก ${fromName}`, "connect", { silentToast: true })) {
+        getThread(activeThread).push({ from: "contact", author: fromName, isSlip: true, dir: "in", amount, note, ts: Date.now() });
+    }
+}
+
 // ส่งข้อความ = แค่ต่อคิว (ไม่ generate ทันที) เพื่อพิมพ์/แนบรูป/สติกเกอร์หลายอันใน 1 รอบ
 // แล้วค่อยกดปุ่ม "ให้ตอบกลับ" ให้ตัวละครตอบทีเดียว
 function sendConnectMessage(text) {
@@ -1456,7 +1588,11 @@ async function generateConnectReply() {
     const you = getUserName();
     const group = findGroup(activeThread);
     const transcript = getThread(activeThread).slice(-12)
-        .map((m) => `${m.from === "user" ? you : (group ? (m.author || name) : name)}: ${htmlToPlain(m.text)}`).join("\n");
+        .map((m) => {
+            const who = m.from === "user" ? you : (group ? (m.author || name) : name);
+            const body = m.isSlip ? `[โอนเงิน ${formatMoney(m.amount)}${m.note ? " — " + m.note : ""}]` : htmlToPlain(m.text);
+            return `${who}: ${body}`;
+        }).join("\n");
 
     // --- แชตกลุ่ม: ให้สมาชิก 1-2 คนตอบ ---
     if (group) {
@@ -1495,11 +1631,15 @@ async function generateConnectReply() {
         return;
     }
 
+    const slipLine = getSetting("connectSlipEnabled")
+        ? `[ระบบโอนเงิน] ถ้า ${name} อยากโอนเงินให้ ${you} (เฉพาะตอนที่เข้ากับเนื้อเรื่องจริงๆ ไม่ต้องบ่อย) ให้ใส่บรรทัดแยกท้ายข้อความ: SLIP: <จำนวนเงิน> | <โน้ตสั้นๆ>.\n`
+        : "";
     const q =
         `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือแชตส่วนตัวในแอปแชต (คล้ายไลน์) ระหว่าง ${you} กับ ${name}. ` +
         `ตอบข้อความล่าสุดในบทบาทของ ${name} แบบเป็นธรรมชาติ สั้นกระชับเหมือนแชตจริง (1-3 ประโยค) ` +
         `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
         (String(getSetting("connectExtraPrompt") || "").trim() ? `คำสั่งเพิ่มเติม: ${String(getSetting("connectExtraPrompt")).trim()}.\n` : "") +
+        slipLine +
         crossAppContext("connect") +
         galleryPromptBlock() +
         `บทแชตล่าสุด:\n${transcript}\n` +
@@ -1513,6 +1653,7 @@ async function generateConnectReply() {
         // ถ้าโมเดลห่อด้วย [... Message: ข้อความ] ให้ดึงเฉพาะเนื้อในออกมา
         const wrapped = [...reply.matchAll(/\[[^\]]*?Message:\s*([^\]]+)\]/gi)];
         if (wrapped.length) reply = wrapped.map((m) => m[1].trim()).join("\n");
+        reply = reply.replace(/^SLIP:.*$/gim, "").trim();   // ตัดบรรทัดสลิปออกจากข้อความ (จัดการแยก)
         // ตัดวงเล็บ/ป้ายกำกับที่หลงเหลือ + "ชื่อ:" นำหน้า (ไม่ทำลายโทเคนสติกเกอร์/รูป)
         reply = stripWrapBrackets(reply);
         const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1520,7 +1661,9 @@ async function generateConnectReply() {
         if (reply) {
             getThread(activeThread).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
             saveFeedData();
-        } else {
+        }
+        processConnectSlip(raw, name);   // คู่แชทโอนเงินเข้า (ถ้าเปิดระบบ + AI ส่ง SLIP)
+        if (!reply && !getThread(activeThread).some((m) => m.isSlip && m.ts > Date.now() - 3000)) {
             toastr.warning("ยังไม่มีคำตอบกลับมา ลองใหม่นะ", "TinyConnect");
         }
     } catch (e) {
@@ -4235,7 +4378,7 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank"];
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop"];
 function saveLastScreen() {
     try {
         const data = getFeedData();
@@ -4430,6 +4573,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
+    $("#tinyfeed-cfg-connect-slip").prop("checked", Boolean(getSetting("connectSlipEnabled")));
 
     populateApiProfiles();
     $("#tinyfeed-cfg-api-context").val(getSetting("apiContextMessages"));
@@ -4523,11 +4667,12 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
         closeCharPicker();
+        closeSlipModal();
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -4841,6 +4986,14 @@ jQuery(async () => {
             if (e.key === "Enter") { e.preventDefault(); bankManualTxn("in"); }
         });
 
+        // ===== TinyShop: เพิ่ม/ซื้อ/ลบสินค้า =====
+        $(document).on("click", "#tinyfeed-shop-add", addShopItem);
+        $(document).on("click", ".tinyfeed-shop-buy", function () { buyShopItem(String($(this).data("id"))); });
+        $(document).on("click", ".tinyfeed-shop-del", function (e) {
+            e.stopPropagation();
+            deleteShopItem(String($(this).closest(".tinyfeed-shop-item").data("id")));
+        });
+
         // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
         $(document).on("click", ".tinyfeed-gallery-tab", function () {
             switchGalleryTab($(this).data("gtab"));
@@ -4896,6 +5049,14 @@ jQuery(async () => {
         });
         $(document).on("click", "#tinyfeed-connect-image", function () {
             openGalleryPicker("image", (token) => sendConnectMessage(token));
+        });
+        // สลิปโอนเงินในแชท
+        $(document).on("click", "#tinyfeed-connect-slip", openSlipModal);
+        $(document).on("click", "#tinyfeed-slip-close", closeSlipModal);
+        $(document).on("click", "#tinyfeed-slip-modal", function (e) { if (e.target === this) closeSlipModal(); });
+        $(document).on("click", "#tinyfeed-slip-send", sendUserSlip);
+        $(document).on("keydown", "#tinyfeed-slip-amount, #tinyfeed-slip-note", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); sendUserSlip(); }
         });
         $(document).on("click", "#tinyfeed-stream-sticker", function () {
             openGalleryPicker("sticker", (token) => sendStreamComment(token));
@@ -5309,6 +5470,9 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-connect-split", function () {
             setSetting("connectSplitBubbles", $(this).prop("checked"));
             if (currentApp === "connect" && isConnectThreadOpen()) renderThread();
+        });
+        $(document).on("change", "#tinyfeed-cfg-connect-slip", function () {
+            setSetting("connectSlipEnabled", $(this).prop("checked"));
         });
 
         // Phase 2: token + คำสั่งเสริม
