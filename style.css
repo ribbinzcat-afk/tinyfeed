@@ -3491,3 +3491,13 @@
 @media (pointer: coarse) {
     .tinyfeed-shop-del { opacity: 1; }
 }
+
+/* หัวข้อย่อยในกล่องโปรไฟล์ (แยกส่วนผู้ใช้ / ตัวละคร) */
+.tinyfeed-profile-head {
+    margin: 4px 0 8px;
+    padding-top: 10px;
+    border-top: 1px solid var(--tf-border-soft);
+    color: var(--tf-text-soft);
+    font-weight: 600;
+}
+.tinyfeed-profile-head:first-child { border-top: none; padding-top: 0; }

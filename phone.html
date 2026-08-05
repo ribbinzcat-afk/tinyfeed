@@ -342,16 +342,53 @@
 
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">รูปโปรไฟล์</div>
+                    <div class="tinyfeed-field-label tinyfeed-profile-head">โปรไฟล์ของคุณ — ผูกกับ persona: <b id="tinyfeed-cfg-persona-name">—</b></div>
                     <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์ของคุณ</span>
+                        <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์</span>
                         <input id="tinyfeed-cfg-user-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
-                        <small class="tinyfeed-field-hint">override รูป persona ในโพสต์ของคุณ · เว้นว่าง = ใช้รูป persona</small>
                     </label>
+                    <div class="tinyfeed-field-2col">
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Username</span>
+                            <input id="tinyfeed-cfg-user-username" type="text" placeholder="ชื่อผู้ใช้" />
+                        </label>
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Alias</span>
+                            <input id="tinyfeed-cfg-user-alias" type="text" placeholder="ชื่อเล่น" />
+                        </label>
+                    </div>
                     <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ลิงก์รูปตัวละคร: <b id="tinyfeed-cfg-char-name">—</b></span>
-                        <input id="tinyfeed-cfg-char-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
-                        <small class="tinyfeed-field-hint">override รูปการ์ดของตัวละครในแชทนี้ · เว้นว่าง = ใช้รูปการ์ด</small>
+                        <span class="tinyfeed-field-label">ใช้ชื่อไหนเป็นชื่อหลัก</span>
+                        <select id="tinyfeed-cfg-user-primary">
+                            <option value="username">Username</option>
+                            <option value="alias">Alias</option>
+                        </select>
                     </label>
+                    <small class="tinyfeed-field-hint">ผูกกับ persona ปัจจุบัน · เว้นว่าง = ใช้รูป/ชื่อ persona ตามปกติ · ชื่อในเนื้อหาที่ตรงกับ username/alias จะถูกแทนด้วยรูปคุณ</small>
+
+                    <div class="tinyfeed-field-label tinyfeed-profile-head">โปรไฟล์ตัวละคร — ผูกกับการ์ด: <b id="tinyfeed-cfg-char-name">—</b></div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์</span>
+                        <input id="tinyfeed-cfg-char-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                    </label>
+                    <div class="tinyfeed-field-2col">
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Username</span>
+                            <input id="tinyfeed-cfg-char-username" type="text" placeholder="ชื่อผู้ใช้" />
+                        </label>
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Alias</span>
+                            <input id="tinyfeed-cfg-char-alias" type="text" placeholder="ชื่อเล่น" />
+                        </label>
+                    </div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ใช้ชื่อไหนเป็นชื่อหลัก</span>
+                        <select id="tinyfeed-cfg-char-primary">
+                            <option value="username">Username</option>
+                            <option value="alias">Alias</option>
+                        </select>
+                    </label>
+                    <small class="tinyfeed-field-hint">ผูกกับการ์ดตัวละคร · เว้นว่าง = ใช้ชื่อ/รูปการ์ด · แอปจะแสดงตัวละครด้วยชื่อหลักที่เลือก · ชื่อในเนื้อหาที่ตรงกันจะถูกแทนด้วยรูปตัวละคร</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -383,7 +420,7 @@
                 </div>
 
                 <div class="tinyfeed-settings-group">
-                    <div class="tinyfeed-settings-title">NPC ประจำ (แชทนี้)</div>
+                    <div class="tinyfeed-settings-title">NPC ประจำ (ตัวละครนี้)</div>
                     <div id="tinyfeed-npc-list"></div>
                     <button id="tinyfeed-npc-add" class="tinyfeed-btn-generate">
                         <i class="fa-solid fa-plus"></i> <span>เพิ่ม NPC</span>
