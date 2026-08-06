@@ -493,6 +493,9 @@ function renderStream() {
     $("#tinyfeed-stream-speak").toggleClass("tinyfeed-hidden", !(s.live && getStreamHosts().length > 0));
     $("#tinyfeed-stream-loadcomments").toggleClass("tinyfeed-hidden",
         !(s.live && getSetting("streamCommentMode") === "manual"));
+    // ปุ่มโดเนท: โชว์ตอนเราเป็น "ผู้ชม" (ไม่ใช่คนไลฟ์) · ปุ่มลบไลฟ์: โชว์เมื่อจบไลฟ์แล้วยังมีประวัติค้าง
+    $("#tinyfeed-stream-donate").toggleClass("tinyfeed-hidden", !(s.live && !userIsHost()));
+    $("#tinyfeed-stream-clear").toggleClass("tinyfeed-hidden", !(!s.live && s.comments.length > 0));
 
     // แคปชันบนเวที = ประโยคล่าสุดที่สตรีมเมอร์พูด
     const lastSpeak = [...s.comments].reverse().find((c) => c.isStreamer);
@@ -674,12 +677,12 @@ async function loadLiveComments(opts) {
             recent: recent ? `\nคอมเมนต์ล่าสุด (อย่าซ้ำ):\n${recent}\n` : "",
         });
         const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300), "stream");
-        // กรองไม่ให้สตรีมเมอร์/ผู้ใช้โผล่เป็นผู้ชมสุ่ม
+        // กรองไม่ให้สตรีมเมอร์ (หลัก + ตัวร่วมไลฟ์ทุกคน) หรือผู้ใช้ โผล่เป็นผู้ชมสุ่ม
+        // (คนพวกนี้ต้อง "พูดในไลฟ์" ผ่าน streamerSpeak ไม่ใช่คอมเมนต์สตรีมตัวเอง)
+        const hostSet = new Set([...getStreamHosts(), streamer.name, you]
+            .map((n) => String(n || "").trim().toLowerCase()).filter(Boolean));
         const list = parseCommentLines(raw, streamer.name)
-            .filter((c) => {
-                const a = c.author.trim().toLowerCase();
-                return a !== streamer.name.trim().toLowerCase() && a !== you.trim().toLowerCase();
-            })
+            .filter((c) => !hostSet.has(c.author.trim().toLowerCase()))
             .map((c) => ({ author: c.author, avatar: getNpcAvatar(c.author), text: c.text, ts: Date.now() }));
         const before = s.comments.length;
         s.comments.push(...list);
@@ -703,11 +706,18 @@ async function streamerSpeak(kind, opts) {
     const hosts = getStreamHosts();   // เฉพาะ AI (ไม่รวมเรา)
     if (!hosts.length) return;        // ไม่มีสตรีมเมอร์ AI (เช่นเราไลฟ์คนเดียว)
     const you = getUserName();
-    // เลือกผู้พูด
-    let speaker;
-    if (opts.host && hosts.some((h) => h.toLowerCase() === String(opts.host).toLowerCase())) speaker = opts.host;
-    else if (hosts.length > 1) speaker = nextStreamHost(hosts);
-    else speaker = hosts[0];
+    // เลือกผู้พูดรอบนี้: แตะรูป = คนนั้น · เปิดไลฟ์ = คนเดียว · หลายคน = 2 คนสลับกันพูด (ได้หลายฟองใน 1 การเจน)
+    let speakers;
+    if (opts.host && hosts.some((h) => h.toLowerCase() === String(opts.host).toLowerCase())) {
+        speakers = [hosts.find((h) => h.toLowerCase() === String(opts.host).toLowerCase())];
+    } else if (hosts.length > 1 && kind !== "open") {
+        const first = nextStreamHost(hosts);
+        const fi = hosts.findIndex((h) => h.toLowerCase() === first.toLowerCase());
+        const second = hosts[(fi + 1) % hosts.length];
+        speakers = (second && second.toLowerCase() !== first.toLowerCase()) ? [first, second] : [first];
+    } else {
+        speakers = [hosts.length > 1 ? nextStreamHost(hosts) : hosts[0]];
+    }
     isGeneratingStream = true;
     $("#tinyfeed-stream-speak").addClass("tinyfeed-generating").prop("disabled", true);   // ไอคอนหมุนบอกว่ากำลังเจน
     try {
@@ -718,29 +728,65 @@ async function streamerSpeak(kind, opts) {
             : kind === "reply"
                 ? `อ่านคอมเมนต์ล่าสุดของผู้ชม (โดยเฉพาะของ ${you}) แล้วโต้ตอบ/ตอบกลับแบบอ่านแชตสดๆ`
                 : `พูดคุย/เล่าเรื่องต่อเกี่ยวกับหัวข้อไลฟ์ ให้ต่อเนื่องเป็นธรรมชาติ`;
-        // เพื่อนร่วมไลฟ์คนอื่น (รวมเราถ้ามาไลฟ์ร่วม) — ให้พูดโต้ตอบกันได้
-        const others = hosts.filter((h) => h.toLowerCase() !== speaker.toLowerCase());
-        if (userIsHost() && !streamerIsUser()) others.push(you);
-        const coLine = others.length
-            ? ` คุณกำลังไลฟ์ร่วมกับ: ${others.join(", ")} — พูดในนามของ ${speaker} เท่านั้น จะทัก/โต้ตอบคนอื่นก็ได้ แต่ห้ามพูดแทน ${you}.`
-            : "";
         const extra = String(getSetting("streamExtraPrompt") || "").trim();
         const extraLine = (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + galleryPromptBlock();
-        const q = buildPrompt("streamerSpeak", {
-            streamer: speaker, title: s.title,
-            direction: (s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "") + coLine,
-            task: " " + taskText + ".",
-            extra: extraLine,
-            context: crossAppContext("stream"),
-            transcript: transcript ? `\nแชตล่าสุด:\n${transcript}\n` : "",
-        });
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300), "stream");
-        let line = stripWrapBrackets(stripReasoning(raw).trim());
-        const esc = speaker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        line = line.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
-        if (line) {
-            s.comments.push({ isStreamer: true, author: speaker, text: escapeHtml(line), ts: Date.now() });
-            s.lastSpeaker = speaker;   // จำไว้เพื่อวนเวียนคนถัดไป
+        const transcriptLine = transcript ? `\nแชตล่าสุด:\n${transcript}\n` : "";
+
+        const spoken = [];   // ชื่อผู้ที่พูดจริงในรอบนี้ (สำหรับ lastSpeaker)
+        const pushSpeak = (author, escapedHtml) => {
+            s.comments.push({ isStreamer: true, author, text: escapedHtml, ts: Date.now() });
+            spoken.push(author);
+        };
+
+        if (speakers.length === 1) {
+            const speaker = speakers[0];
+            const others = hosts.filter((h) => h.toLowerCase() !== speaker.toLowerCase());
+            if (userIsHost() && !streamerIsUser()) others.push(you);
+            const coLine = others.length
+                ? ` คุณกำลังไลฟ์ร่วมกับ: ${others.join(", ")} — พูดในนามของ ${speaker} เท่านั้น จะทัก/โต้ตอบคนอื่นก็ได้ แต่ห้ามพูดแทน ${you}.`
+                : "";
+            const q = buildPrompt("streamerSpeak", {
+                streamer: speaker, title: s.title,
+                direction: (s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : "") + coLine,
+                task: " " + taskText + ".",
+                extra: extraLine,
+                context: crossAppContext("stream"),
+                transcript: transcriptLine,
+            });
+            const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300), "stream");
+            let line = stripWrapBrackets(stripReasoning(raw).trim());
+            const esc = speaker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            line = line.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
+            if (line) pushSpeak(speaker, escapeHtml(line));
+        } else {
+            // หลายผู้พูดใน 1 การเจน → รูปแบบ SPEAK: ชื่อ | คำพูด
+            const userCoLine = (userIsHost() && !streamerIsUser()) ? ` ห้ามพูดแทน ${you}.` : "";
+            const q =
+                `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องเล่าเป็นบทบรรยาย] กำลังไลฟ์สดหัวข้อ "${s.title}"` +
+                (s.direction ? ` แนวทางไลฟ์: ${s.direction}.` : ".") +
+                ` ให้สตรีมเมอร์เหล่านี้สลับกันพูดสั้นๆ ในไลฟ์ พูดคุย/โต้ตอบกันได้: ${speakers.join(", ")}. ${taskText}.${userCoLine}` +
+                extraLine +
+                crossAppContext("stream") +
+                transcriptLine +
+                `\nตอบเป็นบรรทัด รูปแบบ: SPEAK: <ชื่อผู้พูด> | <คำพูด> — 1 บรรทัดต่อ 1 คำพูด รวมไม่เกิน ${speakers.length} บรรทัด ใช้เฉพาะชื่อที่ระบุเท่านั้น`;
+            const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300), "stream");
+            const parsed = parseCommentLines(raw, speakers[0], "SPEAK");   // c.text ถูก escape แล้ว
+            let idx = 0;
+            for (const c of parsed) {
+                const match = hosts.find((h) => h.toLowerCase() === String(c.author).trim().toLowerCase());
+                const author = match || speakers[idx % speakers.length];
+                const text = stripWrapBrackets(String(c.text || "").trim());
+                if (text) { pushSpeak(author, text); idx++; }
+            }
+            // parse ไม่ได้เลย → ให้คนแรกพูด 1 บรรทัดจากข้อความดิบ
+            if (!spoken.length) {
+                const line = stripWrapBrackets(stripReasoning(raw).trim());
+                if (line) pushSpeak(speakers[0], escapeHtml(line));
+            }
+        }
+
+        if (spoken.length) {
+            s.lastSpeaker = spoken[spoken.length - 1];   // จำไว้เพื่อวนเวียนคนถัดไป
             saveFeedData();
             renderStream();
         } else if (!opts.silent) {
@@ -818,6 +864,51 @@ async function sendStreamerLine(text) {
     if (getSetting("streamCommentMode") === "onupdate") {
         await loadLiveComments({ silent: true });
     }
+}
+
+// ── ผู้ชมโดเนทให้สตรีมเมอร์ (หักจาก TinyBank) ──
+function openDonateModal() {
+    const s = getStreamData();
+    if (!s.live || userIsHost()) return;
+    $("#tinyfeed-donate-amount, #tinyfeed-donate-note").val("");
+    $("#tinyfeed-donate-to").text(getStreamer().name || "สตรีมเมอร์");
+    $("#tinyfeed-donate-balance").text(formatMoney(getBankData().balance));
+    $("#tinyfeed-donate-modal").removeClass("tinyfeed-hidden");
+    setTimeout(() => $("#tinyfeed-donate-amount").trigger("focus"), 30);
+}
+function closeDonateModal() { $("#tinyfeed-donate-modal").addClass("tinyfeed-hidden"); }
+
+async function sendUserDonate() {
+    const s = getStreamData();
+    if (!s.live || userIsHost()) return;
+    const amt = parseInt($("#tinyfeed-donate-amount").val(), 10);
+    const note = String($("#tinyfeed-donate-note").val() || "").trim();
+    if (!Number.isFinite(amt) || amt <= 0) { toastr.info("ใส่จำนวนเงินก่อนนะ", "TinyStream"); return; }
+    const streamerName = getStreamer().name || "สตรีมเมอร์";
+    if (!bankDeduct(amt, `โดเนทให้ ${streamerName}`, "stream")) return;   // ยอดไม่พอ → toast ในตัว
+    s.comments.push({ isDonation: true, isUser: true, author: getUserName(), amount: amt, text: escapeHtml(note), ts: Date.now() });
+    saveFeedData();
+    closeDonateModal();
+    renderStream();
+    // สตรีมเมอร์ (ตัวละคร) ขอบคุณ/รีแอคโดเนท (ถ้าเปิดให้ตอบ และมีสตรีมเมอร์ AI)
+    if (getSetting("streamStreamerReply") && !streamerIsUser()) {
+        await streamerSpeak("reply", { silent: true });
+    }
+}
+
+// ลบไลฟ์ที่จบแล้ว (เคลียร์คอมเมนต์/หัวข้อ เริ่มใหม่ได้) — คงค่าสตรีมเมอร์หลัก/ตัวร่วมไว้
+function clearEndedStream() {
+    const s = getStreamData();
+    if (s.live) return;
+    if (!confirm("ลบไลฟ์นี้ (คอมเมนต์ + หัวข้อทั้งหมด) ใช่ไหม?")) return;
+    s.comments = [];
+    s.title = "";
+    s.direction = "";
+    s.viewers = 0;
+    s.lastSpeaker = "";
+    saveFeedData();
+    renderStream();
+    toastr.success("ลบไลฟ์เก่าแล้ว", "TinyStream");
 }
 
 // ===== TinyBank: ธนาคาร/การเงิน (ผูกกับแชท) =====
@@ -1417,6 +1508,7 @@ function isConnectThreadOpen() {
 
 function openConnectList() {
     activeThread = null;
+    closeConnectPlusMenu();
     toggleGroupForm(false);
     $("#tinyfeed-connect-tools").removeClass("tinyfeed-hidden");
     $("#tinyfeed-connect-thread").addClass("tinyfeed-hidden");
@@ -1490,6 +1582,31 @@ function openThread(key, name) {
     $("#tinyfeed-connect-input").trigger("focus");
 }
 
+// แตกข้อความแชตเป็นบับเบิล: media token ([sticker:]/[img:]) = บับเบิลเดี่ยวเสมอ ·
+// ข้อความรอบๆ แตกตามบรรทัดเมื่อเปิด connectSplitBubbles (ปิด = ข้อความรวมเป็นก้อนเดียว)
+function connectBubbleSegments(text) {
+    const s = resolveMediaPriority(text);   // รูป > สติกเกอร์ (ก่อนแตกบับเบิล)
+    const splitText = getSetting("connectSplitBubbles");
+    const segs = [];
+    const pushText = (chunk) => {
+        if (splitText) {
+            chunk.split(/(?:<br\s*\/?>|\n)+/i).map((x) => x.trim()).filter(Boolean).forEach((x) => segs.push(x));
+        } else {
+            const t = String(chunk || "").replace(/^(?:<br\s*\/?>|\n|\s)+|(?:<br\s*\/?>|\n|\s)+$/gi, "");
+            if (t) segs.push(t);
+        }
+    };
+    const mediaRe = /\[(?:sticker|img):[^\]]+\]/gi;
+    let last = 0, m;
+    while ((m = mediaRe.exec(s)) !== null) {
+        if (m.index > last) pushText(s.slice(last, m.index));
+        segs.push(m[0]);   // media = บับเบิลเดี่ยว
+        last = mediaRe.lastIndex;
+    }
+    if (last < s.length) pushText(s.slice(last));
+    return segs.length ? segs : [String(text || "")];
+}
+
 function renderThread() {
     if (!activeThread) return;
     const msgs = getThread(activeThread);
@@ -1497,14 +1614,11 @@ function renderThread() {
         || { name: activeThreadName, isMain: false, avatar: "" };
     const group = findGroup(activeThread);
     const delBtn = (i) => `<span class="tinyfeed-msg-del" data-idx="${i}" title="ลบข้อความ"><i class="fa-solid fa-trash"></i></span>`;
-    // แยกข้อความหลายบรรทัด → หลายบับเบิล (ปิดได้จาก settings)
+    // แยกข้อความ → หลายบับเบิล: สติกเกอร์/รูปแยกบับเบิลเสมอ (แม้อยู่กลางข้อความไม่ขึ้นบรรทัดใหม่) ·
+    // ส่วนข้อความแยกตามบรรทัดเมื่อเปิด connectSplitBubbles
     const bubblesHtml = (text) => {
-        // ข้อความถูกเก็บโดยแปลง \n เป็น <br> แล้ว (escapeHtml) → แยกตาม <br> และ \n
-        const segs = getSetting("connectSplitBubbles")
-            ? String(text || "").split(/(?:<br\s*\/?>|\n)+/i).map((s) => s.trim()).filter(Boolean)
-            : [String(text || "")];
-        const list = segs.length ? segs : [String(text || "")];
-        return list.map((s) => `<div class="tinyfeed-msg-bubble">${renderRich(s)}</div>`).join("");
+        const segs = connectBubbleSegments(text);
+        return segs.map((s) => `<div class="tinyfeed-msg-bubble">${renderRich(s)}</div>`).join("");
     };
     const rows = msgs.map((m, i) => {
         const content = m.isSlip ? slipCardHtml(m) : bubblesHtml(m.text);
@@ -1571,6 +1685,25 @@ function openSlipModal() {
     setTimeout(() => $("#tinyfeed-slip-amount").trigger("focus"), 30);
 }
 function closeSlipModal() { $("#tinyfeed-slip-modal").addClass("tinyfeed-hidden"); }
+
+// เมนู (+) ฟังก์ชันเสริมในแชท (สไตล์ไลน์) — ตอนนี้มีแค่โอนเงิน · ออกแบบให้เพิ่มรายการอนาคตได้ง่าย
+// (เช่น แชร์โพสต์ฟีด / แชร์ข่าว / แชร์กระทู้ / แชร์สตรีม / แชร์สินค้า — เพิ่มออบเจกต์ในอาเรย์นี้ + ใส่ run)
+const CONNECT_PLUS_ACTIONS = [
+    { id: "slip", icon: "fa-money-bill-transfer", label: "โอนเงิน", run: () => openSlipModal() },
+];
+function renderConnectPlusMenu() {
+    $("#tinyfeed-connect-plusmenu").html(CONNECT_PLUS_ACTIONS.map((a) =>
+        `<div class="tinyfeed-plusmenu-item" data-action="${escapeAttr(a.id)}"><i class="fa-solid ${a.icon}"></i> ${escapeText(a.label)}</div>`
+    ).join(""));
+}
+function toggleConnectPlusMenu(force) {
+    const menu = $("#tinyfeed-connect-plusmenu");
+    if (!menu.length) return;
+    const willShow = force != null ? force : menu.hasClass("tinyfeed-hidden");
+    if (willShow) renderConnectPlusMenu();
+    menu.toggleClass("tinyfeed-hidden", !willShow);
+}
+function closeConnectPlusMenu() { $("#tinyfeed-connect-plusmenu").addClass("tinyfeed-hidden"); }
 
 // ผู้ใช้โอนเงินออก → หักบัญชี + ดันสลิปในแชท
 function sendUserSlip() {
@@ -2295,8 +2428,16 @@ function escapeHtml(str) {
 
 // แต่งข้อความที่ escape แล้ว: markdown เบาๆ + #แฮชแท็ก / @เมนชัน เป็นสีฟ้า
 // (ปลอดภัยเพราะรับ input ที่ผ่าน escape มาแล้ว แท็กเดียวที่มีคือ <br>)
+// รูป > สติกเกอร์: ถ้าข้อความมีทั้ง [img:] (ที่หาเจอ) และ [sticker:] → ตัดสติกเกอร์ทิ้ง แสดงแค่รูป
+function resolveMediaPriority(s) {
+    s = String(s == null ? "" : s);
+    const hasValidImg = [...s.matchAll(/\[img:([^\]]+)\]/gi)].some((m) => findGalleryImage(unescapeLite(m[1])));
+    if (hasValidImg) s = s.replace(/\[sticker:[^\]]+\]/gi, "");
+    return s;
+}
+
 function renderRich(html) {
-    let s = String(html == null ? "" : html);
+    let s = resolveMediaPriority(html);
     // โทเคนคลังรูป: [sticker:ชื่อ] → รูปสติกเกอร์ · [img:ชื่อ] → รูปพร้อมคำบรรยาย (ทำก่อน markdown)
     s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => renderStickerToken(unescapeLite(n)));
     s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => renderImgToken(unescapeLite(n)));
@@ -2333,7 +2474,7 @@ function renderImgToken(name) {
 
 // วาดเนื้อโพสต์ TinyFeed: ข้อความ/แคปชันอยู่บน · รูป/สติกเกอร์ย้ายลงล่างเสมอ
 function renderPostBody(text) {
-    let s = String(text == null ? "" : text);
+    let s = resolveMediaPriority(text);   // รูป > สติกเกอร์
     const media = [];
     s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => { media.push(renderStickerToken(unescapeLite(n))); return ""; });
     s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => { media.push(renderImgToken(unescapeLite(n))); return ""; });
@@ -5117,12 +5258,13 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
         closeCharPicker();
         closeSlipModal();
+        closeDonateModal();
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -5352,6 +5494,11 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-stream-loadcomments", function () {
             loadLiveComments();
         });
+        $(document).on("click", "#tinyfeed-stream-donate", openDonateModal);
+        $(document).on("click", "#tinyfeed-stream-clear", clearEndedStream);
+        $(document).on("click", "#tinyfeed-donate-close", closeDonateModal);
+        $(document).on("click", "#tinyfeed-donate-modal", function (e) { if (e.target === this) closeDonateModal(); });
+        $(document).on("click", "#tinyfeed-donate-send", sendUserDonate);
         $(document).on("click", "#tinyfeed-stream-send", function () {
             sendStreamComment($("#tinyfeed-stream-input").val());
         });
@@ -5519,8 +5666,21 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-connect-image", function () {
             openGalleryPicker("image", (token) => sendConnectMessage(token));
         });
-        // สลิปโอนเงินในแชท
-        $(document).on("click", "#tinyfeed-connect-slip", openSlipModal);
+        // เมนู (+) ฟังก์ชันเสริม (สไตล์ไลน์) → รายการปัจจุบัน: โอนเงิน
+        $(document).on("click", "#tinyfeed-connect-plus", function (e) {
+            e.stopPropagation();
+            toggleConnectPlusMenu();
+        });
+        $(document).on("click", ".tinyfeed-plusmenu-item", function () {
+            const id = $(this).data("action");
+            const a = CONNECT_PLUS_ACTIONS.find((x) => x.id === id);
+            closeConnectPlusMenu();
+            if (a && typeof a.run === "function") a.run();
+        });
+        // คลิกที่อื่น = ปิดเมนู (+)
+        $(document).on("click", function (e) {
+            if (!$(e.target).closest("#tinyfeed-connect-plusmenu, #tinyfeed-connect-plus").length) closeConnectPlusMenu();
+        });
         $(document).on("click", "#tinyfeed-slip-close", closeSlipModal);
         $(document).on("click", "#tinyfeed-slip-modal", function (e) { if (e.target === this) closeSlipModal(); });
         $(document).on("click", "#tinyfeed-slip-send", sendUserSlip);

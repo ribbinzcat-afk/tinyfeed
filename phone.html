@@ -766,11 +766,14 @@
                     </button>
                 </div>
                 <div class="tinyfeed-connect-compose">
-                    <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
-                    <span id="tinyfeed-connect-slip" class="tinyfeed-compose-sticker" title="โอนเงิน"><i class="fa-solid fa-money-bill-transfer"></i></span>
+                    <span id="tinyfeed-connect-plus" class="tinyfeed-compose-sticker tinyfeed-compose-plus" title="เพิ่มเติม"><i class="fa-solid fa-plus"></i></span>
                     <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
-                    <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    <div class="tinyfeed-connect-inputwrap">
+                        <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
+                        <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    </div>
                     <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
+                    <div id="tinyfeed-connect-plusmenu" class="tinyfeed-plusmenu tinyfeed-hidden"></div>
                 </div>
             </div>
         </div>
@@ -800,6 +803,12 @@
                 </button>
                 <button id="tinyfeed-stream-loadcomments" class="tinyfeed-btn-generate tinyfeed-hidden">
                     <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
+                </button>
+                <button id="tinyfeed-stream-donate" class="tinyfeed-btn-generate tinyfeed-hidden">
+                    <i class="fa-solid fa-gift"></i> <span>โดเนท</span>
+                </button>
+                <button id="tinyfeed-stream-clear" class="tinyfeed-btn-ghost tinyfeed-hidden">
+                    <i class="fa-solid fa-trash"></i> <span>ลบไลฟ์นี้</span>
                 </button>
             </div>
             <div id="tinyfeed-stream-comments" class="tinyfeed-stream-comments"></div>
@@ -1009,6 +1018,21 @@
                     <input id="tinyfeed-slip-amount" type="number" min="1" placeholder="จำนวนเงิน" />
                     <input id="tinyfeed-slip-note" type="text" placeholder="โน้ต (ไม่บังคับ)" />
                     <button id="tinyfeed-slip-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-money-bill-transfer"></i> โอนออก</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-donate-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>โดเนทให้ <b id="tinyfeed-donate-to"></b></span>
+                    <span id="tinyfeed-donate-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <div class="tinyfeed-donate-balance">ยอดคงเหลือ: <b id="tinyfeed-donate-balance"></b></div>
+                    <input id="tinyfeed-donate-amount" type="number" min="1" placeholder="จำนวนเงินโดเนท" />
+                    <input id="tinyfeed-donate-note" type="text" placeholder="ข้อความถึงสตรีมเมอร์ (ไม่บังคับ)" />
+                    <button id="tinyfeed-donate-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-gift"></i> โดเนท</button>
                 </div>
             </div>
         </div>
