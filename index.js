@@ -1599,7 +1599,7 @@ function connectBubbleSegments(text) {
         if (splitText) {
             chunk.split(/(?:<br\s*\/?>|\n)+/i).map((x) => x.trim()).filter(Boolean).forEach((x) => segs.push(x));
         } else {
-            const t = String(chunk || "").replace(/^(?:<br\s*\/?>|\n|\s)+|(?:<br\s*\/?>|\n|\s)+$/gi, "");
+            const t = String(chunk || "").replace(/^(?:<br\s*\/?>|\s)+|(?:<br\s*\/?>|\s)+$/gi, "");
             if (t) segs.push(t);
         }
     };
