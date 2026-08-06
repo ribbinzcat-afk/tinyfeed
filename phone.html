@@ -260,6 +260,23 @@
 
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">TinyConnect (แชต)</div>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชททักหาเราเองอัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-connect-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-connect-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ทักทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-connect-interval" type="number" min="1" />
+                    </label>
+                    <small class="tinyfeed-field-hint">คู่แชท (คนใดคนหนึ่งใน TinyConnect) จะส่งข้อความมาหาเราเองตามจังหวะเนื้อเรื่อง มีแจ้งเตือนเหมือนได้ไลน์ · ต่างจาก "ทักเชิงรุก" ในหน้าทั่วไปที่ทักตามเวลาจริง — อันนี้ทักตามจำนวนข้อความ RP/คีย์เวิร์ด · คีย์เวิร์ดตั้งในกลุ่ม "ทริกเกอร์ด้วยคีย์เวิร์ด"</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ความยาวข้อความตอบสูงสุด (token)</span>
                         <input id="tinyfeed-cfg-connect-tokens" type="number" min="1" />
@@ -695,6 +712,15 @@
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">ทริกเกอร์ด้วยคีย์เวิร์ด</div>
                     <small class="tinyfeed-field-hint">ตั้ง "โหมด" ของแต่ละแอปด้านบนเป็น <b>"เมื่อเจอคีย์เวิร์ด"</b> แล้วแอปนั้นจะสร้างเนื้อหาให้อัตโนมัติเมื่อข้อความ RP ล่าสุดมีคำที่ตรงกับรายการด้านล่าง · ทำงานทันทีในเบราว์เซอร์ ไม่หน่วง ไม่ต้องโหลดโมเดล · คั่นคำด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">จับคีย์เวิร์ดจากฝั่งไหน</span>
+                        <select id="tinyfeed-cfg-kw-scope">
+                            <option value="both">ทั้งข้อความตัวละครและผู้ใช้</option>
+                            <option value="char">เฉพาะข้อความตัวละคร</option>
+                            <option value="user">เฉพาะข้อความผู้ใช้</option>
+                        </select>
+                    </label>
+                    <small class="tinyfeed-field-hint">เลือกว่าจะให้คีย์เวิร์ดจับจากข้อความล่าสุดฝั่งใด — เช่น "เฉพาะผู้ใช้" = ทริกเกอร์เมื่อ<b>เรา</b>พิมพ์คำนั้น, "เฉพาะตัวละคร" = เมื่อ<b>ตัวละคร/AI</b>พูดถึง</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">เว้นระยะขั้นต่ำต่อแอป (วินาที)</span>
                         <input id="tinyfeed-cfg-kw-cooldown" type="number" min="0" />

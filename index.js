@@ -70,6 +70,9 @@ const defaultSettings = {
     connectTokens: 200,
     connectExtraPrompt: "",
     connectSplitBubbles: true,    // แยกข้อความหลายบรรทัดเป็นหลายบับเบิล
+    connectAutoGenerate: false,   // ให้คู่แชททักหาเราเองอัตโนมัติ (ตามจังหวะ RP)
+    connectAutoMode: "interval",  // "interval" | "ai" | "keyword"
+    connectAutoInterval: 12,      // ทักทุกๆ กี่ข้อความ (โหมด interval)
     // TinyStream
     streamStreamer: "char",       // "char" | "user" | "npc"
     streamStreamerNpc: "",        // ชื่อ NPC ที่เป็นสตรีมเมอร์ (เมื่อ streamStreamer = "npc")
@@ -157,7 +160,9 @@ const defaultSettings = {
     newsKeywords: "ข่าว, อ่านข่าว, เปิดข่าว, ดูข่าว, ประกาศ, มีข่าวว่า, news, breaking",
     memoKeywords: "จดไว้, โน้ตไว้, เตือนความจำ, กันลืม, นัดหมาย, กำหนดการ, ตารางงาน, memo, reminder, todo",
     forumKeywords: "กระทู้, เว็บบอร์ด, พันทิป, ตั้งกระทู้, ในบอร์ด, ชาวเน็ต, forum, pantip",
+    connectKeywords: "แชต, ทักไลน์, ส่งไลน์, ทักมา, ส่งข้อความ, ไลน์มา, chat, line, dm, ทักหา",
     keywordCooldownSec: 45,       // เว้นระยะขั้นต่ำต่อแอป (วินาที) กันทริกเกอร์ถี่เกิน
+    keywordScope: "both",         // ทริกเกอร์คีย์เวิร์ดจับข้อความฝั่งไหน: "both" | "char" | "user"
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -3115,6 +3120,7 @@ function renderPromptEditors() {
 // รายการ textarea คีย์เวิร์ดต่อแอป (ในกลุ่ม "ทริกเกอร์ด้วยคีย์เวิร์ด")
 const KEYWORD_DEFS = [
     { app: "feed", label: "TinyFeed (โพสต์ลงฟีด)", setting: "feedKeywords" },
+    { app: "connect", label: "TinyConnect (คู่แชททักเอง)", setting: "connectKeywords" },
     { app: "news", label: "ข่าวสาร", setting: "newsKeywords" },
     { app: "memo", label: "TinyMemo (โน้ต/กำหนดการ)", setting: "memoKeywords" },
     { app: "forum", label: "TinyForum (กระทู้)", setting: "forumKeywords" },
@@ -4323,6 +4329,7 @@ let autoMsgCount = 0;    // ตัวนับข้อความสำหร�
 let autoNewsCount = 0;   // ตัวนับข้อความสำหรับข่าว
 let autoMemoCount = 0;   // ตัวนับข้อความสำหรับ TinyMemo
 let autoForumCount = 0;  // ตัวนับข้อความสำหรับ TinyForum
+let autoConnectCount = 0; // ตัวนับข้อความสำหรับ TinyConnect (คู่แชททักเอง)
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
 // ถาม AI แบบเงียบว่าควรมีโพสต์ใหม่ตอนนี้ไหม (โหมด ai)
@@ -4349,32 +4356,60 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 // ── ทริกเกอร์ด้วยคีย์เวิร์ด ──
-const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords" };
-const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0 };
+const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords" };
+const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0 };
 
 function keywordListFor(app) {
     return String(getSetting(KEYWORD_SETTING[app]) || "")
         .split(/[,\n]/).map((k) => k.trim().toLowerCase()).filter(Boolean);
 }
-// ข้อความ RP ล่าสุด (ที่เพิ่งส่ง/รับ) ใช้จับคีย์เวิร์ด
-function lastRpText() {
+// ข้อความ RP ล่าสุด (ที่เพิ่งส่ง/รับ) + ฝั่งผู้ส่ง (is_user)
+function lastRpMsg() {
     try {
         const c = getContext().chat;
-        if (Array.isArray(c) && c.length) return String(c[c.length - 1].mes || "");
+        if (Array.isArray(c) && c.length) {
+            const m = c[c.length - 1];
+            return { text: String(m.mes || ""), isUser: !!m.is_user };
+        }
     } catch (e) { /* ข้าม */ }
-    return "";
+    return null;
 }
-// คืน true = เจอคีย์เวิร์ด + พ้น cooldown แล้ว (และจะจับเวลา cooldown ใหม่ทันที)
+function lastRpText() { const m = lastRpMsg(); return m ? m.text : ""; }
+// คืน true = เจอคีย์เวิร์ด (ในฝั่งที่เลือกจับ) + พ้น cooldown แล้ว (แล้วจับเวลา cooldown ใหม่)
 function keywordShouldTrigger(app) {
     const list = keywordListFor(app);
     if (!list.length) return false;
-    const text = lastRpText().toLowerCase();
+    const msg = lastRpMsg();
+    if (!msg) return false;
+    // ขอบเขตฝั่งที่จับ: char = เฉพาะข้อความตัวละคร, user = เฉพาะผู้ใช้, both = ทั้งคู่
+    const scope = getSetting("keywordScope") || "both";
+    if (scope === "char" && msg.isUser) return false;
+    if (scope === "user" && !msg.isUser) return false;
+    const text = String(msg.text || "").toLowerCase();
     if (!text || !list.some((k) => text.includes(k))) return false;
     const cd = Math.max(0, parseInt(getSetting("keywordCooldownSec"), 10) || 0) * 1000;
     const now = Date.now();
     if (now - (kwCooldownAt[app] || 0) < cd) return false;
     kwCooldownAt[app] = now;
     return true;
+}
+
+// ตัดสินใจว่าคู่แชทควรทักหาเราตอนนี้ไหม (โหมด "ai" ของ TinyConnect auto)
+async function aiDecidesConnect() {
+    try {
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `พิจารณาสถานการณ์ล่าสุด: มีเหตุผลที่ตัวละครหรือคนรู้จักคนใดคนหนึ่งน่าจะส่งข้อความแชต (ไลน์) มาหาผู้ใช้ตอนนี้ไหม ` +
+            `ถ้ามีตอบ YES ถ้ายังไม่มีตอบ NO ตอบคำเดียว: YES หรือ NO`;
+        const res = await tinyGenerate(q, 120, "connect");
+        const s = stripReasoning(res).toLowerCase();
+        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
+        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("ควร")) return true;
+        return false;
+    } catch (e) {
+        console.error(`[${extensionName}] aiDecidesConnect failed:`, e);
+        return false;
+    }
 }
 
 async function onChatMessage() {
@@ -4387,6 +4422,9 @@ async function onChatMessage() {
         { on: "autoGenerate", mode: "autoGenerateMode", interval: "autoGenerateInterval", defInt: 10, kw: "feed",
             bump: () => ++autoMsgCount, get: () => autoMsgCount, reset: () => { autoMsgCount = 0; },
             decide: aiDecidesToPost, run: () => generateFeedPost({ notify: true, silent: true }) },
+        { on: "connectAutoGenerate", mode: "connectAutoMode", interval: "connectAutoInterval", defInt: 12, kw: "connect",
+            bump: () => ++autoConnectCount, get: () => autoConnectCount, reset: () => { autoConnectCount = 0; },
+            decide: aiDecidesConnect, run: () => proactiveDM() },
         { on: "memoAutoGenerate", mode: "memoAutoMode", interval: "memoAutoInterval", defInt: 15, kw: "memo",
             bump: () => ++autoMemoCount, get: () => autoMemoCount, reset: () => { autoMemoCount = 0; },
             decide: aiDecidesMemo, run: () => scanMemo({ notify: true, silent: true }) },
@@ -4975,6 +5013,9 @@ function populateSettings() {
     $("#tinyfeed-cfg-stream-extra").val(getSetting("streamExtraPrompt"));
     $("#tinyfeed-cfg-stream-reply").prop("checked", Boolean(getSetting("streamStreamerReply")));
     $("#tinyfeed-cfg-stream-talk").prop("checked", Boolean(getSetting("streamStreamerTalk")));
+    $("#tinyfeed-cfg-connect-auto").prop("checked", Boolean(getSetting("connectAutoGenerate")));
+    $("#tinyfeed-cfg-connect-mode").val(getSetting("connectAutoMode") || "interval");
+    $("#tinyfeed-cfg-connect-interval").val(getSetting("connectAutoInterval") || 12);
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
@@ -5010,6 +5051,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-forum-batch").val(getSetting("forumCommentBatch") || 8);
     $("#tinyfeed-cfg-forum-extra").val(getSetting("forumExtraPrompt"));
     renderForumRooms();
+    $("#tinyfeed-cfg-kw-scope").val(getSetting("keywordScope") || "both");
     $("#tinyfeed-cfg-kw-cooldown").val(getSetting("keywordCooldownSec"));
     renderKeywordEditors();
     $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
@@ -5129,6 +5171,7 @@ jQuery(async () => {
             autoNewsCount = 0;
             autoMemoCount = 0;
             autoForumCount = 0;
+            autoConnectCount = 0;
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
@@ -5905,6 +5948,16 @@ jQuery(async () => {
             setSetting("streamStreamerTalk", $(this).prop("checked"));
             if (currentApp === "stream") maybeStartStreamTimer();   // เปิด/ปิดมอโนล็อกทันที
         });
+        $(document).on("change", "#tinyfeed-cfg-connect-auto", function () {
+            setSetting("connectAutoGenerate", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-connect-mode", function () {
+            setSetting("connectAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-connect-interval", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("connectAutoInterval", Number.isFinite(v) && v > 0 ? v : 12);
+        });
         $(document).on("input", "#tinyfeed-cfg-connect-tokens", function () {
             let v = parseInt($(this).val(), 10);
             setSetting("connectTokens", Number.isFinite(v) && v > 0 ? v : 200);
@@ -6048,6 +6101,9 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-kw-cooldown", function () {
             setSetting("keywordCooldownSec", Math.max(0, parseInt($(this).val(), 10) || 0));
+        });
+        $(document).on("change", "#tinyfeed-cfg-kw-scope", function () {
+            setSetting("keywordScope", $(this).val());
         });
         $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
             setSetting("galleryPrompt", $(this).prop("checked"));
