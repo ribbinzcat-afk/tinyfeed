@@ -235,6 +235,7 @@ function goHome() {
     $("#tinyfeed-settings-btn").removeClass("tinyfeed-hidden");   // เฟืองเข้าถึงได้จากโฮม
     try { $("#tinyfeed-home .tinyfeed-home-hello").text(`สวัสดี, ${getUserName()}`); } catch (e) { /* ข้าม */ }
     renderHomeWidgets();
+    renderHomeApps();
     saveLastScreen();
 }
 
@@ -1801,6 +1802,52 @@ function updateHomeClock() {
             dateEl.textContent = now.toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long" });
         } catch (e) { dateEl.textContent = now.toDateString(); }
     }
+}
+
+// ===== หน้าโฮม: กริดแอปแบบแบ่งหน้า (รองรับแอปในอนาคต) =====
+const HOME_APPS = [
+    { app: "feed", icon: "fa-hashtag", name: "TinyFeed", a: "#1d9bf0", b: "#0a6bd8" },
+    { app: "connect", icon: "fa-comment-dots", name: "TinyConnect", a: "#22c55e", b: "#15a34a" },
+    { app: "stream", icon: "fa-video", name: "TinyStream", a: "#a855f7", b: "#7e22ce" },
+    { app: "memo", icon: "fa-calendar-check", name: "TinyMemo", a: "#f59e0b", b: "#d97706" },
+    { app: "forum", icon: "fa-comments", name: "TinyForum", a: "#ef4444", b: "#b91c1c" },
+    { app: "gallery", icon: "fa-images", name: "TinyGallery", a: "#ec4899", b: "#be185d" },
+    { app: "bank", icon: "fa-wallet", name: "TinyBank", a: "#10b981", b: "#047857" },
+    { app: "shop", icon: "fa-bag-shopping", name: "TinyShop", a: "#f97316", b: "#c2410c" },
+];
+const HOME_APPS_PER_PAGE = 9;   // 3 คอลัมน์ × 3 แถวต่อหน้า
+
+function appIconHtml(a) {
+    return `<div class="tinyfeed-app-icon" data-app="${a.app}">
+        <div class="tinyfeed-app-tile" style="--app-a:${a.a}; --app-b:${a.b};"><i class="fa-solid ${a.icon}"></i></div>
+        <span class="tinyfeed-app-name">${a.name}</span>
+    </div>`;
+}
+
+function renderHomeApps() {
+    const pager = $("#tinyfeed-home-pager");
+    if (!pager.length) return;
+    const pages = [];
+    for (let i = 0; i < HOME_APPS.length; i += HOME_APPS_PER_PAGE) {
+        const slice = HOME_APPS.slice(i, i + HOME_APPS_PER_PAGE);
+        pages.push(`<div class="tinyfeed-home-page">${slice.map(appIconHtml).join("")}</div>`);
+    }
+    pager.html(pages.join(""));
+    const dots = pages.length > 1
+        ? pages.map((_, i) => `<span class="tinyfeed-home-dot${i === 0 ? " tinyfeed-home-dot-active" : ""}" data-page="${i}"></span>`).join("")
+        : "";
+    $("#tinyfeed-home-dots").html(dots).toggleClass("tinyfeed-hidden", pages.length <= 1);
+    if (pager[0]) pager[0].scrollLeft = 0;
+}
+
+// อัปเดตจุดบอกหน้าตามตำแหน่งเลื่อน
+function updateHomeDots() {
+    const pager = document.getElementById("tinyfeed-home-pager");
+    if (!pager || pager.clientWidth === 0) return;
+    const page = Math.round(pager.scrollLeft / pager.clientWidth);
+    $(".tinyfeed-home-dot").each(function (i) {
+        $(this).toggleClass("tinyfeed-home-dot-active", i === page);
+    });
 }
 
 // นับโทเคนด้วย tokenizer ของ ST (มี fallback ประมาณ chars/4 ถ้าเวอร์ชันไม่มี)
@@ -4975,6 +5022,13 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-app-icon", function () {
             openApp($(this).data("app"));
         });
+        // เปลี่ยนหน้าโฮม: กดจุด / เลื่อน pager
+        $(document).on("click", ".tinyfeed-home-dot", function () {
+            const pager = document.getElementById("tinyfeed-home-pager");
+            const page = parseInt($(this).data("page"), 10) || 0;
+            if (pager) pager.scrollTo({ left: page * pager.clientWidth, behavior: "smooth" });
+        });
+        $(document).on("scroll", "#tinyfeed-home-pager", updateHomeDots);
         // วิดเจ็ตมินิกำหนดการ → เปิด TinyMemo
         $(document).on("click", "#tinyfeed-widget-agenda", function () {
             openApp("memo");
