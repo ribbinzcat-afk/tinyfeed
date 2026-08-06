@@ -260,6 +260,23 @@
 
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">TinyConnect (แชต)</div>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชททักหาเราเองอัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-connect-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-connect-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ทักทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-connect-interval" type="number" min="1" />
+                    </label>
+                    <small class="tinyfeed-field-hint">คู่แชท (คนใดคนหนึ่งใน TinyConnect) จะส่งข้อความมาหาเราเองตามจังหวะเนื้อเรื่อง มีแจ้งเตือนเหมือนได้ไลน์ · ต่างจาก "ทักเชิงรุก" ในหน้าทั่วไปที่ทักตามเวลาจริง — อันนี้ทักตามจำนวนข้อความ RP/คีย์เวิร์ด · คีย์เวิร์ดตั้งในกลุ่ม "ทริกเกอร์ด้วยคีย์เวิร์ด"</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ความยาวข้อความตอบสูงสุด (token)</span>
                         <input id="tinyfeed-cfg-connect-tokens" type="number" min="1" />
@@ -411,6 +428,7 @@
                         <select id="tinyfeed-cfg-auto-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -431,6 +449,7 @@
                         <select id="tinyfeed-cfg-news-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -573,6 +592,7 @@
                         <select id="tinyfeed-cfg-memo-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -601,6 +621,7 @@
                         <select id="tinyfeed-cfg-forum-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -689,6 +710,26 @@
                 </div>
 
                 <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">ทริกเกอร์ด้วยคีย์เวิร์ด</div>
+                    <small class="tinyfeed-field-hint">ตั้ง "โหมด" ของแต่ละแอปด้านบนเป็น <b>"เมื่อเจอคีย์เวิร์ด"</b> แล้วแอปนั้นจะสร้างเนื้อหาให้อัตโนมัติเมื่อข้อความ RP ล่าสุดมีคำที่ตรงกับรายการด้านล่าง · ทำงานทันทีในเบราว์เซอร์ ไม่หน่วง ไม่ต้องโหลดโมเดล · คั่นคำด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">จับคีย์เวิร์ดจากฝั่งไหน</span>
+                        <select id="tinyfeed-cfg-kw-scope">
+                            <option value="both">ทั้งข้อความตัวละครและผู้ใช้</option>
+                            <option value="char">เฉพาะข้อความตัวละคร</option>
+                            <option value="user">เฉพาะข้อความผู้ใช้</option>
+                        </select>
+                    </label>
+                    <small class="tinyfeed-field-hint">เลือกว่าจะให้คีย์เวิร์ดจับจากข้อความล่าสุดฝั่งใด — เช่น "เฉพาะผู้ใช้" = ทริกเกอร์เมื่อ<b>เรา</b>พิมพ์คำนั้น, "เฉพาะตัวละคร" = เมื่อ<b>ตัวละคร/AI</b>พูดถึง</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เว้นระยะขั้นต่ำต่อแอป (วินาที)</span>
+                        <input id="tinyfeed-cfg-kw-cooldown" type="number" min="0" />
+                    </label>
+                    <div id="tinyfeed-keyword-list"></div>
+                    <small class="tinyfeed-field-hint">กันทริกเกอร์ถี่เกินไป — เจอคีย์เวิร์ดแล้วต้องเว้นอย่างน้อยเท่านี้ก่อนจะสร้างซ้ำ (แยกต่อแอป)</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
                     <div id="tinyfeed-prompt-list"></div>
@@ -725,11 +766,14 @@
                     </button>
                 </div>
                 <div class="tinyfeed-connect-compose">
-                    <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
-                    <span id="tinyfeed-connect-slip" class="tinyfeed-compose-sticker" title="โอนเงิน"><i class="fa-solid fa-money-bill-transfer"></i></span>
+                    <span id="tinyfeed-connect-plus" class="tinyfeed-compose-sticker tinyfeed-compose-plus" title="เพิ่มเติม"><i class="fa-solid fa-plus"></i></span>
                     <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
-                    <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    <div class="tinyfeed-inputwrap">
+                        <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
+                        <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    </div>
                     <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
+                    <div id="tinyfeed-connect-plusmenu" class="tinyfeed-plusmenu tinyfeed-hidden"></div>
                 </div>
             </div>
         </div>
@@ -757,19 +801,29 @@
                 <button id="tinyfeed-stream-speak" class="tinyfeed-btn-generate tinyfeed-hidden">
                     <i class="fa-solid fa-microphone"></i> <span>ให้สตรีมเมอร์พูด</span>
                 </button>
-                <button id="tinyfeed-stream-loadcomments" class="tinyfeed-btn-generate tinyfeed-hidden">
-                    <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
+                <button id="tinyfeed-stream-clear" class="tinyfeed-btn-ghost tinyfeed-hidden">
+                    <i class="fa-solid fa-trash"></i> <span>ลบไลฟ์นี้</span>
                 </button>
             </div>
             <div id="tinyfeed-stream-comments" class="tinyfeed-stream-comments"></div>
+            <div id="tinyfeed-stream-tools" class="tinyfeed-stream-tools tinyfeed-hidden">
+                <button id="tinyfeed-stream-loadcomments" class="tinyfeed-btn-generate">
+                    <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
+                </button>
+            </div>
             <div class="tinyfeed-stream-streamer-compose tinyfeed-hidden">
-                <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
-                <span id="tinyfeed-stream-streamer-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                <div class="tinyfeed-inputwrap">
+                    <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
+                    <span id="tinyfeed-stream-streamer-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                </div>
                 <span id="tinyfeed-stream-streamer-send"><i class="fa-solid fa-microphone"></i></span>
             </div>
             <div class="tinyfeed-stream-compose tinyfeed-hidden">
-                <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
-                <span id="tinyfeed-stream-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                <span id="tinyfeed-stream-donate" class="tinyfeed-compose-sticker tinyfeed-stream-donate-btn" title="โดเนทให้สตรีมเมอร์"><i class="fa-solid fa-gift"></i></span>
+                <div class="tinyfeed-inputwrap">
+                    <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
+                    <span id="tinyfeed-stream-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                </div>
                 <span id="tinyfeed-stream-send"><i class="fa-solid fa-paper-plane"></i></span>
             </div>
         </div>
@@ -849,8 +903,10 @@
                     <span id="tinyfeed-forum-reply-cancel" title="ยกเลิก"><i class="fa-solid fa-xmark"></i></span>
                 </div>
                 <div class="tinyfeed-forum-compose">
-                    <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
-                    <span id="tinyfeed-forum-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    <div class="tinyfeed-inputwrap">
+                        <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
+                        <span id="tinyfeed-forum-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    </div>
                     <span id="tinyfeed-forum-comment-send"><i class="fa-solid fa-paper-plane"></i></span>
                 </div>
             </div>
@@ -968,6 +1024,21 @@
                     <input id="tinyfeed-slip-amount" type="number" min="1" placeholder="จำนวนเงิน" />
                     <input id="tinyfeed-slip-note" type="text" placeholder="โน้ต (ไม่บังคับ)" />
                     <button id="tinyfeed-slip-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-money-bill-transfer"></i> โอนออก</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-donate-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>โดเนทให้ <b id="tinyfeed-donate-to"></b></span>
+                    <span id="tinyfeed-donate-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <div class="tinyfeed-donate-balance">ยอดคงเหลือ: <b id="tinyfeed-donate-balance"></b></div>
+                    <input id="tinyfeed-donate-amount" type="number" min="1" placeholder="จำนวนเงินโดเนท" />
+                    <input id="tinyfeed-donate-note" type="text" placeholder="ข้อความถึงสตรีมเมอร์ (ไม่บังคับ)" />
+                    <button id="tinyfeed-donate-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-gift"></i> โดเนท</button>
                 </div>
             </div>
         </div>
