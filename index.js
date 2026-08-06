@@ -640,14 +640,17 @@ function parseDonations(raw) {
 function processDonations(raw) {
     if (!getSetting("streamDonateEnabled")) return;
     const s = getStreamData();
-    const you = getUserName().trim().toLowerCase();
+    // สตรีมเมอร์ (หลัก + ตัวร่วมไลฟ์ทุกคน) + ผู้ใช้ = โดเนทให้ไลฟ์ตัวเองไม่ได้
+    const hostSet = new Set([...getStreamHosts(), getStreamer().name, getUserName()]
+        .map((n) => String(n || "").trim().toLowerCase()).filter(Boolean));
     const cap = Math.max(1, parseInt(getSetting("bankDonateMax"), 10) || 5000);
+    // เงินเข้า TinyBank เฉพาะเมื่อ "เรา" เป็นคนไลฟ์ (เจ้าของไลฟ์) — ถ้าคนอื่นไลฟ์ เงินไม่เข้าบัญชีเรา
+    const userHost = userIsHost();
     for (const d of parseDonations(raw)) {
-        if (d.author.trim().toLowerCase() === you) continue;   // ผู้ใช้ไม่โดเนทให้ตัวเอง
+        if (hostSet.has(d.author.trim().toLowerCase())) continue;
         const amount = Math.min(cap, d.amount);
-        if (bankAdd(amount, `โดเนทจาก ${d.author}`, "stream", { silentToast: true })) {
-            s.comments.push({ isDonation: true, author: d.author, amount, text: escapeHtml(d.text || ""), ts: Date.now() });
-        }
+        if (userHost) bankAdd(amount, `โดเนทจาก ${d.author}`, "stream", { silentToast: true });
+        s.comments.push({ isDonation: true, author: d.author, amount, text: escapeHtml(d.text || ""), ts: Date.now() });
     }
 }
 
@@ -721,12 +724,16 @@ async function streamerSpeak(kind, opts) {
     isGeneratingStream = true;
     $("#tinyfeed-stream-speak").addClass("tinyfeed-generating").prop("disabled", true);   // ไอคอนหมุนบอกว่ากำลังเจน
     try {
-        const transcript = s.comments.slice(-8).filter((c) => !c.isSystem && !c.isDonation)
-            .map((c) => `${c.isStreamer ? c.author + " (สตรีมเมอร์)" : c.author}: ${htmlToPlain(c.text)}`).join("\n");
+        // รวมโดเนทเข้า transcript ด้วย (สตรีมเมอร์จะได้เห็นข้อความ+ยอดโดเนท แล้วขอบคุณ/ตอบได้)
+        const transcript = s.comments.slice(-8).filter((c) => !c.isSystem)
+            .map((c) => {
+                if (c.isDonation) return `${c.author} (โดเนท ${formatMoney(c.amount)}): ${htmlToPlain(c.text) || "(ไม่มีข้อความ)"}`;
+                return `${c.isStreamer ? c.author + " (สตรีมเมอร์)" : c.author}: ${htmlToPlain(c.text)}`;
+            }).join("\n");
         const taskText = kind === "open"
             ? `เพิ่งเปิดไลฟ์ — ทักทายผู้ชมและเกริ่นสั้นๆ ว่าจะไลฟ์เรื่องอะไร`
             : kind === "reply"
-                ? `อ่านคอมเมนต์ล่าสุดของผู้ชม (โดยเฉพาะของ ${you}) แล้วโต้ตอบ/ตอบกลับแบบอ่านแชตสดๆ`
+                ? `อ่านคอมเมนต์/โดเนทล่าสุดของผู้ชม (โดยเฉพาะของ ${you}) แล้วโต้ตอบ/ตอบกลับ/ขอบคุณคนโดเนทแบบอ่านแชตสดๆ`
                 : `พูดคุย/เล่าเรื่องต่อเกี่ยวกับหัวข้อไลฟ์ ให้ต่อเนื่องเป็นธรรมชาติ`;
         const extra = String(getSetting("streamExtraPrompt") || "").trim();
         const extraLine = (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + galleryPromptBlock();
