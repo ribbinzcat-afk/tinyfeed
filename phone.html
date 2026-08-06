@@ -768,7 +768,7 @@
                 <div class="tinyfeed-connect-compose">
                     <span id="tinyfeed-connect-plus" class="tinyfeed-compose-sticker tinyfeed-compose-plus" title="เพิ่มเติม"><i class="fa-solid fa-plus"></i></span>
                     <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
-                    <div class="tinyfeed-connect-inputwrap">
+                    <div class="tinyfeed-inputwrap">
                         <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
                         <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                     </div>
@@ -801,25 +801,29 @@
                 <button id="tinyfeed-stream-speak" class="tinyfeed-btn-generate tinyfeed-hidden">
                     <i class="fa-solid fa-microphone"></i> <span>ให้สตรีมเมอร์พูด</span>
                 </button>
-                <button id="tinyfeed-stream-loadcomments" class="tinyfeed-btn-generate tinyfeed-hidden">
-                    <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
-                </button>
-                <button id="tinyfeed-stream-donate" class="tinyfeed-btn-generate tinyfeed-hidden">
-                    <i class="fa-solid fa-gift"></i> <span>โดเนท</span>
-                </button>
                 <button id="tinyfeed-stream-clear" class="tinyfeed-btn-ghost tinyfeed-hidden">
                     <i class="fa-solid fa-trash"></i> <span>ลบไลฟ์นี้</span>
                 </button>
             </div>
             <div id="tinyfeed-stream-comments" class="tinyfeed-stream-comments"></div>
+            <div id="tinyfeed-stream-tools" class="tinyfeed-stream-tools tinyfeed-hidden">
+                <button id="tinyfeed-stream-loadcomments" class="tinyfeed-btn-generate">
+                    <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
+                </button>
+            </div>
             <div class="tinyfeed-stream-streamer-compose tinyfeed-hidden">
-                <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
-                <span id="tinyfeed-stream-streamer-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                <div class="tinyfeed-inputwrap">
+                    <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
+                    <span id="tinyfeed-stream-streamer-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                </div>
                 <span id="tinyfeed-stream-streamer-send"><i class="fa-solid fa-microphone"></i></span>
             </div>
             <div class="tinyfeed-stream-compose tinyfeed-hidden">
-                <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
-                <span id="tinyfeed-stream-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                <span id="tinyfeed-stream-donate" class="tinyfeed-compose-sticker tinyfeed-stream-donate-btn" title="โดเนทให้สตรีมเมอร์"><i class="fa-solid fa-gift"></i></span>
+                <div class="tinyfeed-inputwrap">
+                    <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
+                    <span id="tinyfeed-stream-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                </div>
                 <span id="tinyfeed-stream-send"><i class="fa-solid fa-paper-plane"></i></span>
             </div>
         </div>
@@ -899,8 +903,10 @@
                     <span id="tinyfeed-forum-reply-cancel" title="ยกเลิก"><i class="fa-solid fa-xmark"></i></span>
                 </div>
                 <div class="tinyfeed-forum-compose">
-                    <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
-                    <span id="tinyfeed-forum-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    <div class="tinyfeed-inputwrap">
+                        <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
+                        <span id="tinyfeed-forum-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+                    </div>
                     <span id="tinyfeed-forum-comment-send"><i class="fa-solid fa-paper-plane"></i></span>
                 </div>
             </div>

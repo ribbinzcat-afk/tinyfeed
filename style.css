@@ -1289,14 +1289,17 @@
     flex-shrink: 0;
 }
 
-/* กล่องอินพุตแบบไลน์: มีปุ่มสติกเกอร์อยู่ "ในช่อง" ด้านขวา */
-.tinyfeed-connect-inputwrap {
+/* กล่องอินพุตแบบไลน์ (ใช้ร่วมทุกแอป): มีปุ่มสติกเกอร์อยู่ "ในช่อง" ด้านขวา */
+.tinyfeed-inputwrap {
     position: relative;
     flex: 1;
     min-width: 0;
     display: flex;
     align-items: flex-end;
 }
+/* input/textarea (class-based) ในกล่อง = เว้นขวาให้ปุ่มในช่อง · ช่องที่เป็น id ตั้ง padding เองในกฎ id */
+.tinyfeed-inputwrap > input,
+.tinyfeed-inputwrap > textarea { padding-right: 42px; }
 
 #tinyfeed-connect-input {
     flex: 1;
@@ -1562,10 +1565,22 @@
 .tinyfeed-stream-controls {
     flex-shrink: 0;
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     padding: 8px 16px 12px;
     border-bottom: 1px solid var(--tf-border);
 }
+/* แถบเครื่องมือลอยเหนือช่องพิมพ์ (ปุ่มโหลดคอมเมนต์สด) — จัดกลางเหมือน TinyConnect */
+.tinyfeed-stream-tools {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 12px 0;
+}
+/* ไอคอนโดเนทในแถบพิมพ์คอมเมนต์ (ตอนเป็นผู้ชม) */
+.tinyfeed-stream-donate-btn { color: #ffca28; }
+.tinyfeed-stream-donate-btn:hover { color: #ffca28; background: color-mix(in srgb, #ffca28 18%, transparent); }
 
 .tinyfeed-stream-comments {
     flex: 1;
@@ -1657,7 +1672,7 @@
     color: var(--tf-text);
     border: 1px solid var(--tf-border);
     border-radius: 999px;
-    padding: 9px 15px;
+    padding: 9px 42px 9px 15px;   /* เว้นขวาให้ปุ่มสติกเกอร์ในช่อง */
     font: inherit;
     font-size: 0.92em;
     outline: none;
@@ -2340,7 +2355,7 @@
     color: var(--tf-text);
     border: 1px solid var(--tf-border);
     border-radius: 999px;
-    padding: 9px 15px;
+    padding: 9px 42px 9px 15px;   /* เว้นขวาให้ปุ่มสติกเกอร์ในช่อง */
     font: inherit;
     font-size: 0.92em;
     outline: none;
@@ -3303,6 +3318,7 @@
     background: rgba(255, 255, 255, 0.12);
     transition: background 0.2s ease;
     margin-bottom: 18px;
+    flex-shrink: 0;   /* หลายสตรีมเมอร์แล้วปุ่ม + ไม่โดนบีบ */
 }
 .tinyfeed-stream-addhost:hover { background: rgba(255, 255, 255, 0.25); }
 

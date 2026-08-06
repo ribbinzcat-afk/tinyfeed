@@ -491,10 +491,10 @@ function renderStream() {
     $("#tinyfeed-stream-ai-title").toggleClass("tinyfeed-hidden", s.live);
     // ปุ่ม "ให้สตรีมเมอร์พูด" (AI) โชว์เมื่อมีสตรีมเมอร์ AI อย่างน้อย 1 คน (รวมกรณีเราไลฟ์ + มีตัวละครร่วม)
     $("#tinyfeed-stream-speak").toggleClass("tinyfeed-hidden", !(s.live && getStreamHosts().length > 0));
-    $("#tinyfeed-stream-loadcomments").toggleClass("tinyfeed-hidden",
+    // แถบเครื่องมือลอย (ปุ่มโหลดคอมเมนต์สด) โชว์เฉพาะโหมด manual ระหว่างไลฟ์
+    $("#tinyfeed-stream-tools").toggleClass("tinyfeed-hidden",
         !(s.live && getSetting("streamCommentMode") === "manual"));
-    // ปุ่มโดเนท: โชว์ตอนเราเป็น "ผู้ชม" (ไม่ใช่คนไลฟ์) · ปุ่มลบไลฟ์: โชว์เมื่อจบไลฟ์แล้วยังมีประวัติค้าง
-    $("#tinyfeed-stream-donate").toggleClass("tinyfeed-hidden", !(s.live && !userIsHost()));
+    // ไอคอนโดเนทอยู่ในแถบพิมพ์คอมเมนต์ (โชว์อัตโนมัติเมื่อ compose ผู้ชมโชว์) · ปุ่มลบไลฟ์: เมื่อจบไลฟ์แล้วยังมีประวัติค้าง
     $("#tinyfeed-stream-clear").toggleClass("tinyfeed-hidden", !(!s.live && s.comments.length > 0));
 
     // แคปชันบนเวที = ประโยคล่าสุดที่สตรีมเมอร์พูด
@@ -3055,8 +3055,10 @@ function openPostDetail(postId) {
         </div>
         <div class="tinyfeed-comment-compose">
             ${makeAvatar({ isUser: true, author: getUserName() })}
-            <input class="tinyfeed-comment-input" type="text" placeholder="เขียนคอมเมนต์..." data-post="${post.id}" />
-            <span class="tinyfeed-comment-sticker tinyfeed-compose-sticker" data-post="${post.id}" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+            <div class="tinyfeed-inputwrap">
+                <input class="tinyfeed-comment-input" type="text" placeholder="เขียนคอมเมนต์..." data-post="${post.id}" />
+                <span class="tinyfeed-comment-sticker tinyfeed-compose-inbtn" data-post="${post.id}" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
+            </div>
             <span class="tinyfeed-comment-send" data-post="${post.id}"><i class="fa-solid fa-paper-plane"></i></span>
         </div>
     `;
