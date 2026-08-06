@@ -46,36 +46,8 @@
                 <div class="tinyfeed-home-sub">เลือกแอปที่ต้องการเปิด</div>
             </div>
             <div id="tinyfeed-home-widgets" class="tinyfeed-hidden"></div>
-            <div class="tinyfeed-home-apps">
-                <div class="tinyfeed-app-icon" data-app="feed">
-                    <div class="tinyfeed-app-tile" style="--app-a:#1d9bf0; --app-b:#0a6bd8;"><i class="fa-solid fa-hashtag"></i></div>
-                    <span class="tinyfeed-app-name">TinyFeed</span>
-                </div>
-                <div class="tinyfeed-app-icon" data-app="connect">
-                    <div class="tinyfeed-app-tile" style="--app-a:#22c55e; --app-b:#15a34a;"><i class="fa-solid fa-comment-dots"></i></div>
-                    <span class="tinyfeed-app-name">TinyConnect</span>
-                </div>
-                <div class="tinyfeed-app-icon" data-app="stream">
-                    <div class="tinyfeed-app-tile" style="--app-a:#a855f7; --app-b:#7e22ce;"><i class="fa-solid fa-video"></i></div>
-                    <span class="tinyfeed-app-name">TinyStream</span>
-                </div>
-                <div class="tinyfeed-app-icon" data-app="memo">
-                    <div class="tinyfeed-app-tile" style="--app-a:#f59e0b; --app-b:#d97706;"><i class="fa-solid fa-calendar-check"></i></div>
-                    <span class="tinyfeed-app-name">TinyMemo</span>
-                </div>
-                <div class="tinyfeed-app-icon" data-app="forum">
-                    <div class="tinyfeed-app-tile" style="--app-a:#ef4444; --app-b:#b91c1c;"><i class="fa-solid fa-comments"></i></div>
-                    <span class="tinyfeed-app-name">TinyForum</span>
-                </div>
-                <div class="tinyfeed-app-icon" data-app="gallery">
-                    <div class="tinyfeed-app-tile" style="--app-a:#ec4899; --app-b:#be185d;"><i class="fa-solid fa-images"></i></div>
-                    <span class="tinyfeed-app-name">TinyGallery</span>
-                </div>
-                <div class="tinyfeed-app-icon" data-app="bank">
-                    <div class="tinyfeed-app-tile" style="--app-a:#10b981; --app-b:#047857;"><i class="fa-solid fa-wallet"></i></div>
-                    <span class="tinyfeed-app-name">TinyBank</span>
-                </div>
-            </div>
+            <div id="tinyfeed-home-pager" class="tinyfeed-home-pager"></div>
+            <div id="tinyfeed-home-dots" class="tinyfeed-home-dots tinyfeed-hidden"></div>
         </div>
 
         <div id="tinyfeed-app-feed" class="tinyfeed-app tinyfeed-hidden">
@@ -162,6 +134,14 @@
                     <label class="tinyfeed-field-row">
                         <span>มินิกำหนดการ (TinyMemo)</span>
                         <input id="tinyfeed-cfg-widget-agenda" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แดชบอร์ดโทเคน (ต่อแอป + รวม)</span>
+                        <input id="tinyfeed-cfg-widget-tokens" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความทึบพื้นหลังวิดเจ็ต: <b id="tinyfeed-widget-opacity-val">82%</b></span>
+                        <input id="tinyfeed-cfg-widget-opacity" type="range" min="0" max="100" step="5" />
                     </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">Custom CSS (สำหรับสายแต่ง)</span>
@@ -292,6 +272,11 @@
                         <span>แยกข้อความหลายบรรทัดเป็นหลายบับเบิล</span>
                         <input id="tinyfeed-cfg-connect-split" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชทโอนเงินเข้าบัญชีเราได้ (AI ส่งสลิป)</span>
+                        <input id="tinyfeed-cfg-connect-slip" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">เราโอนออกเองได้เสมอจากปุ่ม 💸 ในแชท (หักจาก TinyBank) · เปิดตัวเลือกนี้ = ตอนกด "ให้ตอบกลับ" คู่แชทอาจโอนเงินเข้าบัญชีเรา (ตามเนื้อเรื่อง) เข้า TinyBank อัตโนมัติ</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -321,20 +306,61 @@
                         <input id="tinyfeed-cfg-wallpaper" type="text" placeholder="วางลิงก์รูป (URL)..." />
                         <small class="tinyfeed-field-hint">เว้นว่าง = ใช้พื้นหลังธีมปกติ · รูปจะถูกครอบให้เต็มจอโฮมพร้อมฝ้าจางให้อ่านชื่อแอปชัด</small>
                     </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความทึบฝ้าทับวอลเปเปอร์: <b id="tinyfeed-wp-overlay-val">45%</b></span>
+                        <input id="tinyfeed-cfg-wp-overlay" type="range" min="0" max="100" step="5" />
+                    </label>
                 </div>
 
                 <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">รูปโปรไฟล์</div>
+                    <div class="tinyfeed-field-label tinyfeed-profile-head">โปรไฟล์ของคุณ — ผูกกับ persona: <b id="tinyfeed-cfg-persona-name">—</b></div>
                     <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์ของคุณ</span>
+                        <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์</span>
                         <input id="tinyfeed-cfg-user-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
-                        <small class="tinyfeed-field-hint">override รูป persona ในโพสต์ของคุณ · เว้นว่าง = ใช้รูป persona</small>
                     </label>
+                    <div class="tinyfeed-field-2col">
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Username</span>
+                            <input id="tinyfeed-cfg-user-username" type="text" placeholder="ชื่อผู้ใช้" />
+                        </label>
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Alias</span>
+                            <input id="tinyfeed-cfg-user-alias" type="text" placeholder="ชื่อเล่น" />
+                        </label>
+                    </div>
                     <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">ลิงก์รูปตัวละคร: <b id="tinyfeed-cfg-char-name">—</b></span>
-                        <input id="tinyfeed-cfg-char-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
-                        <small class="tinyfeed-field-hint">override รูปการ์ดของตัวละครในแชทนี้ · เว้นว่าง = ใช้รูปการ์ด</small>
+                        <span class="tinyfeed-field-label">ใช้ชื่อไหนเป็นชื่อหลัก</span>
+                        <select id="tinyfeed-cfg-user-primary">
+                            <option value="username">Username</option>
+                            <option value="alias">Alias</option>
+                        </select>
                     </label>
+                    <small class="tinyfeed-field-hint">ผูกกับ persona ปัจจุบัน · เว้นว่าง = ใช้รูป/ชื่อ persona ตามปกติ · ชื่อในเนื้อหาที่ตรงกับ username/alias จะถูกแทนด้วยรูปคุณ</small>
+
+                    <div class="tinyfeed-field-label tinyfeed-profile-head">โปรไฟล์ตัวละคร — ผูกกับการ์ด: <b id="tinyfeed-cfg-char-name">—</b></div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์</span>
+                        <input id="tinyfeed-cfg-char-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                    </label>
+                    <div class="tinyfeed-field-2col">
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Username</span>
+                            <input id="tinyfeed-cfg-char-username" type="text" placeholder="ชื่อผู้ใช้" />
+                        </label>
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">Alias</span>
+                            <input id="tinyfeed-cfg-char-alias" type="text" placeholder="ชื่อเล่น" />
+                        </label>
+                    </div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ใช้ชื่อไหนเป็นชื่อหลัก</span>
+                        <select id="tinyfeed-cfg-char-primary">
+                            <option value="username">Username</option>
+                            <option value="alias">Alias</option>
+                        </select>
+                    </label>
+                    <small class="tinyfeed-field-hint">ผูกกับการ์ดตัวละคร · เว้นว่าง = ใช้ชื่อ/รูปการ์ด · แอปจะแสดงตัวละครด้วยชื่อหลักที่เลือก · ชื่อในเนื้อหาที่ตรงกันจะถูกแทนด้วยรูปตัวละคร</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
@@ -366,7 +392,7 @@
                 </div>
 
                 <div class="tinyfeed-settings-group">
-                    <div class="tinyfeed-settings-title">NPC ประจำ (แชทนี้)</div>
+                    <div class="tinyfeed-settings-title">NPC ประจำ (ตัวละครนี้)</div>
                     <div id="tinyfeed-npc-list"></div>
                     <button id="tinyfeed-npc-add" class="tinyfeed-btn-generate">
                         <i class="fa-solid fa-plus"></i> <span>เพิ่ม NPC</span>
@@ -639,6 +665,13 @@
                         <span class="tinyfeed-field-label">สัญลักษณ์สกุลเงิน</span>
                         <input id="tinyfeed-cfg-bank-currency" type="text" maxlength="4" placeholder="฿" />
                     </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ตำแหน่งสัญลักษณ์</span>
+                        <select id="tinyfeed-cfg-bank-currency-pos">
+                            <option value="before">ข้างหน้าตัวเลข (฿100)</option>
+                            <option value="after">ข้างหลังตัวเลข (100฿)</option>
+                        </select>
+                    </label>
                     <label class="tinyfeed-field-row">
                         <span>เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)</span>
                         <input id="tinyfeed-cfg-donate-enabled" type="checkbox" />
@@ -693,6 +726,7 @@
                 </div>
                 <div class="tinyfeed-connect-compose">
                     <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
+                    <span id="tinyfeed-connect-slip" class="tinyfeed-compose-sticker" title="โอนเงิน"><i class="fa-solid fa-money-bill-transfer"></i></span>
                     <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
                     <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-sticker" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
                     <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
@@ -887,6 +921,22 @@
             </div>
         </div>
 
+        <div id="tinyfeed-app-shop" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-shop-bar">ยอดเงิน: <b id="tinyfeed-shop-balance">฿0</b></div>
+            <div class="tinyfeed-screen">
+                <div class="tinyfeed-shop-addform">
+                    <input id="tinyfeed-shop-name" type="text" placeholder="ชื่อสินค้า" />
+                    <div class="tinyfeed-shop-addrow">
+                        <input id="tinyfeed-shop-price" type="number" min="1" placeholder="ราคา" />
+                        <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ)" />
+                    </div>
+                    <input id="tinyfeed-shop-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
+                </div>
+                <div id="tinyfeed-shop-grid" class="tinyfeed-shop-grid"></div>
+            </div>
+        </div>
+
         <div id="tinyfeed-gallery-picker" class="tinyfeed-gallery-picker tinyfeed-hidden">
             <div class="tinyfeed-gallery-picker-card">
                 <div class="tinyfeed-gallery-picker-head">
@@ -905,6 +955,20 @@
                     <span id="tinyfeed-char-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
                 <div id="tinyfeed-char-picker-list" class="tinyfeed-char-picker-list"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-slip-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>โอนเงินให้ <b id="tinyfeed-slip-to"></b></span>
+                    <span id="tinyfeed-slip-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-slip-amount" type="number" min="1" placeholder="จำนวนเงิน" />
+                    <input id="tinyfeed-slip-note" type="text" placeholder="โน้ต (ไม่บังคับ)" />
+                    <button id="tinyfeed-slip-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-money-bill-transfer"></i> โอนออก</button>
+                </div>
             </div>
         </div>
 

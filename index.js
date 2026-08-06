@@ -17,7 +17,9 @@ const defaultSettings = {
     themedIcons: false,       // สีไอคอนแอปตามธีม
     themedHomeBg: false,      // พื้นหลังโฮมตามธีม (เมื่อไม่มีวอลเปเปอร์)
     homeBgHue: 210,           // hue พื้นหลังโฮม (สุ่มได้)
+    widgetOpacity: 82,        // ความทึบพื้นหลังวิดเจ็ต (0–100%)
     widgetClock: true,        // วิดเจ็ตนาฬิกา+วันที่
+    widgetTokens: false,      // วิดเจ็ตแดชบอร์ดโทเคนต่อแอป
     widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
     customCss: "",            // CSS snippet ของผู้ใช้
     // ทักเชิงรุก (proactive) + แจ้งเตือน OS + กลุ่มคุยกันเอง
@@ -37,8 +39,13 @@ const defaultSettings = {
     promptOverrides: {},          // id → template override ("" / ไม่มี = ใช้ default)
     // Stage 5: override รูปโปรไฟล์ด้วยลิงก์ภายนอก
     wallpaperUrl: "",           // ลิงก์วอลเปเปอร์หน้าโฮม
-    userAvatarUrl: "",          // รูปผู้ใช้ (global)
-    charAvatarUrls: {},         // { "<ไฟล์ avatar การ์ด>": "url" } override รายตัวละคร
+    wallpaperOverlay: 45,       // ความทึบสcrim ดำที่ทับวอลเปเปอร์ (0–100%)
+    userAvatarUrl: "",          // (legacy fallback) รูปผู้ใช้แบบ global
+    charAvatarUrls: {},         // (legacy fallback) { "<ไฟล์ avatar การ์ด>": "url" }
+    // Identity: โปรไฟล์ผูกกับ persona / char + NPC ผูกกับ char
+    userProfiles: {},           // { <personaKey>: { avatarUrl, username, alias, primary } }
+    charProfiles: {},           // { <charFile>: { avatarUrl, username, alias, primary } }
+    npcsByChar: {},             // { <charFile>: [{ name, avatar }] } — NPC ผูกกับตัวละคร
     // Stage 6: ช่วงยอดไลค์เริ่มต้นแบบสุ่มของโพสต์ AI
     likesMin: 0,
     likesMax: 48,
@@ -110,8 +117,11 @@ const defaultSettings = {
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
     bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
+    bankCurrencyAfter: false,     // แสดงสัญลักษณ์ไว้ข้างหลังตัวเลข (เช่น 100฿) แทนข้างหน้า
     streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
     bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
+    connectSlipEnabled: false,    // ให้คู่แชทส่งสลิปโอนเงินเข้าบัญชีเราได้ (AI)
+    shop: [],                     // แคตตาล็อกร้านค้า (global) [{ id, name, price, image, desc }]
     // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
     donateTiers: [
         { min: 0, color: "#1d9bf0" },
@@ -164,6 +174,7 @@ function loadSettings() {
     if (extension_settings[extensionName].injectMode === "both") {
         extension_settings[extensionName].injectMode = "posts_comments_news";
     }
+    migrateLegacyAvatars();   // ย้ายรูป override เก่าเข้าโปรไฟล์ persona/char
     const enabled = extension_settings[extensionName].enabled;
     $("#tinyfeed-enabled").prop("checked", enabled);
     applyMenuVisibility(enabled);
@@ -183,6 +194,11 @@ function applyWallpaper() {
     } else {
         home.css("background-image", "").removeClass("tinyfeed-has-wallpaper");
     }
+    // ความทึบ scrim ที่ทับวอลเปเปอร์ (0–100% → 0.0–1.0)
+    let ov = parseInt(getSetting("wallpaperOverlay"), 10);
+    if (!Number.isFinite(ov)) ov = 45;
+    ov = Math.min(100, Math.max(0, ov));
+    if (home.length) home[0].style.setProperty("--tf-wp-overlay-alpha", String(ov / 100));
 }
 
 // ซ่อน/แสดงปุ่มในเมนูตาม setting
@@ -219,11 +235,12 @@ function goHome() {
     $("#tinyfeed-settings-btn").removeClass("tinyfeed-hidden");   // เฟืองเข้าถึงได้จากโฮม
     try { $("#tinyfeed-home .tinyfeed-home-hello").text(`สวัสดี, ${getUserName()}`); } catch (e) { /* ข้าม */ }
     renderHomeWidgets();
+    renderHomeApps();
     saveLastScreen();
 }
 
 function openApp(app) {
-    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank"].includes(app)) {
+    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop"].includes(app)) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
@@ -231,6 +248,7 @@ function openApp(app) {
     clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
     closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
     closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
+    closeSlipModal();       // กัน modal โอนเงินค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
@@ -267,6 +285,11 @@ function openApp(app) {
         $("#tinyfeed-app-bank").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyBank");
         renderBank();
+    } else if (app === "shop") {
+        currentApp = "shop";
+        $("#tinyfeed-app-shop").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyShop");
+        renderShop();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -299,12 +322,11 @@ function streamerIsUser() {
     return getStreamData().mainStreamer === POSTER_USER;
 }
 
-// avatarItem จากชื่อผู้พูดในไลฟ์ (ผู้ใช้ / ตัวละครหลัก / NPC)
+// avatarItem จากชื่อผู้พูดในไลฟ์ (ผู้ใช้ / ตัวละครหลัก / NPC) — จับคู่กับ username/alias ด้วย
 function streamSpeakerAvatarItem(name) {
     const who = String(name || "").trim();
-    if (who === getUserName()) return { isUser: true, author: who };
-    const mainName = (getCurrentCharacter() || {}).name || "";
-    if (mainName && who.toLowerCase() === mainName.trim().toLowerCase()) return { isMain: true, author: who };
+    if (nameMatchesUser(who)) return { isUser: true, author: who };
+    if (nameMatchesChar(who)) return { isMain: true, author: who };
     return { author: who, avatar: getNpcAvatar(who) };
 }
 
@@ -315,9 +337,8 @@ function getStreamer() {
         return { name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
     }
     if (main) return { name: main, avatarItem: streamSpeakerAvatarItem(main) };
-    // ค่าเริ่มต้น = ตัวละครหลัก
-    const char = getCurrentCharacter();
-    const name = (char && char.name) || "ตัวละคร";
+    // ค่าเริ่มต้น = ตัวละครหลัก (ใช้ชื่อ display = username/alias)
+    const name = getCharName();
     return { name, avatarItem: { isMain: true, author: name } };
 }
 
@@ -797,7 +818,8 @@ function getBankData() {
 
 function formatMoney(n) {
     const cur = getSetting("bankCurrency") || "฿";
-    return `${cur}${Number(n || 0).toLocaleString()}`;
+    const num = Number(n || 0).toLocaleString();
+    return getSetting("bankCurrencyAfter") ? `${num}${cur}` : `${cur}${num}`;
 }
 
 // แกนธุรกรรม: dir "in" = เงินเข้า, "out" = เงินออก · app = แหล่งที่มา (bank/stream/connect/shop)
@@ -864,6 +886,81 @@ function bankManualTxn(dir) {
     if (ok) {
         $("#tinyfeed-bank-amount, #tinyfeed-bank-label").val("");
     }
+}
+
+// ===== TinyShop: ร้านค้า (แคตตาล็อก global, ยอดซื้อผูกกับแชท) =====
+function getShop() {
+    const store = extension_settings[extensionName] || {};
+    if (!Array.isArray(store.shop)) { store.shop = []; setSetting("shop", store.shop); }
+    return store.shop;
+}
+function saveShop() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    extension_settings[extensionName].shop = getShop();
+    saveSettingsDebounced();
+}
+function getShopOwned() {
+    const data = getFeedData();
+    if (!data.shopOwned || typeof data.shopOwned !== "object") data.shopOwned = {};
+    return data.shopOwned;
+}
+function shopId() { return "sh" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+
+function renderShop() {
+    $("#tinyfeed-shop-balance").text(formatMoney(getBankData().balance));
+    const items = getShop();
+    if (!items.length) {
+        $("#tinyfeed-shop-grid").html(emptyStateHtml("fa-bag-shopping", "ยังไม่มีสินค้า", "เพิ่มสินค้าด้านบน แล้วซื้อด้วยเงินใน TinyBank"));
+        return;
+    }
+    const owned = getShopOwned();
+    $("#tinyfeed-shop-grid").html(items.map((it) => {
+        const n = owned[it.id] || 0;
+        return `<div class="tinyfeed-shop-item" data-id="${escapeAttr(it.id)}">
+            <div class="tinyfeed-shop-thumb-wrap">
+                ${it.image
+                    ? `<img class="tinyfeed-shop-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`
+                    : `<div class="tinyfeed-shop-thumb tinyfeed-shop-noimg"><i class="fa-solid fa-box"></i></div>`}
+                ${n ? `<span class="tinyfeed-shop-owned">มี ${n}</span>` : ""}
+                <span class="tinyfeed-shop-del" title="ลบสินค้า"><i class="fa-solid fa-trash"></i></span>
+            </div>
+            <div class="tinyfeed-shop-name">${escapeText(it.name)}</div>
+            ${it.desc ? `<div class="tinyfeed-shop-desc">${escapeText(it.desc)}</div>` : ""}
+            <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
+        </div>`;
+    }).join(""));
+}
+
+function addShopItem() {
+    const name = String($("#tinyfeed-shop-name").val() || "").trim();
+    const price = parseInt($("#tinyfeed-shop-price").val(), 10);
+    const image = String($("#tinyfeed-shop-image").val() || "").trim();
+    const desc = String($("#tinyfeed-shop-desc").val() || "").trim();
+    if (!name) { toastr.info("ตั้งชื่อสินค้าก่อนนะ", "TinyShop"); return; }
+    if (!Number.isFinite(price) || price <= 0) { toastr.info("ใส่ราคาสินค้าก่อนนะ", "TinyShop"); return; }
+    getShop().push({ id: shopId(), name, price, image, desc });
+    saveShop();
+    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-desc").val("");
+    renderShop();
+    toastr.success(`เพิ่มสินค้า "${name}" แล้ว`, "TinyShop");
+}
+function deleteShopItem(id) {
+    const shop = getShop();
+    const i = shop.findIndex((x) => String(x.id) === String(id));
+    if (i < 0) return;
+    shop.splice(i, 1);
+    saveShop();
+    renderShop();
+}
+function buyShopItem(id) {
+    const it = getShop().find((x) => String(x.id) === String(id));
+    if (!it) return;
+    if (!bankDeduct(it.price, `ซื้อ ${it.name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
+    const owned = getShopOwned();
+    owned[id] = (owned[id] || 0) + 1;
+    saveFeedData();
+    renderShop();
+    toastr.success(`ซื้อ "${it.name}" แล้ว`, "TinyShop");
 }
 
 // ===== TinyGallery: คลังรูป + สติกเกอร์ (global, ไม่ผูกกับแชท) =====
@@ -1085,8 +1182,9 @@ function charPickerItems(opts) {
         out.push({ value: POSTER_USER, name: getUserName() + " (เรา)", node: makeAvatar({ isUser: true, author: getUserName() }) });
     }
     const char = getCurrentCharacter();
-    if (opts.includeMain !== false && char && char.name && !exclude.has(char.name)) {
-        out.push({ value: char.name, name: char.name, node: makeAvatar({ isMain: true, author: char.name }) });
+    const mainName = getCharName();
+    if (opts.includeMain !== false && char && mainName && !exclude.has(mainName)) {
+        out.push({ value: mainName, name: mainName, node: makeAvatar({ isMain: true, author: mainName }) });
     }
     for (const npc of getNpcs()) {
         const nm = String(npc.name || "").trim();
@@ -1288,7 +1386,7 @@ function deleteGroup(key) {
 function getConnectContacts() {
     const contacts = [];
     const char = getCurrentCharacter();
-    if (char) contacts.push({ key: "main", name: char.name, isMain: true, avatar: "" });
+    if (char) contacts.push({ key: "main", name: getCharName(), isMain: true, avatar: "" });
     for (const npc of getNpcs()) {
         const name = String(npc.name || "").trim();
         if (name) contacts.push({ key: "npc:" + name, name, isMain: false, avatar: npc.avatar || "" });
@@ -1396,10 +1494,11 @@ function renderThread() {
         return list.map((s) => `<div class="tinyfeed-msg-bubble">${renderRich(s)}</div>`).join("");
     };
     const rows = msgs.map((m, i) => {
+        const content = m.isSlip ? slipCardHtml(m) : bubblesHtml(m.text);
         if (m.from === "user") {
             return `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
                 ${delBtn(i)}
-                <div class="tinyfeed-msg-stack">${bubblesHtml(m.text)}</div>
+                <div class="tinyfeed-msg-stack">${content}</div>
             </div>`;
         }
         // แชตกลุ่ม: ใช้ avatar/ชื่อของสมาชิกที่พูด
@@ -1411,7 +1510,7 @@ function renderThread() {
             ${makeAvatar(avaItem)}
             <div class="tinyfeed-msg-col">
                 ${group ? `<span class="tinyfeed-msg-author">${escapeText(who)}</span>` : ""}
-                <div class="tinyfeed-msg-stack">${bubblesHtml(m.text)}</div>
+                <div class="tinyfeed-msg-stack">${content}</div>
             </div>
             ${delBtn(i)}
         </div>`;
@@ -1439,6 +1538,54 @@ function deleteConnectMessage(idx) {
     renderThread();
 }
 
+// การ์ดสลิปโอนเงินในแชท
+function slipCardHtml(m) {
+    const inbound = m.dir === "in";
+    return `<div class="tinyfeed-slip ${inbound ? "tinyfeed-slip-in" : "tinyfeed-slip-out"}">
+        <div class="tinyfeed-slip-head"><i class="fa-solid fa-money-bill-transfer"></i> ${inbound ? "โอนเงินเข้า" : "โอนเงินออก"}</div>
+        <div class="tinyfeed-slip-amount">${formatMoney(m.amount)}</div>
+        ${m.note ? `<div class="tinyfeed-slip-note">${escapeText(m.note)}</div>` : ""}
+        <div class="tinyfeed-slip-badge"><i class="fa-solid fa-circle-check"></i> โอนสำเร็จ</div>
+    </div>`;
+}
+
+// เปิด/ปิด modal โอนเงินในแชทที่เปิดอยู่
+function openSlipModal() {
+    if (!activeThread) return;
+    $("#tinyfeed-slip-amount, #tinyfeed-slip-note").val("");
+    $("#tinyfeed-slip-to").text(activeThreadName || "");
+    $("#tinyfeed-slip-modal").removeClass("tinyfeed-hidden");
+    setTimeout(() => $("#tinyfeed-slip-amount").trigger("focus"), 30);
+}
+function closeSlipModal() { $("#tinyfeed-slip-modal").addClass("tinyfeed-hidden"); }
+
+// ผู้ใช้โอนเงินออก → หักบัญชี + ดันสลิปในแชท
+function sendUserSlip() {
+    if (!activeThread) return;
+    const amt = parseInt($("#tinyfeed-slip-amount").val(), 10);
+    const note = String($("#tinyfeed-slip-note").val() || "").trim();
+    if (!Number.isFinite(amt) || amt <= 0) { toastr.info("ใส่จำนวนเงินก่อนนะ", "TinyConnect"); return; }
+    const toName = activeThreadName || "ผู้รับ";
+    if (!bankDeduct(amt, `โอนให้ ${toName}`, "connect")) return;   // ยอดไม่พอ → มี toast ในตัว
+    getThread(activeThread).push({ from: "user", isSlip: true, dir: "out", amount: amt, note, ts: Date.now() });
+    saveFeedData();
+    closeSlipModal();
+    renderThread();
+}
+
+// คู่แชท (1:1) ส่งสลิปโอนเข้า: SLIP: จำนวนเงิน | โน้ต
+function processConnectSlip(raw, fromName) {
+    if (!getSetting("connectSlipEnabled") || !activeThread) return;
+    const m = /SLIP:\s*([^\n|]+)(?:\|([^\n]*))?/i.exec(stripReasoning(raw));
+    if (!m) return;
+    const amount = Math.abs(Math.round(parseFloat(String(m[1]).replace(/[^\d.]/g, "")) || 0));
+    if (!amount) return;
+    const note = String(m[2] || "").trim();
+    if (bankAdd(amount, `รับโอนจาก ${fromName}`, "connect", { silentToast: true })) {
+        getThread(activeThread).push({ from: "contact", author: fromName, isSlip: true, dir: "in", amount, note, ts: Date.now() });
+    }
+}
+
 // ส่งข้อความ = แค่ต่อคิว (ไม่ generate ทันที) เพื่อพิมพ์/แนบรูป/สติกเกอร์หลายอันใน 1 รอบ
 // แล้วค่อยกดปุ่ม "ให้ตอบกลับ" ให้ตัวละครตอบทีเดียว
 function sendConnectMessage(text) {
@@ -1456,7 +1603,11 @@ async function generateConnectReply() {
     const you = getUserName();
     const group = findGroup(activeThread);
     const transcript = getThread(activeThread).slice(-12)
-        .map((m) => `${m.from === "user" ? you : (group ? (m.author || name) : name)}: ${htmlToPlain(m.text)}`).join("\n");
+        .map((m) => {
+            const who = m.from === "user" ? you : (group ? (m.author || name) : name);
+            const body = m.isSlip ? `[โอนเงิน ${formatMoney(m.amount)}${m.note ? " — " + m.note : ""}]` : htmlToPlain(m.text);
+            return `${who}: ${body}`;
+        }).join("\n");
 
     // --- แชตกลุ่ม: ให้สมาชิก 1-2 คนตอบ ---
     if (group) {
@@ -1495,11 +1646,15 @@ async function generateConnectReply() {
         return;
     }
 
+    const slipLine = getSetting("connectSlipEnabled")
+        ? `[ระบบโอนเงิน] ถ้า ${name} อยากโอนเงินให้ ${you} (เฉพาะตอนที่เข้ากับเนื้อเรื่องจริงๆ ไม่ต้องบ่อย) ให้ใส่บรรทัดแยกท้ายข้อความ: SLIP: <จำนวนเงิน> | <โน้ตสั้นๆ>.\n`
+        : "";
     const q =
         `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือแชตส่วนตัวในแอปแชต (คล้ายไลน์) ระหว่าง ${you} กับ ${name}. ` +
         `ตอบข้อความล่าสุดในบทบาทของ ${name} แบบเป็นธรรมชาติ สั้นกระชับเหมือนแชตจริง (1-3 ประโยค) ` +
         `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
         (String(getSetting("connectExtraPrompt") || "").trim() ? `คำสั่งเพิ่มเติม: ${String(getSetting("connectExtraPrompt")).trim()}.\n` : "") +
+        slipLine +
         crossAppContext("connect") +
         galleryPromptBlock() +
         `บทแชตล่าสุด:\n${transcript}\n` +
@@ -1513,6 +1668,7 @@ async function generateConnectReply() {
         // ถ้าโมเดลห่อด้วย [... Message: ข้อความ] ให้ดึงเฉพาะเนื้อในออกมา
         const wrapped = [...reply.matchAll(/\[[^\]]*?Message:\s*([^\]]+)\]/gi)];
         if (wrapped.length) reply = wrapped.map((m) => m[1].trim()).join("\n");
+        reply = reply.replace(/^SLIP:.*$/gim, "").trim();   // ตัดบรรทัดสลิปออกจากข้อความ (จัดการแยก)
         // ตัดวงเล็บ/ป้ายกำกับที่หลงเหลือ + "ชื่อ:" นำหน้า (ไม่ทำลายโทเคนสติกเกอร์/รูป)
         reply = stripWrapBrackets(reply);
         const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1520,7 +1676,9 @@ async function generateConnectReply() {
         if (reply) {
             getThread(activeThread).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
             saveFeedData();
-        } else {
+        }
+        processConnectSlip(raw, name);   // คู่แชทโอนเงินเข้า (ถ้าเปิดระบบ + AI ส่ง SLIP)
+        if (!reply && !getThread(activeThread).some((m) => m.isSlip && m.ts > Date.now() - 3000)) {
             toastr.warning("ยังไม่มีคำตอบกลับมา ลองใหม่นะ", "TinyConnect");
         }
     } catch (e) {
@@ -1596,6 +1754,11 @@ function applyAppearance() {
         let hue = parseInt(getSetting("homeBgHue"), 10);
         if (!Number.isFinite(hue)) hue = 210;
         phone.style.setProperty("--tf-home-hue", String(hue));
+        // ความทึบพื้นหลังวิดเจ็ต (สีตาม --tf-topbar = ตามธีม)
+        let wop = parseInt(getSetting("widgetOpacity"), 10);
+        if (!Number.isFinite(wop)) wop = 82;
+        wop = Math.min(100, Math.max(0, wop));
+        phone.style.setProperty("--tf-widget-alpha", `${wop}%`);
     }
 }
 
@@ -1641,6 +1804,82 @@ function updateHomeClock() {
     }
 }
 
+// ===== หน้าโฮม: กริดแอปแบบแบ่งหน้า (รองรับแอปในอนาคต) =====
+const HOME_APPS = [
+    { app: "feed", icon: "fa-hashtag", name: "TinyFeed", a: "#1d9bf0", b: "#0a6bd8" },
+    { app: "connect", icon: "fa-comment-dots", name: "TinyConnect", a: "#22c55e", b: "#15a34a" },
+    { app: "stream", icon: "fa-video", name: "TinyStream", a: "#a855f7", b: "#7e22ce" },
+    { app: "memo", icon: "fa-calendar-check", name: "TinyMemo", a: "#f59e0b", b: "#d97706" },
+    { app: "forum", icon: "fa-comments", name: "TinyForum", a: "#ef4444", b: "#b91c1c" },
+    { app: "gallery", icon: "fa-images", name: "TinyGallery", a: "#ec4899", b: "#be185d" },
+    { app: "bank", icon: "fa-wallet", name: "TinyBank", a: "#10b981", b: "#047857" },
+    { app: "shop", icon: "fa-bag-shopping", name: "TinyShop", a: "#f97316", b: "#c2410c" },
+];
+const HOME_APPS_PER_PAGE = 9;   // 3 คอลัมน์ × 3 แถวต่อหน้า
+
+function appIconHtml(a) {
+    return `<div class="tinyfeed-app-icon" data-app="${a.app}">
+        <div class="tinyfeed-app-tile" style="--app-a:${a.a}; --app-b:${a.b};"><i class="fa-solid ${a.icon}"></i></div>
+        <span class="tinyfeed-app-name">${a.name}</span>
+    </div>`;
+}
+
+function renderHomeApps() {
+    const pager = $("#tinyfeed-home-pager");
+    if (!pager.length) return;
+    const pages = [];
+    for (let i = 0; i < HOME_APPS.length; i += HOME_APPS_PER_PAGE) {
+        const slice = HOME_APPS.slice(i, i + HOME_APPS_PER_PAGE);
+        pages.push(`<div class="tinyfeed-home-page">${slice.map(appIconHtml).join("")}</div>`);
+    }
+    pager.html(pages.join(""));
+    const dots = pages.length > 1
+        ? pages.map((_, i) => `<span class="tinyfeed-home-dot${i === 0 ? " tinyfeed-home-dot-active" : ""}" data-page="${i}"></span>`).join("")
+        : "";
+    $("#tinyfeed-home-dots").html(dots).toggleClass("tinyfeed-hidden", pages.length <= 1);
+    if (pager[0]) pager[0].scrollLeft = 0;
+}
+
+// อัปเดตจุดบอกหน้าตามตำแหน่งเลื่อน
+function updateHomeDots() {
+    const pager = document.getElementById("tinyfeed-home-pager");
+    if (!pager || pager.clientWidth === 0) return;
+    const page = Math.round(pager.scrollLeft / pager.clientWidth);
+    $(".tinyfeed-home-dot").each(function (i) {
+        $(this).toggleClass("tinyfeed-home-dot-active", i === page);
+    });
+}
+
+// นับโทเคนด้วย tokenizer ของ ST (มี fallback ประมาณ chars/4 ถ้าเวอร์ชันไม่มี)
+function tinyTokenCount(text) {
+    text = String(text || "");
+    if (!text) return 0;
+    try {
+        const ctx = getContext();
+        if (typeof ctx.getTokenCount === "function") {
+            const n = ctx.getTokenCount(text);
+            if (typeof n === "number" && n >= 0) return n;
+        }
+    } catch (e) { /* fallback */ }
+    return Math.ceil(text.length / 4);
+}
+
+// โทเคนของข้อมูลแต่ละแอปที่จะถูกส่งเข้า prompt (ประมาณการ) + รวม
+function tokenDashboardData() {
+    const N = 9999;
+    const rows = [
+        { label: "TinyFeed", icon: "fa-hashtag", color: "#1d9bf0", text: buildAppBlocks({ feed: true, comments: true, count: N }).join("\n") },
+        { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b", text: buildAppBlocks({ news: true, count: N }).join("\n") },
+        { label: "TinyConnect", icon: "fa-comment-dots", color: "#22c55e", text: buildAppBlocks({ connect: true, count: N }).join("\n") },
+        { label: "TinyStream", icon: "fa-video", color: "#a855f7", text: buildAppBlocks({ stream: true, count: N }).join("\n") },
+        { label: "TinyMemo", icon: "fa-calendar-check", color: "#f59e0b", text: buildAppBlocks({ memo: true, count: N }).join("\n") },
+        { label: "TinyForum", icon: "fa-comments", color: "#ef4444", text: buildAppBlocks({ forum: true, forumComments: true, count: N }).join("\n") },
+        { label: "คลังสื่อ", icon: "fa-images", color: "#ec4899", text: galleryPromptBlock() },
+    ].map((r) => ({ label: r.label, icon: r.icon, color: r.color, tokens: tinyTokenCount(r.text) }));
+    const total = rows.reduce((s, r) => s + r.tokens, 0);
+    return { rows, total };
+}
+
 function renderHomeWidgets() {
     const box = $("#tinyfeed-home-widgets");
     if (!box.length) return;
@@ -1659,6 +1898,20 @@ function renderHomeWidgets() {
         parts.push(`<div id="tinyfeed-widget-agenda" class="tinyfeed-widget tinyfeed-widget-agenda" data-app="memo">
             <div class="tinyfeed-widget-head"><i class="fa-solid fa-calendar-day"></i> กำหนดการ</div>
             ${rows}
+        </div>`);
+    }
+    if (getSetting("widgetTokens")) {
+        const d = tokenDashboardData();
+        const max = Math.max(1, ...d.rows.map((r) => r.tokens));
+        const trows = d.rows.filter((r) => r.tokens > 0).map((r) => `
+            <div class="tinyfeed-token-row">
+                <span class="tinyfeed-token-app"><i class="fa-solid ${r.icon}" style="color:${r.color}"></i> ${r.label}</span>
+                <span class="tinyfeed-token-bar"><span style="width:${Math.round(r.tokens / max * 100)}%;background:${r.color}"></span></span>
+                <span class="tinyfeed-token-num">${r.tokens.toLocaleString()}</span>
+            </div>`).join("") || `<div class="tinyfeed-widget-agenda-empty">ยังไม่มีข้อมูลที่ส่งออก</div>`;
+        parts.push(`<div id="tinyfeed-widget-tokens" class="tinyfeed-widget tinyfeed-widget-tokens">
+            <div class="tinyfeed-widget-head"><i class="fa-solid fa-gauge-high"></i> โทเคนที่ส่งออก (ประมาณ) · รวม <b>${d.total.toLocaleString()}</b></div>
+            ${trows}
         </div>`);
     }
     box.html(parts.join(""));
@@ -1712,11 +1965,30 @@ function getFeedData() {
 }
 
 // รายชื่อ NPC ประจำของแชทปัจจุบัน (ensure array สำหรับแชทเก่าที่ยังไม่มี field นี้)
-function getNpcs() {
-    const data = getFeedData();
-    if (!Array.isArray(data.npcs)) data.npcs = [];
-    return data.npcs;
+// NPC ผูกกับตัวละคร (charFile) — ย้ายจากเดิมที่ผูกกับแชท (migrate อัตโนมัติครั้งเดียว)
+function getNpcsStore() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    if (!extension_settings[extensionName].npcsByChar || typeof extension_settings[extensionName].npcsByChar !== "object") {
+        extension_settings[extensionName].npcsByChar = {};
+    }
+    return extension_settings[extensionName].npcsByChar;
 }
+function getNpcs() {
+    const store = getNpcsStore();
+    const key = getCharKey() || "__nochar__";
+    if (!Array.isArray(store[key])) {
+        // ย้าย NPC เดิมที่ผูกกับแชทนี้มาเป็นของตัวละคร (ครั้งเดียว)
+        let seed = [];
+        try {
+            const data = getFeedData();
+            if (Array.isArray(data.npcs) && data.npcs.length) seed = data.npcs.slice();
+        } catch (e) { /* ไม่มีแชท */ }
+        store[key] = seed;
+        if (seed.length) saveSettingsDebounced();
+    }
+    return store[key];
+}
+function saveNpcs() { saveSettingsDebounced(); }
 
 // TinyMemo: กำหนดการ + โน้ต/ความจำ (ensure array สำหรับแชทเก่า)
 function getAgenda() {
@@ -1824,7 +2096,7 @@ function getCurrentCharacter() {
 function getCharacterAvatar() {
     const char = getCurrentCharacter();
     if (!char) return "";
-    const override = (getSetting("charAvatarUrls") || {})[char.file];
+    const override = getCharProfile().avatarUrl;   // per-char (เว้นว่าง = ใช้รูปการ์ดจริง)
     if (override) return override;
     if (!char.file || char.file === "none") return "";
     return `/thumbnail?type=avatar&file=${encodeURIComponent(char.file)}`;
@@ -1961,18 +2233,150 @@ function renderNpcList() {
     $("#tinyfeed-npc-list").html(rows);
 }
 
-// ชื่อ persona ของผู้ใช้ปัจจุบัน
-function getUserName() {
-    try {
-        return getContext().name1 || "คุณ";
-    } catch (e) {
-        return "คุณ";
+// เติมค่าโปรไฟล์ (ผู้ใช้ผูก persona · ตัวละครผูกการ์ด)
+function populateProfileSettings() {
+    migrateLegacyAvatars();   // เผื่อ init รันก่อน persona พร้อม
+    const up = getUserProfile();
+    $("#tinyfeed-cfg-persona-name").text(getRawUserName());
+    $("#tinyfeed-cfg-user-avatar").val(up.avatarUrl);
+    $("#tinyfeed-cfg-user-username").val(up.username);
+    $("#tinyfeed-cfg-user-alias").val(up.alias);
+    $("#tinyfeed-cfg-user-primary").val(up.primary);
+
+    const char = getCurrentCharacter();
+    const cp = getCharProfile();
+    const charFields = $("#tinyfeed-cfg-char-avatar, #tinyfeed-cfg-char-username, #tinyfeed-cfg-char-alias, #tinyfeed-cfg-char-primary");
+    if (char) {
+        $("#tinyfeed-cfg-char-name").text(getRawCharName());
+        charFields.prop("disabled", false);
+        $("#tinyfeed-cfg-char-avatar").val(cp.avatarUrl);
+        $("#tinyfeed-cfg-char-username").val(cp.username);
+        $("#tinyfeed-cfg-char-alias").val(cp.alias);
+        $("#tinyfeed-cfg-char-primary").val(cp.primary);
+    } else {
+        $("#tinyfeed-cfg-char-name").text("(ไม่มีตัวละครในแชทนี้)");
+        charFields.prop("disabled", true).val("");
     }
+}
+
+// ===== Identity: โปรไฟล์ผูกกับ persona / char =====
+function getPersonaKey() {
+    try {
+        const ctx = getContext();
+        const file = ctx.user_avatar || (stScriptModule && stScriptModule.user_avatar);
+        if (file && file !== "none") return String(file);
+        if (ctx.name1) return "name:" + ctx.name1;
+    } catch (e) { /* fallback */ }
+    return "default";
+}
+function getCharKey() {
+    const char = getCurrentCharacter();
+    return (char && char.file) ? String(char.file) : "";
+}
+// ชื่อดิบ (จาก ST) — ก่อน override ด้วย username/alias
+function getRawUserName() {
+    try { return getContext().name1 || "คุณ"; } catch (e) { return "คุณ"; }
+}
+function getRawCharName() {
+    const char = getCurrentCharacter();
+    return (char && char.name) || "ตัวละคร";
+}
+
+// เก็บโปรไฟล์ใน extension_settings (own object กัน mutate ค่า default)
+function getProfileStore(kind) {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    const key = kind === "char" ? "charProfiles" : "userProfiles";
+    if (!extension_settings[extensionName][key] || typeof extension_settings[extensionName][key] !== "object") {
+        extension_settings[extensionName][key] = {};
+    }
+    return extension_settings[extensionName][key];
+}
+function normProfile(p) {
+    p = p || {};
+    return {
+        avatarUrl: p.avatarUrl != null ? String(p.avatarUrl) : "",
+        username: p.username ? String(p.username) : "",
+        alias: p.alias ? String(p.alias) : "",
+        primary: p.primary === "alias" ? "alias" : "username",
+    };
+}
+function getUserProfile() { return normProfile(getProfileStore("user")[getPersonaKey()]); }
+function getCharProfile() { return normProfile(getProfileStore("char")[getCharKey()]); }
+function setProfileField(kind, field, value) {
+    const key = kind === "char" ? getCharKey() : getPersonaKey();
+    if (!key) return;
+    const store = getProfileStore(kind);
+    const cur = store[key] || {};
+    cur[field] = value;
+    store[key] = cur;
+    saveSettingsDebounced();
+}
+
+// ย้ายรูป override เก่า (global userAvatarUrl / charAvatarUrls รายไฟล์) เข้าโปรไฟล์ใหม่ ครั้งเดียว
+// แล้วล้างค่าเก่า เพื่อไม่ให้เป็น fallback ค้าง (เว้นช่องว่าง = ใช้รูปโปรไฟล์จริง)
+function migrateLegacyAvatars() {
+    let changed = false;
+    // char: { <file>: url } → charProfiles[<file>].avatarUrl (ปลอดภัยทุกเวลา — คีย์เป็นไฟล์)
+    const legacyChar = getSetting("charAvatarUrls");
+    if (legacyChar && typeof legacyChar === "object" && Object.keys(legacyChar).length) {
+        const store = getProfileStore("char");
+        for (const file of Object.keys(legacyChar)) {
+            const url = legacyChar[file];
+            if (!url) continue;
+            const cur = store[file] || {};
+            if (!cur.avatarUrl) { cur.avatarUrl = url; store[file] = cur; }
+        }
+        setSetting("charAvatarUrls", {});
+        changed = true;
+    }
+    // user: global → persona ปัจจุบัน (ทำเฉพาะเมื่อรู้ persona จริง กัน migrate ผิดคีย์)
+    const legacyUser = getSetting("userAvatarUrl");
+    if (legacyUser) {
+        const key = getPersonaKey();
+        if (key && key !== "default") {
+            const store = getProfileStore("user");
+            const cur = store[key] || {};
+            if (!cur.avatarUrl) { cur.avatarUrl = legacyUser; store[key] = cur; }
+            setSetting("userAvatarUrl", "");
+            changed = true;
+        }
+    }
+    if (changed) saveSettingsDebounced();
+}
+
+// ชื่อที่แอปใช้แสดง = username/alias ที่เลือกเป็นหลัก · ไม่ตั้ง = ชื่อดิบ
+function getUserName() {
+    const p = getUserProfile();
+    const primary = (p.primary === "alias" ? p.alias : p.username).trim();
+    return primary || getRawUserName();
+}
+function getCharName() {
+    const p = getCharProfile();
+    const primary = (p.primary === "alias" ? p.alias : p.username).trim();
+    return primary || getRawCharName();
+}
+
+// เซ็ตชื่อทั้งหมดของผู้ใช้/ตัวละคร (username + alias + ชื่อดิบ) สำหรับจับคู่แทนที่ด้วยรูปโปรไฟล์
+function userNameSet() {
+    const p = getUserProfile();
+    return [p.username, p.alias, getRawUserName()].map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+}
+function charNameSet() {
+    const p = getCharProfile();
+    return [p.username, p.alias, getRawCharName()].map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+}
+function nameMatchesUser(name) {
+    const n = String(name || "").trim().toLowerCase();
+    return !!n && userNameSet().includes(n);
+}
+function nameMatchesChar(name) {
+    const n = String(name || "").trim().toLowerCase();
+    return !!n && charNameSet().includes(n);
 }
 
 // URL avatar ของ persona ผู้ใช้ ถ้าไม่ได้คืน "" แล้วให้ fallback เป็น anon
 function getUserAvatar() {
-    const override = getSetting("userAvatarUrl");
+    const override = getUserProfile().avatarUrl;   // per-persona (เว้นว่าง = ใช้รูป persona จริง)
     if (override) return override;   // ลิงก์ภายนอกจาก config
     try {
         const ctx = getContext();
@@ -2023,7 +2427,10 @@ function makeAvatar(item) {
     } else if (!src && item.isUser) {
         src = getUserAvatar();
     } else if (!src) {
-        src = getNpcAvatar(item.author);   // NPC ที่อยู่ในรายชื่อประจำ + มีลิงก์รูป
+        // ชื่อที่ตรงกับ username/alias ของเรา/ตัวละครหลัก → แทนที่ด้วยรูปโปรไฟล์นั้น
+        if (nameMatchesUser(item.author)) src = getUserAvatar();
+        else if (nameMatchesChar(item.author)) src = getCharacterAvatar();
+        else src = getNpcAvatar(item.author);   // NPC ที่อยู่ในรายชื่อประจำ + มีลิงก์รูป
     }
     if (src) {
         const safeAuthor = String(item.author || "?").replace(/"/g, "");
@@ -2633,7 +3040,7 @@ async function buildContextPreamble() {
         const chId = ctx.characterId;
         const card = (chId != null && ctx.characters) ? ctx.characters[chId] : null;
         const charLines = [];
-        if (char) charLines.push(`ชื่อ: ${char.name}`);
+        if (char) charLines.push(`ชื่อ: ${getCharName()}${getCharName() !== getRawCharName() ? ` (การ์ด: ${getRawCharName()})` : ""}`);
         if (card) {
             if (card.description) charLines.push(`คำอธิบาย:\n${htmlToPlain(card.description)}`);
             if (card.personality) charLines.push(`บุคลิก:\n${htmlToPlain(card.personality)}`);
@@ -2763,7 +3170,7 @@ async function generateFeedPost(opts) {
     setPostGenerating(true);
     $("#tinyfeed-feed-list").prepend(`<div id="tinyfeed-feed-skel">${skeletonCardHtml()}</div>`);
 
-    const charName = char.name || "ตัวละคร";
+    const charName = getCharName();
 
     // 6.5: รายชื่อ NPC ประจำ → คุมให้ AI เลือกผู้โพสต์จากลิสต์
     const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
@@ -2910,7 +3317,7 @@ async function generateCommentReply(postId) {
     const post = getFeedData().feed.find((p) => p.id === postId);
     if (!post) return;
     const char = getCurrentCharacter();
-    const charName = (char && char.name) || "ตัวละคร";
+    const charName = getCharName();
 
     const thread = post.comments.slice(-6)
         .map((c) => `- ${c.author}: ${htmlToPlain(c.text)}`).join("\n");
@@ -2941,7 +3348,7 @@ async function runInitialComments(post, mode) {
     const ctx = getContext();
     if (typeof ctx.generateQuietPrompt !== "function") return 0;
     const char = getCurrentCharacter();
-    const charName = (char && char.name) || "ตัวละคร";
+    const charName = getCharName();
 
     let countLine;
     if (mode === "fixed") {
@@ -3684,7 +4091,7 @@ async function generateForumThread(opts) {
     }
     const char = getCurrentCharacter();
     if (!char) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyForum"); return; }
-    const charName = char.name || "ตัวละคร";
+    const charName = getCharName();
     isForumBusy = true;
     const btn = $("#tinyfeed-forum-generate");
     btn.addClass("tinyfeed-generating").prop("disabled", true);
@@ -3738,7 +4145,7 @@ async function loadForumComments(threadId, opts) {
         return;
     }
     const char = getCurrentCharacter();
-    const charName = (char && char.name) || "ตัวละคร";
+    const charName = getCharName();
     isForumBusy = true;
     const btn = $(`.tinyfeed-forum-loadmore[data-id="${threadId}"]`);
     btn.addClass("tinyfeed-generating").prop("disabled", true);
@@ -4235,7 +4642,7 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank"];
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop"];
 function saveLastScreen() {
     try {
         const data = getFeedData();
@@ -4313,20 +4720,31 @@ function closeDetail() {
 // ===== จัดกลุ่มหน้า settings: ตั้งค่าเครื่อง vs ตั้งค่าแอป =====
 const SETTINGS_LAYOUT = [
     {
-        head: "⚙️ ตั้งค่าเครื่อง",
-        titles: ["ปรับแต่งหน้าตา", "การแจ้งเตือน", "ทักเชิงรุก (ตัวละครทักเอง)", "โมเดล / API", "วอลเปเปอร์", "รูปโปรไฟล์", "NPC ประจำ (แชทนี้)", "แทรกฟีดเข้าประวัติแชท"],
+        head: "⚙️ ทั่วไป (General)",
+        titles: ["การแจ้งเตือน", "ทักเชิงรุก (ตัวละครทักเอง)"],
     },
     {
-        head: "📱 TinyFeed",
-        titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร"],
+        head: "🎨 ธีม & CSS",
+        titles: ["ปรับแต่งหน้าตา", "วอลเปเปอร์"],
     },
-    { head: "💬 TinyConnect", titles: ["TinyConnect (แชต)"] },
-    { head: "🎥 TinyStream", titles: ["TinyStream (ไลฟ์สตรีม)"] },
-    { head: "📅 TinyMemo", titles: ["TinyMemo (กำหนดการ + โน้ต)"] },
-    { head: "🗣️ TinyForum", titles: ["TinyForum (เว็บบอร์ด)"] },
-    { head: "🖼️ TinyGallery", titles: ["TinyGallery (คลังรูป + สติกเกอร์)"] },
-    { head: "🏦 TinyBank", titles: ["TinyBank (ธนาคาร)"] },
-    { head: "🧩 Prompt (ขั้นสูง)", titles: ["Prompt (ขั้นสูง)"] },
+    {
+        head: "👤 ตัวละคร (Profile & NPC)",
+        titles: ["รูปโปรไฟล์", "NPC ประจำ (ตัวละครนี้)"],
+    },
+    {
+        head: "💰 การเงิน",
+        titles: ["TinyBank (ธนาคาร)"],
+    },
+    {
+        head: "📱 ตั้งค่าเฉพาะแอป",
+        titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร",
+            "TinyConnect (แชต)", "TinyStream (ไลฟ์สตรีม)", "TinyMemo (กำหนดการ + โน้ต)",
+            "TinyForum (เว็บบอร์ด)", "TinyGallery (คลังรูป + สติกเกอร์)"],
+    },
+    {
+        head: "🔧 ตั้งค่าขั้นสูง",
+        titles: ["โมเดล / API", "แทรกฟีดเข้าประวัติแชท", "Prompt (ขั้นสูง)"],
+    },
 ];
 
 // เรียงกลุ่ม settings ใหม่ + ใส่หัวข้อใหญ่คั่น (ทำครั้งเดียว)
@@ -4363,7 +4781,10 @@ function isSettingsOpen() {
 // เติมค่าปัจจุบันลงในฟอร์ม settings
 function populateSettings() {
     $("#tinyfeed-cfg-wallpaper").val(getSetting("wallpaperUrl") || "");
-    $("#tinyfeed-cfg-user-avatar").val(getSetting("userAvatarUrl") || "");
+    const wpo = parseInt(getSetting("wallpaperOverlay"), 10);
+    $("#tinyfeed-cfg-wp-overlay").val(Number.isFinite(wpo) ? wpo : 45);
+    $("#tinyfeed-wp-overlay-val").text(`${Number.isFinite(wpo) ? wpo : 45}%`);
+    populateProfileSettings();
 
     // ปรับแต่งหน้าตา
     renderAccentSwatches();
@@ -4375,18 +4796,12 @@ function populateSettings() {
     $("#tinyfeed-cfg-themed-home").prop("checked", Boolean(getSetting("themedHomeBg")));
     $("#tinyfeed-cfg-widget-clock").prop("checked", Boolean(getSetting("widgetClock")));
     $("#tinyfeed-cfg-widget-agenda").prop("checked", Boolean(getSetting("widgetAgenda")));
+    $("#tinyfeed-cfg-widget-tokens").prop("checked", Boolean(getSetting("widgetTokens")));
+    const wop = parseInt(getSetting("widgetOpacity"), 10);
+    $("#tinyfeed-cfg-widget-opacity").val(Number.isFinite(wop) ? wop : 82);
+    $("#tinyfeed-widget-opacity-val").text(`${Number.isFinite(wop) ? wop : 82}%`);
     $("#tinyfeed-cfg-customcss").val(getSetting("customCss") || "");
 
-    const char = getCurrentCharacter();
-    const charInput = $("#tinyfeed-cfg-char-avatar");
-    if (char) {
-        const map = getSetting("charAvatarUrls") || {};
-        $("#tinyfeed-cfg-char-name").text(char.name || "ตัวละคร");
-        charInput.prop("disabled", false).val(map[char.file] || "");
-    } else {
-        $("#tinyfeed-cfg-char-name").text("(ไม่มีตัวละครในแชทนี้)");
-        charInput.prop("disabled", true).val("");
-    }
 
     $("#tinyfeed-cfg-likes-min").val(getSetting("likesMin"));
     $("#tinyfeed-cfg-likes-max").val(getSetting("likesMax"));
@@ -4430,6 +4845,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-connect-tokens").val(getSetting("connectTokens"));
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
+    $("#tinyfeed-cfg-connect-slip").prop("checked", Boolean(getSetting("connectSlipEnabled")));
 
     populateApiProfiles();
     $("#tinyfeed-cfg-api-context").val(getSetting("apiContextMessages"));
@@ -4468,6 +4884,7 @@ function populateSettings() {
     galleryCfgPage = 0;
     renderGalleryCfgAlbums();
     $("#tinyfeed-cfg-bank-currency").val(getSetting("bankCurrency") || "฿");
+    $("#tinyfeed-cfg-bank-currency-pos").val(getSetting("bankCurrencyAfter") ? "after" : "before");
     $("#tinyfeed-cfg-donate-enabled").prop("checked", Boolean(getSetting("streamDonateEnabled")));
     $("#tinyfeed-cfg-bank-donate-max").val(getSetting("bankDonateMax"));
     renderDonateTiers();
@@ -4523,11 +4940,12 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
         closeCharPicker();
+        closeSlipModal();
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -4604,6 +5022,13 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-app-icon", function () {
             openApp($(this).data("app"));
         });
+        // เปลี่ยนหน้าโฮม: กดจุด / เลื่อน pager
+        $(document).on("click", ".tinyfeed-home-dot", function () {
+            const pager = document.getElementById("tinyfeed-home-pager");
+            const page = parseInt($(this).data("page"), 10) || 0;
+            if (pager) pager.scrollTo({ left: page * pager.clientWidth, behavior: "smooth" });
+        });
+        $(document).on("scroll", "#tinyfeed-home-pager", updateHomeDots);
         // วิดเจ็ตมินิกำหนดการ → เปิด TinyMemo
         $(document).on("click", "#tinyfeed-widget-agenda", function () {
             openApp("memo");
@@ -4659,6 +5084,17 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-widget-agenda", function () {
             setSetting("widgetAgenda", $(this).prop("checked"));
             if (currentApp === "home") renderHomeWidgets();
+        });
+        $(document).on("change", "#tinyfeed-cfg-widget-tokens", function () {
+            setSetting("widgetTokens", $(this).prop("checked"));
+            if (currentApp === "home") renderHomeWidgets();
+        });
+        $(document).on("input", "#tinyfeed-cfg-widget-opacity", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 82;
+            setSetting("widgetOpacity", v);
+            $("#tinyfeed-widget-opacity-val").text(`${v}%`);
+            applyAppearance();
         });
         $(document).on("input", "#tinyfeed-cfg-customcss", function () {
             setSetting("customCss", $(this).val());
@@ -4841,6 +5277,14 @@ jQuery(async () => {
             if (e.key === "Enter") { e.preventDefault(); bankManualTxn("in"); }
         });
 
+        // ===== TinyShop: เพิ่ม/ซื้อ/ลบสินค้า =====
+        $(document).on("click", "#tinyfeed-shop-add", addShopItem);
+        $(document).on("click", ".tinyfeed-shop-buy", function () { buyShopItem(String($(this).data("id"))); });
+        $(document).on("click", ".tinyfeed-shop-del", function (e) {
+            e.stopPropagation();
+            deleteShopItem(String($(this).closest(".tinyfeed-shop-item").data("id")));
+        });
+
         // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
         $(document).on("click", ".tinyfeed-gallery-tab", function () {
             switchGalleryTab($(this).data("gtab"));
@@ -4896,6 +5340,14 @@ jQuery(async () => {
         });
         $(document).on("click", "#tinyfeed-connect-image", function () {
             openGalleryPicker("image", (token) => sendConnectMessage(token));
+        });
+        // สลิปโอนเงินในแชท
+        $(document).on("click", "#tinyfeed-connect-slip", openSlipModal);
+        $(document).on("click", "#tinyfeed-slip-close", closeSlipModal);
+        $(document).on("click", "#tinyfeed-slip-modal", function (e) { if (e.target === this) closeSlipModal(); });
+        $(document).on("click", "#tinyfeed-slip-send", sendUserSlip);
+        $(document).on("keydown", "#tinyfeed-slip-amount, #tinyfeed-slip-note", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); sendUserSlip(); }
         });
         $(document).on("click", "#tinyfeed-stream-sticker", function () {
             openGalleryPicker("sticker", (token) => sendStreamComment(token));
@@ -5104,20 +5556,39 @@ jQuery(async () => {
             setSetting("wallpaperUrl", $(this).val().trim());
             applyWallpaper();
         });
-        // ลิงก์รูปผู้ใช้ (override) — พิมพ์แล้วอัปเดตฟีดทันที
+        $(document).on("input", "#tinyfeed-cfg-wp-overlay", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 45;
+            setSetting("wallpaperOverlay", v);
+            $("#tinyfeed-wp-overlay-val").text(`${v}%`);
+            applyWallpaper();
+        });
+        // ===== โปรไฟล์ผู้ใช้ (ผูก persona) =====
         $(document).on("input", "#tinyfeed-cfg-user-avatar", function () {
-            setSetting("userAvatarUrl", $(this).val().trim());
+            setProfileField("user", "avatarUrl", $(this).val().trim());
             renderFeed();
         });
-        // ลิงก์รูปตัวละคร (override รายตัว keyed by ไฟล์ avatar)
+        $(document).on("input", "#tinyfeed-cfg-user-username", function () {
+            setProfileField("user", "username", $(this).val()); renderFeed();
+        });
+        $(document).on("input", "#tinyfeed-cfg-user-alias", function () {
+            setProfileField("user", "alias", $(this).val()); renderFeed();
+        });
+        $(document).on("change", "#tinyfeed-cfg-user-primary", function () {
+            setProfileField("user", "primary", $(this).val()); renderFeed();
+        });
+        // ===== โปรไฟล์ตัวละคร (ผูกการ์ด) =====
         $(document).on("input", "#tinyfeed-cfg-char-avatar", function () {
-            const char = getCurrentCharacter();
-            if (!char) return;
-            const map = Object.assign({}, getSetting("charAvatarUrls"));
-            const val = $(this).val().trim();
-            if (val) map[char.file] = val; else delete map[char.file];
-            setSetting("charAvatarUrls", map);
-            renderFeed();
+            setProfileField("char", "avatarUrl", $(this).val().trim()); renderFeed();
+        });
+        $(document).on("input", "#tinyfeed-cfg-char-username", function () {
+            setProfileField("char", "username", $(this).val()); renderFeed();
+        });
+        $(document).on("input", "#tinyfeed-cfg-char-alias", function () {
+            setProfileField("char", "alias", $(this).val()); renderFeed();
+        });
+        $(document).on("change", "#tinyfeed-cfg-char-primary", function () {
+            setProfileField("char", "primary", $(this).val()); renderFeed();
         });
         // ช่วงไลค์เริ่มต้นของโพสต์ AI (clamp ให้ >=0 และ max>=min)
         $(document).on("input", "#tinyfeed-cfg-likes-min", function () {
@@ -5141,23 +5612,23 @@ jQuery(async () => {
         // 6.5: รายชื่อ NPC ประจำ (ผูกกับแชท)
         $(document).on("click", "#tinyfeed-npc-add", function () {
             getNpcs().push({ name: "", avatar: "" });
-            saveFeedData();
+            saveNpcs();
             renderNpcList();
         });
         $(document).on("input", ".tinyfeed-npc-name", function () {
             const i = $(this).closest(".tinyfeed-npc-row").data("index");
             const npcs = getNpcs();
-            if (npcs[i]) { npcs[i].name = $(this).val(); saveFeedData(); renderFeed(); }
+            if (npcs[i]) { npcs[i].name = $(this).val(); saveNpcs(); renderFeed(); }
         });
         $(document).on("input", ".tinyfeed-npc-avatar", function () {
             const i = $(this).closest(".tinyfeed-npc-row").data("index");
             const npcs = getNpcs();
-            if (npcs[i]) { npcs[i].avatar = $(this).val().trim(); saveFeedData(); renderFeed(); }
+            if (npcs[i]) { npcs[i].avatar = $(this).val().trim(); saveNpcs(); renderFeed(); }
         });
         $(document).on("click", ".tinyfeed-npc-del", function () {
             const i = $(this).closest(".tinyfeed-npc-row").data("index");
             const npcs = getNpcs();
-            if (npcs[i]) { npcs.splice(i, 1); saveFeedData(); renderNpcList(); renderFeed(); }
+            if (npcs[i]) { npcs.splice(i, 1); saveNpcs(); renderNpcList(); renderFeed(); }
         });
 
         // ตั้งค่าล่วงหน้าฟีเจอร์อนาคต (เก็บค่าไว้ก่อน)
@@ -5310,6 +5781,9 @@ jQuery(async () => {
             setSetting("connectSplitBubbles", $(this).prop("checked"));
             if (currentApp === "connect" && isConnectThreadOpen()) renderThread();
         });
+        $(document).on("change", "#tinyfeed-cfg-connect-slip", function () {
+            setSetting("connectSlipEnabled", $(this).prop("checked"));
+        });
 
         // Phase 2: token + คำสั่งเสริม
         $(document).on("input", "#tinyfeed-cfg-post-tokens", function () {
@@ -5438,6 +5912,12 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-bank-currency", function () {
             setSetting("bankCurrency", String($(this).val() || "฿").trim() || "฿");
             if (currentApp === "bank") renderBank();
+            if (currentApp === "shop") renderShop();
+        });
+        $(document).on("change", "#tinyfeed-cfg-bank-currency-pos", function () {
+            setSetting("bankCurrencyAfter", $(this).val() === "after");
+            if (currentApp === "bank") renderBank();
+            if (currentApp === "shop") renderShop();
         });
         $(document).on("change", "#tinyfeed-cfg-donate-enabled", function () {
             setSetting("streamDonateEnabled", $(this).prop("checked"));
