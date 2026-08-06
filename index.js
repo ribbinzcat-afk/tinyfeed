@@ -150,6 +150,14 @@ const defaultSettings = {
     crossAppStream: true,         // ไลฟ์ TinyStream
     crossAppMemo: false,          // กำหนดการ/โน้ต TinyMemo
     crossAppForum: false,         // กระทู้ TinyForum
+    // ── ทริกเกอร์ด้วยคีย์เวิร์ด: เมื่อโหมด auto ของแอปตั้งเป็น "keyword" ──
+    // เจอคำเหล่านี้ในข้อความ RP ล่าสุด → สั่งแอปนั้นสร้างเนื้อหา (มี cooldown กันถี่)
+    // ฟรี ทำงานฝั่งเบราว์เซอร์ ไม่มีดีเลย์/ไม่ต้องโหลดโมเดล (embedding เป็นแผนอนาคต)
+    feedKeywords: "โพสต์, ลงฟีด, ลงรูป, ลงสตอรี่, เล่นโซเชียล, ถ่ายรูปลง, อัปรูป, story, post, feed",
+    newsKeywords: "ข่าว, อ่านข่าว, เปิดข่าว, ดูข่าว, ประกาศ, มีข่าวว่า, news, breaking",
+    memoKeywords: "จดไว้, โน้ตไว้, เตือนความจำ, กันลืม, นัดหมาย, กำหนดการ, ตารางงาน, memo, reminder, todo",
+    forumKeywords: "กระทู้, เว็บบอร์ด, พันทิป, ตั้งกระทู้, ในบอร์ด, ชาวเน็ต, forum, pantip",
+    keywordCooldownSec: 45,       // เว้นระยะขั้นต่ำต่อแอป (วินาที) กันทริกเกอร์ถี่เกิน
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -550,7 +558,7 @@ async function toggleStream() {
             const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สดในแอปสตรีมมิ่ง ` +
                 (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
                 `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่องตอนนี้ ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
-            const raw = await tinyGenerate(q, 60);
+            const raw = await tinyGenerate(q, 60, "stream");
             title = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
         }
         s.title = title || "ไลฟ์สด";
@@ -660,7 +668,7 @@ async function loadLiveComments(opts) {
             context: crossAppContext("stream"),
             recent: recent ? `\nคอมเมนต์ล่าสุด (อย่าซ้ำ):\n${recent}\n` : "",
         });
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300), "stream");
         // กรองไม่ให้สตรีมเมอร์/ผู้ใช้โผล่เป็นผู้ชมสุ่ม
         const list = parseCommentLines(raw, streamer.name)
             .filter((c) => {
@@ -721,7 +729,7 @@ async function streamerSpeak(kind, opts) {
             context: crossAppContext("stream"),
             transcript: transcript ? `\nแชตล่าสุด:\n${transcript}\n` : "",
         });
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("streamTokens"), 10) || 300), "stream");
         let line = stripWrapBrackets(stripReasoning(raw).trim());
         const esc = speaker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         line = line.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
@@ -756,7 +764,7 @@ async function fillStreamAiTitle() {
         const q = `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ${streamer.name} กำลังจะไลฟ์สด ` +
             (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
             `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่อง ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
-        const raw = await tinyGenerate(q, 60);
+        const raw = await tinyGenerate(q, 60, "stream");
         const t = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
         if (t) $("#tinyfeed-stream-title-input").val(t);
     } catch (e) {
@@ -1625,7 +1633,7 @@ async function generateConnectReply() {
         isConnectReplying = true;
         renderThread();
         try {
-            const raw = await tinyGenerate(qg, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200));
+            const raw = await tinyGenerate(qg, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200), "connect");
             const list = parseCommentLines(raw, group.members[0] || name, "MSG")
                 .filter((c) => c.author.trim().toLowerCase() !== you.trim().toLowerCase());
             if (list.length) {
@@ -1663,7 +1671,7 @@ async function generateConnectReply() {
     isConnectReplying = true;
     renderThread();   // โชว์ "กำลังพิมพ์…"
     try {
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200), "connect");
         let reply = stripReasoning(raw).trim();
         // ถ้าโมเดลห่อด้วย [... Message: ข้อความ] ให้ดึงเฉพาะเนื้อในออกมา
         const wrapped = [...reply.matchAll(/\[[^\]]*?Message:\s*([^\]]+)\]/gi)];
@@ -1864,20 +1872,151 @@ function tinyTokenCount(text) {
     return Math.ceil(text.length / 4);
 }
 
-// โทเคนของข้อมูลแต่ละแอปที่จะถูกส่งเข้า prompt (ประมาณการ) + รวม
+// ป้ายกำกับ/ไอคอน/สีของแต่ละแอป (ใช้ร่วมทั้ง dashboard แทรก + dashboard เจน)
+const APP_META = {
+    feed: { label: "TinyFeed", icon: "fa-hashtag", color: "#1d9bf0" },
+    news: { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b" },
+    connect: { label: "TinyConnect", icon: "fa-comment-dots", color: "#22c55e" },
+    stream: { label: "TinyStream", icon: "fa-video", color: "#a855f7" },
+    memo: { label: "TinyMemo", icon: "fa-calendar-check", color: "#14b8a6" },
+    forum: { label: "TinyForum", icon: "fa-comments", color: "#ef4444" },
+    gallery: { label: "คลังสื่อ", icon: "fa-images", color: "#ec4899" },
+};
+
+// ── สถิติโทเคน "จริง" ณ จุดส่ง (อัปเดตตอน inject/generate เกิดขึ้นจริง) ──
+let lastGenTokens = null;      // { app,label,icon,color,mode,context,prompt,crossApp,gallery,output,ts }
+const lastGenByApp = {};       // app → เหมือน lastGenTokens (เก็บครั้งล่าสุดของแต่ละแอป)
+
+// เก็บ breakdown โทเคนของการเจนในเครื่อง (เรียกใน tinyGenerate ก่อนยิงจริง)
+// preamble = ข้อความ context ที่เราสร้างเอง (โหมด profile แยก) หรือ null = ST แนบ context ให้เอง
+function recordGenTokens(app, prompt, maxTokens, preamble) {
+    try {
+        const promptStr = String(prompt || "");
+        // แยกก้อนย่อยด้วยฟังก์ชันเดิม (deterministic ตาม settings/data → ตรงกับที่ฝังในพรอมป์จริง)
+        const crossStr = app ? crossAppContext(app) : "";
+        const crossTok = (crossStr && promptStr.includes("[เนื้อหาจากแอปอื่นในโทรศัพท์")) ? tinyTokenCount(crossStr) : 0;
+        const galStr = galleryPromptBlock();
+        const galTok = (galStr && promptStr.includes("[คลังสื่อในโทรศัพท์")) ? tinyTokenCount(galStr) : 0;
+        const totalPrompt = tinyTokenCount(promptStr);
+        const promptOnly = Math.max(0, totalPrompt - crossTok - galTok);
+        const context = preamble != null ? tinyTokenCount(preamble) : null;   // null = ST แนบเอง (วัดไม่ได้)
+        const meta = APP_META[app] || { label: "การเจน", icon: "fa-wand-magic-sparkles", color: "#8b5cf6" };
+        const rec = {
+            app: app || "", label: meta.label, icon: meta.icon, color: meta.color,
+            mode: context != null ? "external" : "main",
+            context, prompt: promptOnly, crossApp: crossTok, gallery: galTok,
+            output: Math.max(0, parseInt(maxTokens, 10) || 0), ts: Date.now(),
+        };
+        lastGenTokens = rec;
+        if (app) lastGenByApp[app] = rec;
+    } catch (e) { /* ห้ามพังการเจน */ }
+}
+
+// want-object ของการแทรกเข้าแชทหลัก (ใช้ร่วม updateChatInjection + dashboard ให้ตรงกันเป๊ะ)
+function injectWant() {
+    const mode = getSetting("injectMode") || "off";
+    return {
+        feed: ["posts", "posts_comments", "posts_comments_news", "both"].includes(mode),
+        comments: ["posts_comments", "posts_comments_news"].includes(mode),
+        news: ["news", "posts_comments_news", "both"].includes(mode),
+        connect: Boolean(getSetting("injectConnect")),
+        stream: Boolean(getSetting("injectStream")),
+        memo: Boolean(getSetting("injectMemo")),
+        forum: Boolean(getSetting("injectForum")),
+        forumComments: Boolean(getSetting("injectForumComments")),
+        count: Math.max(1, parseInt(getSetting("injectCount"), 10) || 5),
+    };
+}
+
+// ข้อความที่แทรกเข้าแชทหลักจริง (ใช้ทั้งตอน setExtensionPrompt และตอนนับโทเคน)
+function injectText() {
+    const w = injectWant();
+    if (!w.feed && !w.news && !w.connect && !w.stream && !w.memo && !w.forum) return "";
+    const blocks = buildAppBlocks(w);
+    return blocks.length
+        ? `[ข้อมูลจากโทรศัพท์ TinyPhone ที่ตัวละครรับรู้ได้ ใช้อ้างอิงในบทบาทได้ตามเหมาะสม]\n${blocks.join("\n\n")}`
+        : "";
+}
+
+// ── Dashboard ส่วน A: โทเคนที่ "ส่งเข้าแชทหลัก" ทุกข้อความ (ตรงกับ config แทรกจริง) ──
+function injectDashboard() {
+    const w = injectWant();
+    const on = w.feed || w.news || w.connect || w.stream || w.memo || w.forum;
+    const rows = [];
+    const add = (key, single) => {
+        const t = buildAppBlocks(Object.assign({ count: w.count }, single)).join("\n");
+        const tok = tinyTokenCount(t);
+        if (tok) { const m = APP_META[key]; rows.push({ key, label: m.label, icon: m.icon, color: m.color, tokens: tok }); }
+    };
+    if (w.feed) add("feed", { feed: true, comments: w.comments });
+    if (w.news) add("news", { news: true });
+    if (w.connect) add("connect", { connect: true });
+    if (w.stream) add("stream", { stream: true });
+    if (w.memo) add("memo", { memo: true });
+    if (w.forum) add("forum", { forum: true, forumComments: w.forumComments });
+    const total = tinyTokenCount(injectText());   // รวมจริง (มี header ครอบ)
+    return { rows, total, on, depth: Math.max(0, parseInt(getSetting("injectDepth"), 10) || 4) };
+}
+
+// รวมทั้งสองส่วนให้ผู้เรียก (widget) ใช้
 function tokenDashboardData() {
-    const N = 9999;
-    const rows = [
-        { label: "TinyFeed", icon: "fa-hashtag", color: "#1d9bf0", text: buildAppBlocks({ feed: true, comments: true, count: N }).join("\n") },
-        { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b", text: buildAppBlocks({ news: true, count: N }).join("\n") },
-        { label: "TinyConnect", icon: "fa-comment-dots", color: "#22c55e", text: buildAppBlocks({ connect: true, count: N }).join("\n") },
-        { label: "TinyStream", icon: "fa-video", color: "#a855f7", text: buildAppBlocks({ stream: true, count: N }).join("\n") },
-        { label: "TinyMemo", icon: "fa-calendar-check", color: "#f59e0b", text: buildAppBlocks({ memo: true, count: N }).join("\n") },
-        { label: "TinyForum", icon: "fa-comments", color: "#ef4444", text: buildAppBlocks({ forum: true, forumComments: true, count: N }).join("\n") },
-        { label: "คลังสื่อ", icon: "fa-images", color: "#ec4899", text: galleryPromptBlock() },
-    ].map((r) => ({ label: r.label, icon: r.icon, color: r.color, tokens: tinyTokenCount(r.text) }));
-    const total = rows.reduce((s, r) => s + r.tokens, 0);
-    return { rows, total };
+    return { inject: injectDashboard(), gen: lastGenTokens };
+}
+
+// วิดเจ็ตโทเคน 2 ส่วน: (A) ส่งเข้าแชทหลักทุกข้อความ · (B) การเจนในเครื่องครั้งล่าสุด
+function renderTokenWidget() {
+    const d = tokenDashboardData();
+
+    // ── ส่วน A: แทรกเข้าแชทหลัก ──
+    const inj = d.inject;
+    let secA;
+    if (!inj.on) {
+        secA = `<div class="tinyfeed-widget-agenda-empty">ปิดการแทรกเข้าแชทหลัก</div>`;
+    } else {
+        const max = Math.max(1, ...inj.rows.map((r) => r.tokens));
+        const bars = inj.rows.map((r) => `
+            <div class="tinyfeed-token-row">
+                <span class="tinyfeed-token-app"><i class="fa-solid ${r.icon}" style="color:${r.color}"></i> ${escapeText(r.label)}</span>
+                <span class="tinyfeed-token-bar"><span style="width:${Math.round(r.tokens / max * 100)}%;background:${r.color}"></span></span>
+                <span class="tinyfeed-token-num">${r.tokens.toLocaleString()}</span>
+            </div>`).join("") || `<div class="tinyfeed-widget-agenda-empty">ไม่มีข้อมูลให้แทรก</div>`;
+        secA = bars;
+    }
+
+    // ── ส่วน B: การเจนในเครื่องครั้งล่าสุด ──
+    const g = d.gen;
+    let secB;
+    if (!g) {
+        secB = `<div class="tinyfeed-widget-agenda-empty">ยังไม่ได้เจนข้อมูลในเครื่อง</div>`;
+    } else {
+        const ctxLabel = g.context == null ? "context (ST แนบเอง)" : `context ${g.context.toLocaleString()}`;
+        const inputTotal = (g.context || 0) + g.prompt + g.crossApp + g.gallery;
+        const chip = (label, val, color) => val
+            ? `<span class="tinyfeed-token-chip"><span class="tinyfeed-token-dot" style="background:${color}"></span>${label} <b>${val.toLocaleString()}</b></span>`
+            : "";
+        const chips = [
+            g.context == null
+                ? `<span class="tinyfeed-token-chip tinyfeed-token-chip-muted"><span class="tinyfeed-token-dot" style="background:#94a3b8"></span>${ctxLabel}</span>`
+                : chip("context", g.context, "#94a3b8"),
+            chip("prompt", g.prompt, "#38bdf8"),
+            chip("ข้ามแอป", g.crossApp, "#a855f7"),
+            chip("คลังสื่อ", g.gallery, "#ec4899"),
+        ].filter(Boolean).join("");
+        secB = `
+            <div class="tinyfeed-token-genhead">
+                <span><i class="fa-solid ${g.icon}" style="color:${g.color}"></i> ${escapeText(g.label)}</span>
+                <span class="tinyfeed-token-genmeta">อินพุต ~${inputTotal.toLocaleString()} · ตอบ ≤${g.output.toLocaleString()}</span>
+            </div>
+            <div class="tinyfeed-token-chips">${chips}</div>`;
+    }
+
+    return `<div id="tinyfeed-widget-tokens" class="tinyfeed-widget tinyfeed-widget-tokens">
+        <div class="tinyfeed-widget-head"><i class="fa-solid fa-arrow-right-to-bracket"></i> ส่งเข้าแชทหลัก · ทุกข้อความ${inj.on ? ` · รวม <b>${inj.total.toLocaleString()}</b>` : ""}</div>
+        ${secA}
+        <div class="tinyfeed-token-sep"></div>
+        <div class="tinyfeed-widget-head"><i class="fa-solid fa-wand-magic-sparkles"></i> เจนข้อมูลในเครื่อง · ครั้งล่าสุด</div>
+        ${secB}
+    </div>`;
 }
 
 function renderHomeWidgets() {
@@ -1901,18 +2040,7 @@ function renderHomeWidgets() {
         </div>`);
     }
     if (getSetting("widgetTokens")) {
-        const d = tokenDashboardData();
-        const max = Math.max(1, ...d.rows.map((r) => r.tokens));
-        const trows = d.rows.filter((r) => r.tokens > 0).map((r) => `
-            <div class="tinyfeed-token-row">
-                <span class="tinyfeed-token-app"><i class="fa-solid ${r.icon}" style="color:${r.color}"></i> ${r.label}</span>
-                <span class="tinyfeed-token-bar"><span style="width:${Math.round(r.tokens / max * 100)}%;background:${r.color}"></span></span>
-                <span class="tinyfeed-token-num">${r.tokens.toLocaleString()}</span>
-            </div>`).join("") || `<div class="tinyfeed-widget-agenda-empty">ยังไม่มีข้อมูลที่ส่งออก</div>`;
-        parts.push(`<div id="tinyfeed-widget-tokens" class="tinyfeed-widget tinyfeed-widget-tokens">
-            <div class="tinyfeed-widget-head"><i class="fa-solid fa-gauge-high"></i> โทเคนที่ส่งออก (ประมาณ) · รวม <b>${d.total.toLocaleString()}</b></div>
-            ${trows}
-        </div>`);
+        parts.push(renderTokenWidget());
     }
     box.html(parts.join(""));
     box.toggleClass("tinyfeed-hidden", parts.length === 0);
@@ -2585,38 +2713,12 @@ function galleryPromptBlock() {
 function updateChatInjection() {
     const ctx = getContext();
     if (typeof ctx.setExtensionPrompt !== "function") return;
-    const mode = getSetting("injectMode") || "off";
-    // โหมด: off | posts | news | posts_comments | posts_comments_news  ("both" เก่า = โพสต์+ข่าว)
-    const wantFeed = ["posts", "posts_comments", "posts_comments_news", "both"].includes(mode);
-    const wantComments = ["posts_comments", "posts_comments_news"].includes(mode);
-    const wantNews = ["news", "posts_comments_news", "both"].includes(mode);
-    const wantConnect = Boolean(getSetting("injectConnect"));
-    const wantStream = Boolean(getSetting("injectStream"));
-    const wantMemo = Boolean(getSetting("injectMemo"));
-    const wantForum = Boolean(getSetting("injectForum"));
-    const wantForumComments = Boolean(getSetting("injectForumComments"));
     const depth = Math.max(0, parseInt(getSetting("injectDepth"), 10) || 4);
-    const count = Math.max(1, parseInt(getSetting("injectCount"), 10) || 5);
-
-    if (!wantFeed && !wantNews && !wantConnect && !wantStream && !wantMemo && !wantForum) {
+    const text = injectText();   // "" เมื่อปิดทุกแหล่ง
+    if (!text) {
         ctx.setExtensionPrompt("tinyfeed_inject", "", 1, 0);   // เคลียร์
         return;
     }
-    const blocks = buildAppBlocks({
-        feed: wantFeed,
-        comments: wantComments,
-        news: wantNews,
-        connect: wantConnect,
-        stream: wantStream,
-        memo: wantMemo,
-        forum: wantForum,
-        forumComments: wantForumComments,
-        count,
-    });
-
-    const text = blocks.length
-        ? `[ข้อมูลจากโทรศัพท์ TinyPhone ที่ตัวละครรับรู้ได้ ใช้อ้างอิงในบทบาทได้ตามเหมาะสม]\n${blocks.join("\n\n")}`
-        : "";
     // position 1 = IN_CHAT, role 0 = SYSTEM
     ctx.setExtensionPrompt("tinyfeed_inject", text, 1, depth, false, 0);
 }
@@ -3010,6 +3112,24 @@ function renderPromptEditors() {
     $("#tinyfeed-prompt-list").html(html);
 }
 
+// รายการ textarea คีย์เวิร์ดต่อแอป (ในกลุ่ม "ทริกเกอร์ด้วยคีย์เวิร์ด")
+const KEYWORD_DEFS = [
+    { app: "feed", label: "TinyFeed (โพสต์ลงฟีด)", setting: "feedKeywords" },
+    { app: "news", label: "ข่าวสาร", setting: "newsKeywords" },
+    { app: "memo", label: "TinyMemo (โน้ต/กำหนดการ)", setting: "memoKeywords" },
+    { app: "forum", label: "TinyForum (กระทู้)", setting: "forumKeywords" },
+];
+function renderKeywordEditors() {
+    const html = KEYWORD_DEFS.map((d) => {
+        const m = APP_META[d.app];
+        return `<div class="tinyfeed-kw-item">
+            <div class="tinyfeed-kw-label"><i class="fa-solid ${m.icon}" style="color:${m.color}"></i> ${escapeText(d.label)}</div>
+            <textarea class="tinyfeed-kw-text" data-app="${escapeAttr(d.app)}" rows="2" placeholder="เช่น: โพสต์, ลงรูป, story">${escapeText(getSetting(d.setting) || "")}</textarea>
+        </div>`;
+    }).join("");
+    $("#tinyfeed-keyword-list").html(html);
+}
+
 // ===== Phase 2: ชั้น generation รองรับ API แยก =====
 
 // สร้าง context เนื้อเรื่อง (ใช้เฉพาะตอนยิงไป profile แยก เพราะไม่มี context RP ติดไปให้)
@@ -3117,12 +3237,14 @@ async function buildContextPreamble() {
 }
 
 // ยิง generation — เลือกใช้ API หลัก หรือ connection profile แยก (มี fallback)
-async function tinyGenerate(prompt, maxTokens) {
+async function tinyGenerate(prompt, maxTokens, app) {
     const ctx = getContext();
     const profileId = getSetting("apiProfile");
     if (profileId && ctx.ConnectionManagerRequestService) {
         try {
-            const full = (await buildContextPreamble()) + prompt;
+            const preamble = await buildContextPreamble();
+            recordGenTokens(app, prompt, maxTokens, preamble);   // context วัดได้ (เราสร้างเอง)
+            const full = preamble + prompt;
             const res = await ctx.ConnectionManagerRequestService.sendRequest(profileId, full, maxTokens);
             const content = res && typeof res.content === "string" ? res.content : "";
             if (content) return content;
@@ -3131,7 +3253,8 @@ async function tinyGenerate(prompt, maxTokens) {
             console.error(`[${extensionName}] profile request ล้มเหลว fallback ไป API หลัก:`, e);
         }
     }
-    // API หลัก (generateQuietPrompt แนบ context RP ให้เอง)
+    // API หลัก (generateQuietPrompt แนบ context RP ให้เอง → phone วัด context ตรงนั้นไม่ได้)
+    recordGenTokens(app, prompt, maxTokens, null);
     return await ctx.generateQuietPrompt({ quietPrompt: prompt, responseLength: maxTokens });
 }
 
@@ -3208,7 +3331,7 @@ async function generateFeedPost(opts) {
     });
 
     try {
-        const raw = await tinyGenerate(quietPrompt, Math.max(1, parseInt(getSetting("postTokens"), 10) || 400));
+        const raw = await tinyGenerate(quietPrompt, Math.max(1, parseInt(getSetting("postTokens"), 10) || 400), "feed");
         if (genId !== feedGenId) return;   // ถูกยกเลิกระหว่างเจน → ทิ้งผล
         const parsed = parseGeneratedPost(raw, charName);
         const text = parsed.text;
@@ -3328,7 +3451,7 @@ async function generateCommentReply(postId) {
     isReplying = postId;
     openPostDetail(postId);   // โชว์ "กำลังพิมพ์…"
     try {
-        const raw = await tinyGenerate(q, 150);
+        const raw = await tinyGenerate(q, 150, "feed");
         const list = parseCommentLines(raw, charName);
         if (list.length) {
             post.comments.push(list[0]);
@@ -3360,7 +3483,7 @@ async function runInitialComments(post, mode) {
     const q = buildPrompt("feedInitialComments", {
         postText: htmlToPlain(post.text), author: post.author, roster: npcRosterLine(charName) + commentGuidanceLine(), count: countLine,
     });
-    const raw = await tinyGenerate(q, 300);
+    const raw = await tinyGenerate(q, 300, "feed");
     const comments = parseCommentLines(raw, charName)
         .filter((c) => c.author.trim().toLowerCase() !== String(post.author).trim().toLowerCase());
     if (comments.length) {
@@ -3461,7 +3584,7 @@ async function generateNews(opts) {
     });
 
     try {
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("newsTokens"), 10) || 500));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("newsTokens"), 10) || 500), "news");
         const parsed = parseGeneratedNews(raw);
         if (!parsed.title && !parsed.body) {
             if (!opts.silent) toastr.warning("AI ไม่ได้ส่งข่าวกลับมา ลองใหม่นะ", "TinyFeed");
@@ -3715,7 +3838,7 @@ async function scanMemo(opts) {
             (recentNotes ? `\nโน้ตที่มีอยู่แล้ว (อย่าจดซ้ำ):\n${recentNotes}\n` : "") +
             `\nตอบบรรทัดละรายการในรูปแบบนี้เท่านั้น (ตอบเฉพาะที่มีจริง):\n` +
             `ADD: <เมื่อไร> | <กำหนดการ>\nDONE: <หมายเลข>\nCANCEL: <หมายเลข>\nNOTE: <ข้อความ>`;
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("memoTokens"), 10) || 350));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("memoTokens"), 10) || 350), "memo");
         const parsed = parseMemoLines(raw);
 
         let added = 0, changed = 0, noted = 0;
@@ -4104,7 +4227,7 @@ async function generateForumThread(opts) {
             extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
             context: crossAppContext("forum"),
         });
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500), "forum");
         const s = stripReasoning(raw);
         const grab = (re) => { const m = s.match(re); return m ? m[1].trim() : ""; };
         let room = grab(/ROOM:\s*(.+)/i);
@@ -4166,7 +4289,7 @@ async function loadForumComments(threadId, opts) {
             existing: existing ? `\nคอมเมนต์ที่มีอยู่แล้ว (อ้างเลขเพื่อตอบกลับได้ อย่าเขียนซ้ำ):\n${existing}\n` : "",
             context: crossAppContext("forum"),
         });
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("forumTokens"), 10) || 500), "forum");
         const { tops, replies } = parseForumComments(raw, charName);
         let n = 0;
         for (const c of tops) { t.comments.push(makeForumComment(c.author, c.text, charName)); n++; }
@@ -4225,73 +4348,83 @@ async function aiDecidesToPost() {
 }
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
+// ── ทริกเกอร์ด้วยคีย์เวิร์ด ──
+const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords" };
+const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0 };
+
+function keywordListFor(app) {
+    return String(getSetting(KEYWORD_SETTING[app]) || "")
+        .split(/[,\n]/).map((k) => k.trim().toLowerCase()).filter(Boolean);
+}
+// ข้อความ RP ล่าสุด (ที่เพิ่งส่ง/รับ) ใช้จับคีย์เวิร์ด
+function lastRpText() {
+    try {
+        const c = getContext().chat;
+        if (Array.isArray(c) && c.length) return String(c[c.length - 1].mes || "");
+    } catch (e) { /* ข้าม */ }
+    return "";
+}
+// คืน true = เจอคีย์เวิร์ด + พ้น cooldown แล้ว (และจะจับเวลา cooldown ใหม่ทันที)
+function keywordShouldTrigger(app) {
+    const list = keywordListFor(app);
+    if (!list.length) return false;
+    const text = lastRpText().toLowerCase();
+    if (!text || !list.some((k) => text.includes(k))) return false;
+    const cd = Math.max(0, parseInt(getSetting("keywordCooldownSec"), 10) || 0) * 1000;
+    const now = Date.now();
+    if (now - (kwCooldownAt[app] || 0) < cd) return false;
+    kwCooldownAt[app] = now;
+    return true;
+}
+
 async function onChatMessage() {
     lastRpMsgTs = Date.now();   // มี RP activity → รีเซ็ตตัวจับเวลา idle
     if (isAutoBusy || isGenerating || isGeneratingNews) return;
     if (!getCurrentCharacter()) return;
 
-    const feedOn = getSetting("autoGenerate");
-    const newsOn = getSetting("newsAutoGenerate");
-    const memoOn = getSetting("memoAutoGenerate");
-    const forumOn = getSetting("forumAutoGenerate");
-    if (feedOn) autoMsgCount++;
-    if (newsOn) autoNewsCount++;
-    if (memoOn) autoMemoCount++;
-    if (forumOn) autoForumCount++;
+    // ลำดับความสำคัญ: ฟีด → เมโม → ฟอรัม → ข่าว (สร้างได้ทีละแอปต่อข้อความ กัน generate ซ้อน)
+    const apps = [
+        { on: "autoGenerate", mode: "autoGenerateMode", interval: "autoGenerateInterval", defInt: 10, kw: "feed",
+            bump: () => ++autoMsgCount, get: () => autoMsgCount, reset: () => { autoMsgCount = 0; },
+            decide: aiDecidesToPost, run: () => generateFeedPost({ notify: true, silent: true }) },
+        { on: "memoAutoGenerate", mode: "memoAutoMode", interval: "memoAutoInterval", defInt: 15, kw: "memo",
+            bump: () => ++autoMemoCount, get: () => autoMemoCount, reset: () => { autoMemoCount = 0; },
+            decide: aiDecidesMemo, run: () => scanMemo({ notify: true, silent: true }) },
+        { on: "forumAutoGenerate", mode: "forumAutoMode", interval: "forumAutoInterval", defInt: 20, kw: "forum",
+            bump: () => ++autoForumCount, get: () => autoForumCount, reset: () => { autoForumCount = 0; },
+            decide: aiDecidesToPost, run: () => generateForumThread({ notify: true, silent: true }) },
+        { on: "newsAutoGenerate", mode: "newsAutoMode", interval: "newsAutoInterval", defInt: 20, kw: "news",
+            bump: () => ++autoNewsCount, get: () => autoNewsCount, reset: () => { autoNewsCount = 0; },
+            decide: aiDecidesToPost, run: () => generateNews({ notify: true, silent: true }) },
+    ];
 
-    // โพสต์ฟีดก่อน (ถ้าถึงรอบ) — แอปอื่นรอรอบถัดไป กัน generate ซ้อนในทีเดียว
-    const feedInterval = Math.max(1, parseInt(getSetting("autoGenerateInterval"), 10) || 10);
-    if (feedOn && autoMsgCount >= feedInterval) {
-        autoMsgCount = 0;
-        isAutoBusy = true;
-        try {
-            if ((getSetting("autoGenerateMode") || "interval") === "ai") {
-                if (!(await aiDecidesToPost())) return;
-            }
-            await generateFeedPost({ notify: true, silent: true });
-        } finally { isAutoBusy = false; }
-        return;
+    // นับตัวนับก่อน (เฉพาะโหมด interval/ai) — คงพฤติกรรมเดิมที่ทุกแอปนับทุกข้อความ
+    for (const a of apps) {
+        if (!getSetting(a.on)) continue;
+        if ((getSetting(a.mode) || "interval") === "keyword") continue;
+        a.bump();
     }
 
-    // TinyMemo (กำหนดการ + ความจำ)
-    const memoInterval = Math.max(1, parseInt(getSetting("memoAutoInterval"), 10) || 15);
-    if (memoOn && autoMemoCount >= memoInterval) {
-        autoMemoCount = 0;
-        isAutoBusy = true;
-        try {
-            if ((getSetting("memoAutoMode") || "interval") === "ai") {
-                if (!(await aiDecidesMemo())) return;
-            }
-            await scanMemo({ notify: true, silent: true });
-        } finally { isAutoBusy = false; }
-        return;
-    }
-
-    // TinyForum (กระทู้)
-    const forumInterval = Math.max(1, parseInt(getSetting("forumAutoInterval"), 10) || 20);
-    if (forumOn && autoForumCount >= forumInterval) {
-        autoForumCount = 0;
-        isAutoBusy = true;
-        try {
-            if ((getSetting("forumAutoMode") || "interval") === "ai") {
-                if (!(await aiDecidesToPost())) return;
-            }
-            await generateForumThread({ notify: true, silent: true });
-        } finally { isAutoBusy = false; }
-        return;
-    }
-
-    // ข่าว
-    const newsInterval = Math.max(1, parseInt(getSetting("newsAutoInterval"), 10) || 20);
-    if (newsOn && autoNewsCount >= newsInterval) {
-        autoNewsCount = 0;
-        isAutoBusy = true;
-        try {
-            if ((getSetting("newsAutoMode") || "interval") === "ai") {
-                if (!(await aiDecidesToPost())) return;
-            }
-            await generateNews({ notify: true, silent: true });
-        } finally { isAutoBusy = false; }
+    for (const a of apps) {
+        if (!getSetting(a.on)) continue;
+        const mode = getSetting(a.mode) || "interval";
+        if (mode === "keyword") {
+            if (!keywordShouldTrigger(a.kw)) continue;
+            isAutoBusy = true;
+            try { await a.run(); } finally { isAutoBusy = false; }
+            return;
+        }
+        // interval / ai
+        const interval = Math.max(1, parseInt(getSetting(a.interval), 10) || a.defInt);
+        if (a.get() >= interval) {
+            a.reset();
+            isAutoBusy = true;
+            try {
+                if (mode === "ai" && !(await a.decide())) return;
+                await a.run();
+            } finally { isAutoBusy = false; }
+            return;
+        }
     }
 }
 
@@ -4588,7 +4721,7 @@ async function proactiveDM() {
         `ตอบเฉพาะข้อความของ ${c.name} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`;
     let reply;
     try {
-        reply = stripReasoning(await tinyGenerate(q, Math.max(1, parseInt(getSetting("proactiveTokens"), 10) || 120))).trim();
+        reply = stripReasoning(await tinyGenerate(q, Math.max(1, parseInt(getSetting("proactiveTokens"), 10) || 120), "connect")).trim();
     } catch (e) { console.error(`[${extensionName}] proactiveDM failed:`, e); return; }
     reply = reply.replace(/^\[|\]$/g, "").trim();
     if (!reply) return;
@@ -4619,7 +4752,7 @@ async function groupSelfChat(threadKey, opts) {
     isConnectReplying = true;
     if (currentApp === "connect" && activeThread === threadKey) renderThread();
     try {
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200));
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("connectTokens"), 10) || 200), "connect");
         const list = parseCommentLines(raw, group.members[0] || group.name, "MSG")
             .filter((c) => c.author.trim().toLowerCase() !== you.trim().toLowerCase());
         if (list.length) {
@@ -4739,7 +4872,7 @@ const SETTINGS_LAYOUT = [
         head: "📱 ตั้งค่าเฉพาะแอป",
         titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร",
             "TinyConnect (แชต)", "TinyStream (ไลฟ์สตรีม)", "TinyMemo (กำหนดการ + โน้ต)",
-            "TinyForum (เว็บบอร์ด)", "TinyGallery (คลังรูป + สติกเกอร์)"],
+            "TinyForum (เว็บบอร์ด)", "ทริกเกอร์ด้วยคีย์เวิร์ด", "TinyGallery (คลังรูป + สติกเกอร์)"],
     },
     {
         head: "🔧 ตั้งค่าขั้นสูง",
@@ -4877,6 +5010,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-forum-batch").val(getSetting("forumCommentBatch") || 8);
     $("#tinyfeed-cfg-forum-extra").val(getSetting("forumExtraPrompt"));
     renderForumRooms();
+    $("#tinyfeed-cfg-kw-cooldown").val(getSetting("keywordCooldownSec"));
+    renderKeywordEditors();
     $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
     $("#tinyfeed-cfg-gallery-scope").val(getSetting("galleryPromptScope") || "all");
     $("#tinyfeed-cfg-gallery-max-images").val(getSetting("galleryMaxImages"));
@@ -5904,6 +6039,15 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-forum-extra", function () {
             setSetting("forumExtraPrompt", $(this).val());
+        });
+        // ทริกเกอร์ด้วยคีย์เวิร์ด
+        $(document).on("input", ".tinyfeed-kw-text", function () {
+            const app = $(this).data("app");
+            const setting = KEYWORD_SETTING[app];
+            if (setting) setSetting(setting, $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-kw-cooldown", function () {
+            setSetting("keywordCooldownSec", Math.max(0, parseInt($(this).val(), 10) || 0));
         });
         $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
             setSetting("galleryPrompt", $(this).prop("checked"));

@@ -411,6 +411,7 @@
                         <select id="tinyfeed-cfg-auto-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -431,6 +432,7 @@
                         <select id="tinyfeed-cfg-news-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -573,6 +575,7 @@
                         <select id="tinyfeed-cfg-memo-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -601,6 +604,7 @@
                         <select id="tinyfeed-cfg-forum-mode">
                             <option value="interval">ทุกๆ จำนวนข้อความ</option>
                             <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
                         </select>
                     </label>
                     <label class="tinyfeed-field">
@@ -686,6 +690,17 @@
                         <i class="fa-solid fa-plus"></i> <span>เพิ่ม tier</span>
                     </button>
                     <small class="tinyfeed-field-hint">ยอดเงิน + ประวัติธุรกรรม<b>ผูกกับแชท</b> (แยกตามเนื้อเรื่อง) · เปิดระบบโดเนท → เวลาโหลดคอมเมนต์สดใน TinyStream, AI จะเลือกให้ผู้ชมโดเนท (กำหนดจำนวน+ข้อความเอง) เข้าบัญชีเรา เด้งการ์ดสีตาม tier บนจอไลฟ์ · ปิดไว้ = เพิ่ม/จ่ายเงินเองเท่านั้น</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">ทริกเกอร์ด้วยคีย์เวิร์ด</div>
+                    <small class="tinyfeed-field-hint">ตั้ง "โหมด" ของแต่ละแอปด้านบนเป็น <b>"เมื่อเจอคีย์เวิร์ด"</b> แล้วแอปนั้นจะสร้างเนื้อหาให้อัตโนมัติเมื่อข้อความ RP ล่าสุดมีคำที่ตรงกับรายการด้านล่าง · ทำงานทันทีในเบราว์เซอร์ ไม่หน่วง ไม่ต้องโหลดโมเดล · คั่นคำด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เว้นระยะขั้นต่ำต่อแอป (วินาที)</span>
+                        <input id="tinyfeed-cfg-kw-cooldown" type="number" min="0" />
+                    </label>
+                    <div id="tinyfeed-keyword-list"></div>
+                    <small class="tinyfeed-field-hint">กันทริกเกอร์ถี่เกินไป — เจอคีย์เวิร์ดแล้วต้องเว้นอย่างน้อยเท่านี้ก่อนจะสร้างซ้ำ (แยกต่อแอป)</small>
                 </div>
 
                 <div class="tinyfeed-settings-group">
