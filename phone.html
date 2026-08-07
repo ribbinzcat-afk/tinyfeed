@@ -730,6 +730,39 @@
                 </div>
 
                 <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">TinyPet (สัตว์เลี้ยง)</div>
+                    <small class="tinyfeed-field-hint">สัตว์เลี้ยงเป็น <b>global</b> (ตัวเดียวกันทุกแชท) · ค่าต่างๆ ลดตามเวลาจริงแม้ปิด ST ไป</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้ AI แต่งบทพูดเพ็ท (หลังกดปุ่ม)</span>
+                        <input id="tinyfeed-cfg-pet-ai" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวบทพูดเพ็ท (token)</span>
+                        <input id="tinyfeed-cfg-pet-tokens" type="number" min="1" />
+                    </label>
+                    <div class="tinyfeed-field-label">อัตราลดต่อนาที (ยิ่งมากยิ่งต้องดูแลถี่)</div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">หิวเพิ่ม/นาที</span>
+                        <input id="tinyfeed-cfg-pet-decay-hunger" type="number" min="0" step="0.05" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">พลังงานลด/นาที</span>
+                        <input id="tinyfeed-cfg-pet-decay-energy" type="number" min="0" step="0.05" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความสะอาดลด/นาที</span>
+                        <input id="tinyfeed-cfg-pet-decay-clean" type="number" min="0" step="0.05" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เพดานคิด decay ตอนหายไปนาน (ชม.)</span>
+                        <input id="tinyfeed-cfg-pet-offline" type="number" min="1" />
+                    </label>
+                    <div class="tinyfeed-field-label">รูป sprite ต่อสถานะ (ใส่ลิงก์เอง · ว่าง = ใช้ไฟล์ในตัว assets/pet-sprites/)</div>
+                    <div id="tinyfeed-pet-sprite-list"></div>
+                    <small class="tinyfeed-field-hint">รองรับลิงก์ PNG/GIF/รูปเคลื่อนไหว · วางไฟล์เองในโฟลเดอร์ <code>assets/pet-sprites/&lt;สถานะ&gt;.png</code> ก็ได้ (ไม่ต้องใส่ลิงก์)</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
                     <div id="tinyfeed-prompt-list"></div>
@@ -991,6 +1024,10 @@
                 </div>
                 <div id="tinyfeed-shop-grid" class="tinyfeed-shop-grid"></div>
             </div>
+        </div>
+
+        <div id="tinyfeed-app-pet" class="tinyfeed-app tinyfeed-hidden">
+            <div id="tinyfeed-pet-body" class="tinyfeed-pet-body"></div>
         </div>
 
         <div id="tinyfeed-gallery-picker" class="tinyfeed-gallery-picker tinyfeed-hidden">

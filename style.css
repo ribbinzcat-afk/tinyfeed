@@ -3734,3 +3734,168 @@
     border-radius: 999px;
     flex-shrink: 0;
 }
+
+/* ===== TinyPet: สัตว์เลี้ยงเสมือน ===== */
+#tinyfeed-app-pet:not(.tinyfeed-hidden) { display: flex; flex-direction: column; }
+.tinyfeed-pet-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+    box-sizing: border-box;
+}
+.tinyfeed-pet-stage-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding-top: 46px;   /* เว้นที่ให้ฟองคำพูดลอยด้านบน */
+}
+.tinyfeed-pet-spritebox {
+    position: relative;
+    width: 148px;
+    height: 148px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: tinyfeed-pet-bob 2.6s ease-in-out infinite;
+}
+.tinyfeed-pet-state-dead, .tinyfeed-pet-state-sleeping, .tinyfeed-pet-state-sick { animation: none; }
+.tinyfeed-pet-state-dead { opacity: 0.75; filter: grayscale(0.6); }
+.tinyfeed-pet-emoji { position: absolute; font-size: 92px; line-height: 1; user-select: none; }
+.tinyfeed-pet-sprite {
+    position: relative;
+    z-index: 1;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.3));
+}
+@keyframes tinyfeed-pet-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-9px); }
+}
+.tinyfeed-pet-name { font-weight: 700; font-size: 1.1em; color: var(--tf-text-strong); }
+.tinyfeed-pet-stagepill {
+    font-size: 0.62em;
+    font-weight: 600;
+    vertical-align: middle;
+    color: #fff;
+    background: var(--tf-accent);
+    border-radius: 999px;
+    padding: 2px 8px;
+    margin-left: 4px;
+}
+.tinyfeed-pet-mood { color: var(--tf-text-muted); font-size: 0.86em; }
+.tinyfeed-pet-bubble {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 90%;
+    background: var(--tf-topbar);
+    border: 1px solid var(--tf-border);
+    border-radius: 14px;
+    padding: 8px 12px;
+    font-size: 0.85em;
+    color: var(--tf-text);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    animation: tinyfeed-rise 0.25s ease backwards;
+}
+.tinyfeed-pet-bubble::after {
+    content: "";
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--tf-topbar);
+}
+/* บาร์สถานะ */
+.tinyfeed-pet-stats { display: flex; flex-direction: column; gap: 9px; }
+.tinyfeed-pet-stat { display: flex; align-items: center; gap: 9px; font-size: 0.82em; }
+.tinyfeed-pet-stat-label {
+    width: 82px;
+    flex-shrink: 0;
+    color: var(--tf-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tinyfeed-pet-stat-label i { width: 15px; text-align: center; margin-right: 3px; color: var(--tf-text-muted); }
+.tinyfeed-pet-stat-bar {
+    flex: 1;
+    min-width: 0;
+    height: 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tf-text-muted) 25%, transparent);
+    overflow: hidden;
+}
+.tinyfeed-pet-stat-bar > span { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease, background 0.4s ease; }
+.tinyfeed-pet-stat-num {
+    width: 28px;
+    flex-shrink: 0;
+    text-align: right;
+    color: var(--tf-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+/* ปุ่ม action */
+.tinyfeed-pet-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tinyfeed-pet-act {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 11px 4px;
+    border: 1px solid var(--tf-border);
+    border-radius: 14px;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    cursor: pointer;
+    font-size: 0.72em;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.1s ease;
+}
+.tinyfeed-pet-act i { font-size: 1.5em; color: var(--tf-accent); }
+.tinyfeed-pet-act:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar)); }
+.tinyfeed-pet-act:active { transform: scale(0.94); }
+.tinyfeed-pet-speakbtn { align-self: center; }
+/* หน้าจอ create / dead */
+.tinyfeed-pet-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 24px 20px;
+}
+.tinyfeed-pet-bigemoji { font-size: 82px; line-height: 1; }
+.tinyfeed-pet-bob { animation: tinyfeed-pet-bob 2.6s ease-in-out infinite; }
+.tinyfeed-pet-screen-title { font-weight: 700; font-size: 1.15em; color: var(--tf-text-strong); }
+.tinyfeed-pet-screen-sub { color: var(--tf-text-muted); font-size: 0.9em; }
+.tinyfeed-pet-screen input {
+    width: 100%;
+    max-width: 260px;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font: inherit;
+    text-align: center;
+    outline: none;
+}
+.tinyfeed-pet-screen input:focus { border-color: var(--tf-accent); }
+/* avatar อิโมจิในแจ้งเตือน */
+.tinyfeed-pet-notif-ava { display: flex; align-items: center; justify-content: center; font-size: 1.2em; background: color-mix(in srgb, var(--tf-accent) 20%, transparent); }
+/* ตัวแก้ลิงก์ sprite ในหน้า settings */
+.tinyfeed-pet-sprite-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tinyfeed-pet-sprite-emoji { flex-shrink: 0; font-size: 1.2em; width: 22px; text-align: center; }
+.tinyfeed-pet-sprite-label { flex-shrink: 0; width: 66px; font-size: 0.82em; color: var(--tf-text-muted); }
+#tinyfeed-settings-screen .tinyfeed-pet-sprite-url { flex: 1; min-width: 0; font-size: 0.82em; }

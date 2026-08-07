@@ -163,6 +163,14 @@ const defaultSettings = {
     connectKeywords: "แชต, ทักไลน์, ส่งไลน์, ทักมา, ส่งข้อความ, ไลน์มา, chat, line, dm, ทักหา",
     keywordCooldownSec: 45,       // เว้นระยะขั้นต่ำต่อแอป (วินาที) กันทริกเกอร์ถี่เกิน
     keywordScope: "both",         // ทริกเกอร์คีย์เวิร์ดจับข้อความฝั่งไหน: "both" | "char" | "user"
+    // ── TinyPet (สัตว์เลี้ยงเสมือน — global ข้ามแชท, เก็บใน key "pet") ──
+    petSprites: {},               // { state: url } override รูป sprite ต่อสถานะ ("" = ใช้ไฟล์ในตัว)
+    petDecayHunger: 0.5,          // หิวเพิ่ม/นาที
+    petDecayEnergy: 0.35,         // พลังงานลด/นาที
+    petDecayClean: 0.3,           // ความสะอาดลด/นาที
+    petOfflineCapHours: 8,        // เพดานคิด decay ตอนหายไปนาน (ชม.) — พอให้หายข้ามคืนแล้วยังไม่ตาย แต่โทรมมาก
+    petAiReactions: true,         // ให้ AI แต่งบทพูดเพ็ทหลังกดปุ่ม
+    petTokens: 60,                // ความยาวบทพูดเพ็ท
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -241,6 +249,7 @@ let currentApp = "home";
 function goHome() {
     currentApp = "home";
     clearStreamTimer();
+    clearPetLiveTick();
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home").removeClass("tinyfeed-hidden");
     $(".tinyfeed-title").text("TinyPhone");
@@ -253,12 +262,13 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop"].includes(app)) {
+    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "pet"].includes(app)) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
     clearStreamTimer();   // ออกจากแอปอื่น = หยุด timer stream
     clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
+    clearPetLiveTick();   // ออกจาก TinyPet = หยุด live tick (พื้นหลัง petTimer ยังเดินต่อ)
     closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
     closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
     closeSlipModal();       // กัน modal โอนเงินค้างข้ามแอป
@@ -303,6 +313,13 @@ function openApp(app) {
         $("#tinyfeed-app-shop").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyShop");
         renderShop();
+    } else if (app === "pet") {
+        currentApp = "pet";
+        $("#tinyfeed-app-pet").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyPet");
+        petActionSprite = ""; petBubble = "";
+        renderPet();          // sync decay + วาดหน้าจอตามสถานะ (create/dead/active)
+        startPetLiveTick();   // อัปเดตบาร์สดๆ ระหว่างเปิดแอป
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -1847,6 +1864,7 @@ function closePhone() {
     $("#tinyfeed-overlay").removeClass("tinyfeed-visible");
     clearStreamTimer();   // ปิดเครื่อง = หยุด timer สตรีม
     clearHomeClock();     // หยุดนาฬิกาหน้าโฮม
+    clearPetLiveTick();   // หยุด live tick เพ็ท (พื้นหลัง petTimer ยังเดินเพื่อ decay/แจ้งเตือน)
     console.log(`[${extensionName}] Phone closed`);
 }
 
@@ -1967,6 +1985,7 @@ const HOME_APPS = [
     { app: "gallery", icon: "fa-images", name: "TinyGallery", a: "#ec4899", b: "#be185d" },
     { app: "bank", icon: "fa-wallet", name: "TinyBank", a: "#10b981", b: "#047857" },
     { app: "shop", icon: "fa-bag-shopping", name: "TinyShop", a: "#f97316", b: "#c2410c" },
+    { app: "pet", icon: "fa-paw", name: "TinyPet", a: "#8b5cf6", b: "#6d28d9" },
 ];
 const HOME_APPS_PER_PAGE = 9;   // 3 คอลัมน์ × 3 แถวต่อหน้า
 
@@ -2307,6 +2326,389 @@ function saveGallery() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
     extension_settings[extensionName].gallery = getGallery();
     saveSettingsDebounced();
+}
+
+// ===== TinyPet: สัตว์เลี้ยงเสมือนสไตล์ทามาก็อตจิ (global state ข้ามแชท) =====
+// เก็บใน extension_settings.tinyfeed.pet (ไม่ใช่ chat_metadata) → เพ็ทตัวเดียวตามผู้เล่นทุกแชท
+const PET_DECAY_DEFAULTS = { hunger: 0.5, energy: 0.35, cleanliness: 0.3 };   // ต่อนาที
+// สถานะ → sprite (เรียงตามความสำคัญใน petState) · emoji = fallback ตอนไม่มีไฟล์/ลิงก์
+const PET_STATE_EMOJI = {
+    idle: "🐣", happy: "😸", hungry: "🍽️", sleepy: "😪", dirty: "🐽", sick: "🤒",
+    eating: "😋", playing: "🎾", cleaning: "🫧", sleeping: "💤", dead: "🪦",
+};
+const PET_SPRITE_STATES = Object.keys(PET_STATE_EMOJI);
+const clamp100 = (n) => Math.max(0, Math.min(100, Number(n) || 0));
+
+function defaultPet() {
+    return {
+        exists: false, name: "", stage: "baby",
+        stats: { hunger: 0, energy: 100, cleanliness: 100, mood: 80, health: 100 },
+        lastUpdateTimestamp: Date.now(), createdAt: 0, isDead: false, isSleeping: false, notified: {},
+    };
+}
+function getPet() {
+    const store = extension_settings[extensionName] = extension_settings[extensionName] || {};
+    let p = store.pet;
+    if (!p || typeof p !== "object") p = defaultPet();
+    const d = defaultPet();
+    p.stats = Object.assign({}, d.stats, p.stats || {});
+    if (typeof p.notified !== "object" || !p.notified) p.notified = {};
+    if (typeof p.lastUpdateTimestamp !== "number") p.lastUpdateTimestamp = Date.now();
+    if (typeof p.stage !== "string") p.stage = "baby";
+    store.pet = p;
+    return p;
+}
+function savePet() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    extension_settings[extensionName].pet = getPet();
+    saveSettingsDebounced();
+}
+function petRate(key, def) {
+    const v = parseFloat(getSetting("petDecay" + key));
+    return (Number.isFinite(v) && v >= 0) ? v : def;
+}
+// นาทีที่ค่า (เพิ่มขึ้นเชิงเส้น) อยู่ >= thresh ในช่วง min นาที
+function petMinAbove(start, rate, thresh, min) {
+    if (start >= thresh) return min;
+    if (rate <= 0) return 0;
+    return Math.max(0, min - (thresh - start) / rate);
+}
+// นาทีที่ค่า (ลดลงเชิงเส้น) อยู่ <= thresh
+function petMinBelow(start, rate, thresh, min) {
+    if (start <= thresh) return min;
+    if (rate <= 0) return 0;
+    return Math.max(0, min - (start - thresh) / rate);
+}
+// นาทีก่อนค่า(เพิ่ม)แตะ thresh (ช่วงที่ยังต่ำกว่า)
+function petReachAbove(start, rate, thresh, min) {
+    if (start >= thresh) return 0;
+    if (rate <= 0) return min;
+    return Math.min(min, (thresh - start) / rate);
+}
+// นาทีก่อนค่า(ลด)แตะ thresh (ช่วงที่ยังสูงกว่า)
+function petReachBelow(start, rate, thresh, min) {
+    if (start <= thresh) return 0;
+    if (rate <= 0) return min;
+    return Math.min(min, (start - thresh) / rate);
+}
+
+// คำนวณ decay จาก timestamp (idempotent) — เรียกตอนเปิดแอป / โหลด / tick พื้นหลัง
+function petApplyDecay() {
+    const p = getPet();
+    if (!p.exists || p.isDead) { p.lastUpdateTimestamp = Date.now(); return p; }
+    let min = (Date.now() - (p.lastUpdateTimestamp || Date.now())) / 60000;
+    p.lastUpdateTimestamp = Date.now();
+    if (!(min > 0)) return p;
+    const capH = Math.max(1, parseInt(getSetting("petOfflineCapHours"), 10) || 12);
+    min = Math.min(min, capH * 60);   // เพดาน offline — หายไปนานแล้วไม่ให้ตายทันทีตอนกลับมา
+    const s = p.stats;
+    const rH = petRate("Hunger", PET_DECAY_DEFAULTS.hunger);
+    const rE = petRate("Energy", PET_DECAY_DEFAULTS.energy);
+    const rC = petRate("Clean", PET_DECAY_DEFAULTS.cleanliness);
+    const effH = p.isSleeping ? rH * 0.4 : rH;   // หลับ = หิวช้าลง
+    const h0 = s.hunger, c0 = s.cleanliness, e0 = s.energy;
+    s.hunger = clamp100(s.hunger + effH * min);
+    s.cleanliness = clamp100(s.cleanliness - rC * min);
+    if (p.isSleeping) s.energy = clamp100(s.energy + rE * 2 * min);
+    else s.energy = clamp100(s.energy - rE * min);
+    // health — คิด "นาทีวิกฤตจริง" ด้วยจุดตัดเชิงเส้น (กัน overcount ตอน elapsed ก้อนใหญ่)
+    let hd = 0;
+    hd -= 0.15 * petMinAbove(h0, effH, 80, min);
+    hd -= 0.12 * petMinBelow(c0, rC, 20, min);
+    if (!p.isSleeping) hd -= 0.08 * petMinBelow(e0, rE, 0, min);
+    // regen เฉพาะช่วงต้นที่ทุกค่ายังดี (ก่อนค่าใดแตะเกณฑ์แย่)
+    const goodMin = Math.max(0, Math.min(
+        petReachAbove(h0, effH, 50, min),
+        petReachBelow(c0, rC, 50, min),
+        p.isSleeping ? min : petReachBelow(e0, rE, 30, min),
+    ));
+    hd += 0.1 * goodMin;
+    s.health = clamp100(s.health + hd);
+    const wellbeing = ((100 - s.hunger) + s.energy + s.cleanliness + s.health) / 4;
+    s.mood = clamp100(s.mood + (wellbeing - s.mood) * Math.min(1, min * 0.03));
+    if (s.health <= 0) { p.isDead = true; p.isSleeping = false; }
+    return p;
+}
+
+// สถานะปัจจุบันสำหรับเลือก sprite (actionSprite = ทับชั่วคราวหลังกดปุ่ม)
+let petActionSprite = "";
+let petActionTimer = null;
+function petState() {
+    const p = getPet();
+    if (!p.exists) return "idle";
+    if (p.isDead) return "dead";
+    if (petActionSprite) return petActionSprite;
+    if (p.isSleeping) return "sleeping";
+    const s = p.stats;
+    if (s.health <= 30) return "sick";
+    if (s.hunger >= 75) return "hungry";
+    if (s.cleanliness <= 25) return "dirty";
+    if (s.energy <= 20) return "sleepy";
+    if (s.mood >= 70) return "happy";
+    return "idle";
+}
+function setPetActionSprite(state, ms) {
+    petActionSprite = state;
+    clearTimeout(petActionTimer);
+    petActionTimer = setTimeout(() => { petActionSprite = ""; if (currentApp === "pet") renderPet(); }, ms || 1600);
+}
+
+// URL รูป sprite: ลิงก์ที่ผู้ใช้ตั้งต่อสถานะ > ไฟล์ในตัว (assets/pet-sprites) · ว่าง/โหลดไม่ได้ = fallback emoji
+function petSpriteUrl(state) {
+    const map = getSetting("petSprites") || {};
+    const custom = String(map[state] || "").trim();
+    if (custom) return custom;
+    return `${extensionFolderPath}/assets/pet-sprites/${state}.png`;
+}
+function petSpriteBoxHtml() {
+    const st = petState();
+    const emoji = PET_STATE_EMOJI[st] || "🐾";
+    const url = petSpriteUrl(st);
+    // emoji อยู่หลัง · img ทับด้านหน้า · โหลดไม่ได้ → ซ่อน img เผยอิโมจิ
+    return `<div class="tinyfeed-pet-spritebox tinyfeed-pet-state-${st}">
+        <span class="tinyfeed-pet-emoji">${emoji}</span>
+        <img class="tinyfeed-pet-sprite" src="${escapeAttr(url)}" alt="${escapeAttr(st)}" onerror="this.style.display='none'" />
+    </div>`;
+}
+
+// ===== TinyPet actions =====
+const PET_COOLDOWN_MS = 6000;   // กันกดรัวปุ่มเดิม
+const petCooldownAt = {};
+function petOnCooldown(action) {
+    const now = Date.now();
+    if (now - (petCooldownAt[action] || 0) < PET_COOLDOWN_MS) return true;
+    petCooldownAt[action] = now;
+    return false;
+}
+function petActionLabel(action) {
+    return ({ feed: "ให้อาหาร", play: "เล่นด้วย", clean: "อาบน้ำให้", sleep: "กล่อมให้นอน" })[action] || "เข้ามาดู";
+}
+function petAct(action) {
+    const p = getPet();
+    if (!p.exists || p.isDead) return;
+    if (p.isSleeping && action !== "sleep") { toastr.info("เพ็ทกำลังหลับอยู่ ปลุกก่อนนะ", "TinyPet"); return; }
+    if (petOnCooldown(action)) return;
+    petApplyDecay();
+    const s = p.stats;
+    let sprite = "", react = false;
+    if (action === "feed") {
+        if (s.hunger <= 10) { s.mood = clamp100(s.mood - 5); s.health = clamp100(s.health - 3); toastr.info("เพ็ทอิ่มแล้ว อย่าให้กินเยอะเกินไป!", "TinyPet"); }
+        else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); }
+        sprite = "eating"; react = true;
+    } else if (action === "play") {
+        if (s.energy < 15) { toastr.info("เพ็ทเหนื่อยเกินกว่าจะเล่น ให้พักก่อนนะ", "TinyPet"); return; }
+        s.mood = clamp100(s.mood + 20); s.energy = clamp100(s.energy - 15);
+        s.hunger = clamp100(s.hunger + 6); s.cleanliness = clamp100(s.cleanliness - 6);
+        sprite = "playing"; react = true;
+    } else if (action === "clean") {
+        s.cleanliness = 100; s.mood = clamp100(s.mood + 5); sprite = "cleaning"; react = true;
+    } else if (action === "sleep") {
+        p.isSleeping = !p.isSleeping;
+    }
+    p.lastUpdateTimestamp = Date.now();
+    savePet();
+    if (sprite) setPetActionSprite(sprite, 1600);
+    renderPet();
+    if (react && getSetting("petAiReactions")) petReactThrottled(action);
+}
+
+// หลังตาย: กลับไปหน้า "รับเลี้ยง" (ให้ตั้งชื่อใหม่) — ไม่ auto-adopt ทันที
+function petAdoptNew() {
+    const p = getPet();
+    Object.assign(p, defaultPet());   // exists=false → renderPet โชว์หน้า create
+    savePet();
+    renderPet();
+}
+
+// สร้างเพ็ทใหม่ / รับเลี้ยงตัวใหม่หลังตาย
+function petAdopt(name) {
+    const nm = String(name || "").trim().slice(0, 24) || "เพื่อนตัวน้อย";
+    const p = getPet();
+    const fresh = defaultPet();
+    fresh.exists = true; fresh.name = nm; fresh.createdAt = Date.now(); fresh.lastUpdateTimestamp = Date.now();
+    Object.assign(p, fresh);
+    savePet();
+    renderPet();
+    toastr.success(`ยินดีต้อนรับ ${nm}! 🐣`, "TinyPet");
+}
+
+// ===== TinyPet AI reaction =====
+let petBubble = "";
+let petBubbleTimer = null;
+let petLastReactionAt = 0;
+let petReacting = false;
+function petSpeak(text) {
+    petBubble = String(text || "");
+    if (currentApp === "pet") renderPet();
+    clearTimeout(petBubbleTimer);
+    petBubbleTimer = setTimeout(() => { petBubble = ""; if (currentApp === "pet") renderPet(); }, 9000);
+}
+function petReactThrottled(lastAction) {
+    const now = Date.now();
+    if (now - petLastReactionAt < 15000) return;   // กันยิงถี่เปลือง token
+    petLastReactionAt = now;
+    petReact(lastAction);
+}
+async function petReact(lastAction, opts) {
+    opts = opts || {};
+    const p = getPet();
+    const ctx = getContext();
+    if (!p.exists || p.isDead) return;
+    if (typeof ctx.generateQuietPrompt !== "function") { if (!opts.silent) toastr.info("เวอร์ชัน ST นี้ให้เพ็ทพูดไม่ได้", "TinyPet"); return; }
+    if (petReacting) return;
+    petReacting = true;
+    $("#tinyfeed-pet-speak").addClass("tinyfeed-generating");
+    try {
+        const s = p.stats;
+        const statsLine = `ความอิ่ม ${Math.round(100 - s.hunger)}/100, พลังงาน ${Math.round(s.energy)}, ความสะอาด ${Math.round(s.cleanliness)}, อารมณ์ ${Math.round(s.mood)}, สุขภาพ ${Math.round(s.health)}` + (p.isSleeping ? " (กำลังหลับ)" : "");
+        const q = buildPrompt("petReaction", {
+            petName: p.name || "เพ็ท", stage: p.stage || "baby", stats: statsLine,
+            lastAction: petActionLabel(lastAction), context: crossAppContext("pet"),
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("petTokens"), 10) || 60), "pet");
+        let line = stripWrapBrackets(stripReasoning(raw).replace(/^REACTION:\s*/i, "").trim());
+        if (line) petSpeak(line);
+        else if (!opts.silent) toastr.info("เพ็ทยังไม่พูดอะไร ลองใหม่นะ", "TinyPet");
+    } catch (e) {
+        console.error(`[${extensionName}] petReact failed:`, e);
+        if (!opts.silent) toastr.error("ให้เพ็ทพูดไม่สำเร็จ", "TinyPet");
+    } finally {
+        petReacting = false;
+        $("#tinyfeed-pet-speak").removeClass("tinyfeed-generating");
+    }
+}
+
+// ===== TinyPet notifications + timers =====
+function petNotifAvatar() {
+    return `<div class="tinyfeed-avatar tinyfeed-pet-notif-ava">${PET_STATE_EMOJI[petState()] || "🐾"}</div>`;
+}
+function petCheckCritical(p) {
+    const s = p.stats, n = p.notified;
+    const fire = (key, cond, msg) => {
+        if (cond && !n[key]) { n[key] = true; showNotif(petNotifAvatar(), p.name || "เพ็ท", msg, "pet", "pet"); }
+        else if (!cond && n[key]) { n[key] = false; }   // กลับมาปกติ = รีเซ็ตเพื่อเตือนได้อีกรอบ
+    };
+    fire("hunger", s.hunger >= 85, "หิวมากแล้ว ให้อาหารหน่อยน้า 🍽️");
+    fire("dirty", s.cleanliness <= 15, "ตัวเลอะมากแล้ว อาบน้ำให้หน่อย 🛁");
+    fire("energy", s.energy <= 10 && !p.isSleeping, "ง่วงมากแล้ว พาไปนอนหน่อย 😪");
+    fire("health", s.health <= 20, "สุขภาพย่ำแย่แล้ว ดูแลด่วน 🤒");
+}
+let petTimer = null;
+function startPetTimer() {
+    if (petTimer) return;
+    petTimer = setInterval(petBackgroundTick, 60000);   // เดินตลอดเมื่อเปิด ST (แม้ปิดหน้าแอป)
+}
+function petBackgroundTick() {
+    const p = getPet();
+    if (!p.exists || p.isDead) return;
+    const wasDead = p.isDead;
+    petApplyDecay();
+    savePet();
+    petCheckCritical(p);
+    if (p.isDead && !wasDead) showNotif(petNotifAvatar(), p.name || "เพ็ท", "จากไปอย่างสงบแล้ว 🪦 รับเลี้ยงตัวใหม่ได้นะ", "pet", "pet");
+    if (currentApp === "pet") renderPet();
+}
+let petLiveTimer = null;
+function startPetLiveTick() {
+    clearPetLiveTick();
+    petLiveTimer = setInterval(() => {
+        const p = getPet();
+        if (!p.exists || p.isDead) return;   // หน้า create/dead ไม่ต้อง re-render (กันโฟกัสหลุด)
+        renderPet();
+    }, 5000);
+}
+function clearPetLiveTick() { if (petLiveTimer) { clearInterval(petLiveTimer); petLiveTimer = null; } }
+
+// ===== TinyPet render =====
+function petMoodText(state) {
+    return ({
+        idle: "สบายๆ อยู่เป็นเพื่อน 🐾", happy: "อารมณ์ดีมาก! 💖", hungry: "หิวแล้วน้า...", sleepy: "ง่วงจัง...",
+        dirty: "ตัวเลอะแล้ว อยากอาบน้ำ", sick: "ไม่ค่อยสบายเลย 🤒", sleeping: "กำลังหลับปุ๋ย 💤", dead: "จากไปแล้ว 🌈",
+    })[state] || "สบายๆ";
+}
+function petBar(label, val, opts) {
+    opts = opts || {};
+    const v = Math.round(clamp100(val));
+    let color = "#22c55e";
+    if (v <= 25) color = "#ef4444"; else if (v <= 50) color = "#f59e0b";
+    return `<div class="tinyfeed-pet-stat">
+        <span class="tinyfeed-pet-stat-label">${opts.icon ? `<i class="fa-solid ${opts.icon}"></i> ` : ""}${escapeText(label)}</span>
+        <span class="tinyfeed-pet-stat-bar"><span style="width:${v}%;background:${color}"></span></span>
+        <span class="tinyfeed-pet-stat-num">${v}</span>
+    </div>`;
+}
+function formatPetAge(createdAt) {
+    const min = Math.floor((Date.now() - (createdAt || Date.now())) / 60000);
+    if (min < 60) return `${Math.max(0, min)} นาที`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr} ชั่วโมง`;
+    return `${Math.floor(hr / 24)} วัน`;
+}
+function petCreateHtml() {
+    return `<div class="tinyfeed-pet-screen tinyfeed-pet-create">
+        <div class="tinyfeed-pet-bigemoji tinyfeed-pet-bob">🥚</div>
+        <div class="tinyfeed-pet-screen-title">รับเลี้ยงเพื่อนตัวใหม่</div>
+        <div class="tinyfeed-pet-screen-sub">ตั้งชื่อแล้วเริ่มดูแลกันเลย</div>
+        <input id="tinyfeed-pet-name-input" type="text" maxlength="24" placeholder="ชื่อเพ็ท..." />
+        <button id="tinyfeed-pet-adopt" class="tinyfeed-btn-primary"><i class="fa-solid fa-heart"></i> รับเลี้ยง</button>
+    </div>`;
+}
+function petDeadHtml() {
+    const p = getPet();
+    return `<div class="tinyfeed-pet-screen tinyfeed-pet-dead">
+        <div class="tinyfeed-pet-bigemoji">🪦</div>
+        <div class="tinyfeed-pet-screen-title">${escapeText(p.name || "เพ็ท")} จากไปแล้ว</div>
+        <div class="tinyfeed-pet-screen-sub">อยู่ด้วยกันมา ${formatPetAge(p.createdAt)} · ขอบคุณที่ดูแลกันนะ 🌈</div>
+        <button id="tinyfeed-pet-adopt-new" class="tinyfeed-btn-primary"><i class="fa-solid fa-seedling"></i> รับเลี้ยงตัวใหม่</button>
+    </div>`;
+}
+function renderPet() {
+    const p = petApplyDecay();
+    savePet();
+    const body = $("#tinyfeed-pet-body");
+    if (!body.length) return;
+    if (!p.exists) { body.html(petCreateHtml()); return; }
+    if (p.isDead) { body.html(petDeadHtml()); return; }
+    const s = p.stats;
+    const st = petState();
+    const stageLabel = ({ baby: "เด็ก", teen: "วัยรุ่น", adult: "โตเต็มวัย" })[p.stage] || "เด็ก";
+    const bubble = petBubble ? `<div class="tinyfeed-pet-bubble">${renderRich(petBubble)}</div>` : "";
+    const sleepLabel = p.isSleeping ? "ปลุก" : "นอน";
+    const sleepIcon = p.isSleeping ? "fa-sun" : "fa-moon";
+    body.html(`
+        <div class="tinyfeed-pet-stage-wrap">
+            ${bubble}
+            ${petSpriteBoxHtml()}
+            <div class="tinyfeed-pet-name">${escapeText(p.name)} <span class="tinyfeed-pet-stagepill">${stageLabel}</span></div>
+            <div class="tinyfeed-pet-mood">${escapeText(petMoodText(st))}</div>
+        </div>
+        <div class="tinyfeed-pet-stats">
+            ${petBar("อิ่ม", 100 - s.hunger, { icon: "fa-drumstick-bite" })}
+            ${petBar("พลังงาน", s.energy, { icon: "fa-bolt" })}
+            ${petBar("สะอาด", s.cleanliness, { icon: "fa-soap" })}
+            ${petBar("อารมณ์", s.mood, { icon: "fa-face-smile" })}
+            ${petBar("สุขภาพ", s.health, { icon: "fa-heart" })}
+        </div>
+        <div class="tinyfeed-pet-actions">
+            <button class="tinyfeed-pet-act" data-act="feed"><i class="fa-solid fa-bowl-food"></i><span>ให้อาหาร</span></button>
+            <button class="tinyfeed-pet-act" data-act="play"><i class="fa-solid fa-baseball"></i><span>เล่นด้วย</span></button>
+            <button class="tinyfeed-pet-act" data-act="clean"><i class="fa-solid fa-shower"></i><span>อาบน้ำ</span></button>
+            <button class="tinyfeed-pet-act" data-act="sleep"><i class="fa-solid ${sleepIcon}"></i><span>${sleepLabel}</span></button>
+        </div>
+        <button id="tinyfeed-pet-speak" class="tinyfeed-btn-generate tinyfeed-pet-speakbtn"><i class="fa-solid fa-comment-dots"></i> <span>ให้เพ็ทพูด</span></button>
+    `);
+}
+// ตัวแก้ลิงก์ sprite ต่อสถานะ (หน้า settings)
+function renderPetSpriteCfg() {
+    const map = getSetting("petSprites") || {};
+    const labels = { idle: "ปกติ", happy: "มีความสุข", hungry: "หิว", sleepy: "ง่วง", dirty: "เลอะ", sick: "ป่วย", eating: "กินอาหาร", playing: "เล่น", cleaning: "อาบน้ำ", sleeping: "หลับ", dead: "เสียชีวิต" };
+    const html = PET_SPRITE_STATES.map((st) => `
+        <div class="tinyfeed-pet-sprite-row">
+            <span class="tinyfeed-pet-sprite-emoji">${PET_STATE_EMOJI[st]}</span>
+            <span class="tinyfeed-pet-sprite-label">${labels[st] || st}</span>
+            <input class="tinyfeed-pet-sprite-url" data-state="${escapeAttr(st)}" type="text" placeholder="ลิงก์รูป (ว่าง = ใช้ไฟล์ในตัว)" value="${escapeAttr(map[st] || "")}" />
+        </div>`).join("");
+    $("#tinyfeed-pet-sprite-list").html(html);
 }
 
 // ถอด HTML entity เบาๆ (สำหรับจับคู่ชื่อในโทเคน [sticker:...] / [img:...] ที่ผ่าน escape มาแล้ว)
@@ -3221,6 +3623,13 @@ const PROMPT_DEFS = {
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{streamer}} กำลังไลฟ์สดอยู่ หัวข้อ "{{title}}".{{direction}} ` +
             `พูดในมุมมองบุคคลที่หนึ่งแบบสตรีมเมอร์กำลังพูดสดหน้ากล้อง (อ่านแชต/คุยกับผู้ชม) สั้นเป็นธรรมชาติ 1-2 ประโยค ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{task}}{{extra}}{{context}}{{transcript}}\n` +
             `ตอบเฉพาะคำพูดของ {{streamer}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า ไม่ต้องมีเครื่องหมายคำพูด`,
+    },
+    petReaction: {
+        label: "บทพูดเพ็ท (TinyPet)", marker: "REACTION:", tokens: ["petName", "stage", "stats", "lastAction", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{petName}} เป็นสัตว์เลี้ยงเสมือน (ระยะ {{stage}}) ในโทรศัพท์ ค่าสถานะตอนนี้: {{stats}}. ผู้เล่นเพิ่ง{{lastAction}}. ` +
+            `แต่งบทพูด/เสียงร้อง/ปฏิกิริยาสั้นๆ 1 บรรทัดของเพ็ทให้เข้ากับสถานะและการกระทำ น่ารักเป็นธรรมชาติ (จะพูดเองหรือบรรยายท่าทางสั้นๆ ก็ได้ ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนผู้ใช้).{{context}}\n` +
+            `ตอบรูปแบบนี้เท่านั้น:\nREACTION: <บทพูด/ปฏิกิริยาสั้นๆ>`,
     },
 };
 
@@ -5060,7 +5469,7 @@ const SETTINGS_LAYOUT = [
         head: "📱 ตั้งค่าเฉพาะแอป",
         titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร",
             "TinyConnect (แชต)", "TinyStream (ไลฟ์สตรีม)", "TinyMemo (กำหนดการ + โน้ต)",
-            "TinyForum (เว็บบอร์ด)", "ทริกเกอร์ด้วยคีย์เวิร์ด", "TinyGallery (คลังรูป + สติกเกอร์)"],
+            "TinyForum (เว็บบอร์ด)", "ทริกเกอร์ด้วยคีย์เวิร์ด", "TinyGallery (คลังรูป + สติกเกอร์)", "TinyPet (สัตว์เลี้ยง)"],
     },
     {
         head: "🔧 ตั้งค่าขั้นสูง",
@@ -5204,6 +5613,15 @@ function populateSettings() {
     $("#tinyfeed-cfg-kw-scope").val(getSetting("keywordScope") || "both");
     $("#tinyfeed-cfg-kw-cooldown").val(getSetting("keywordCooldownSec"));
     renderKeywordEditors();
+
+    // TinyPet
+    $("#tinyfeed-cfg-pet-ai").prop("checked", Boolean(getSetting("petAiReactions")));
+    $("#tinyfeed-cfg-pet-tokens").val(getSetting("petTokens"));
+    $("#tinyfeed-cfg-pet-decay-hunger").val(getSetting("petDecayHunger"));
+    $("#tinyfeed-cfg-pet-decay-energy").val(getSetting("petDecayEnergy"));
+    $("#tinyfeed-cfg-pet-decay-clean").val(getSetting("petDecayClean"));
+    $("#tinyfeed-cfg-pet-offline").val(getSetting("petOfflineCapHours"));
+    renderPetSpriteCfg();
     $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
     $("#tinyfeed-cfg-gallery-scope").val(getSetting("galleryPromptScope") || "all");
     $("#tinyfeed-cfg-gallery-max-images").val(getSetting("galleryMaxImages"));
@@ -5618,6 +6036,15 @@ jQuery(async () => {
             e.stopPropagation();
             deleteShopItem(String($(this).closest(".tinyfeed-shop-item").data("id")));
         });
+
+        // ===== TinyPet =====
+        $(document).on("click", ".tinyfeed-pet-act", function () { petAct(String($(this).data("act"))); });
+        $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
+        $(document).on("click", "#tinyfeed-pet-adopt", function () { petAdopt($("#tinyfeed-pet-name-input").val()); });
+        $(document).on("keydown", "#tinyfeed-pet-name-input", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); petAdopt($(this).val()); }
+        });
+        $(document).on("click", "#tinyfeed-pet-adopt-new", petAdoptNew);
 
         // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
         $(document).on("click", ".tinyfeed-gallery-tab", function () {
@@ -6274,6 +6701,38 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-kw-scope", function () {
             setSetting("keywordScope", $(this).val());
         });
+        // TinyPet config
+        $(document).on("change", "#tinyfeed-cfg-pet-ai", function () {
+            setSetting("petAiReactions", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-tokens", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("petTokens", Number.isFinite(v) && v > 0 ? v : 60);
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-decay-hunger", function () {
+            const v = parseFloat($(this).val());
+            setSetting("petDecayHunger", Number.isFinite(v) && v >= 0 ? v : 0.5);
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-decay-energy", function () {
+            const v = parseFloat($(this).val());
+            setSetting("petDecayEnergy", Number.isFinite(v) && v >= 0 ? v : 0.35);
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-decay-clean", function () {
+            const v = parseFloat($(this).val());
+            setSetting("petDecayClean", Number.isFinite(v) && v >= 0 ? v : 0.3);
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-offline", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("petOfflineCapHours", Number.isFinite(v) && v > 0 ? v : 12);
+        });
+        $(document).on("input", ".tinyfeed-pet-sprite-url", function () {
+            const state = $(this).data("state");
+            const map = Object.assign({}, getSetting("petSprites") || {});
+            const url = String($(this).val() || "").trim();
+            if (url) map[state] = url; else delete map[state];
+            setSetting("petSprites", map);
+            if (currentApp === "pet") renderPet();   // เห็นผลทันที
+        });
         $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
             setSetting("galleryPrompt", $(this).prop("checked"));
         });
@@ -6382,6 +6841,9 @@ jQuery(async () => {
 
         // เริ่มตัวจับเวลาทักเชิงรุก (ถ้าเปิดไว้) — เดินตลอดแม้ปิดหน้าแอป
         if (getSetting("proactiveEnabled")) startProactiveTimer();
+
+        // TinyPet: ตัวจับเวลาพื้นหลัง (decay + แจ้งเตือนวิกฤต) — เดินตลอดเมื่อเปิด ST
+        startPetTimer();
 
         console.log(`[${extensionName}] ✅ Loaded successfully`);
     } catch (error) {
