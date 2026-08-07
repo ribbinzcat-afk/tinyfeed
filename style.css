@@ -3994,7 +3994,75 @@
 .tinyfeed-pet-food-info b { color: var(--tf-text-strong); font-size: 0.9em; }
 .tinyfeed-pet-food-info small { color: var(--tf-text-muted); font-size: 0.78em; }
 .tinyfeed-pet-food-price { flex-shrink: 0; font-size: 0.85em; font-weight: 600; color: var(--tf-accent); }
-.tinyfeed-shop-food-badge { font-size: 0.8em; color: #ec4899; }
+/* ร้านสัตว์เลี้ยง: แถวไอเทม (thumb + info + edit/del + buy) */
+.tinyfeed-pet-shop-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 11px;
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    background: var(--tf-topbar);
+}
+.tinyfeed-pet-item-edit, .tinyfeed-pet-item-del {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--tf-text-muted);
+    font-size: 0.72em;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-pet-item-edit:hover { color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+.tinyfeed-pet-item-del:hover { color: #ef4444; background: color-mix(in srgb, #ef4444 14%, transparent); }
+.tinyfeed-pet-buy {
+    flex-shrink: 0;
+    padding: 6px 11px;
+    font-size: 0.82em;
+    background: #8b5cf6;
+    white-space: nowrap;
+}
+.tinyfeed-pet-shop-managebar { display: flex; gap: 8px; margin-top: 10px; }
+.tinyfeed-pet-shop-managebar > button { flex: 1; }
+/* ลิงก์ "เติมเหรียญ" ในหัวร้าน */
+.tinyfeed-pet-topup-link {
+    background: none;
+    border: 1px solid var(--tf-accent);
+    color: var(--tf-accent);
+    font: inherit;
+    font-size: 0.78em;
+    border-radius: 999px;
+    padding: 2px 9px;
+    margin-left: 6px;
+    cursor: pointer;
+}
+.tinyfeed-pet-topup-link:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+/* เหรียญในหน้าเพ็ท */
+.tinyfeed-pet-coins {
+    flex-shrink: 0;
+    font-size: 0.86em;
+    font-weight: 600;
+    color: #eab308;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+/* select ในฟอร์มไอเทมเพ็ท / edit สินค้า */
+.tinyfeed-slip-form select {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+}
 /* ตัวแก้ลิงก์ sprite ในหน้า settings */
 .tinyfeed-pet-sprite-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .tinyfeed-pet-sprite-emoji { flex-shrink: 0; font-size: 1.2em; width: 22px; text-align: center; }

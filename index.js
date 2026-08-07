@@ -176,6 +176,13 @@ const defaultSettings = {
     petTokens: 60,                // ความยาวบทพูดเพ็ท
     petExtraPrompt: "",           // คำสั่งเสริมบทพูดเพ็ท (นิสัย/สายพันธุ์/โทน)
     petAutoPost: false,           // ให้เพ็ทโพสต์ลงฟีดเองเป็นระยะ (ตอนอารมณ์ดี)
+    // ร้านสัตว์เลี้ยง (แยกจาก TinyShop) — ซื้อด้วย "เหรียญเพ็ท" (เติมจาก TinyBank / รับจากมินิเกม)
+    petCoinRate: 1,               // เหรียญที่ได้ต่อ 1 บาท TinyBank ตอนเติม
+    petShop: [                    // [{ id, name, price(เหรียญ), emoji, image, type, amount, desc }]
+        { id: "pi_food1", name: "ขนมอบกรอบ", price: 8, emoji: "🍪", image: "", type: "food", amount: 40, desc: "ของว่างอร่อยๆ" },
+        { id: "pi_toy1", name: "ลูกบอลนุ่ม", price: 12, emoji: "🎾", image: "", type: "toy", amount: 30, desc: "ของเล่นโปรด" },
+        { id: "pi_care1", name: "สบู่หอม", price: 10, emoji: "🧼", image: "", type: "care", amount: 60, desc: "อาบน้ำหอมสะอาด" },
+    ],
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -1093,7 +1100,7 @@ function renderShop() {
                 <span class="tinyfeed-shop-edit" title="แก้ไขสินค้า"><i class="fa-solid fa-pen"></i></span>
                 <span class="tinyfeed-shop-del" title="ลบสินค้า"><i class="fa-solid fa-trash"></i></span>
             </div>
-            <div class="tinyfeed-shop-name">${escapeText(it.name)}${parseInt(it.food, 10) > 0 ? ` <span class="tinyfeed-shop-food-badge" title="อาหารสัตว์ TinyPet">🐾+${parseInt(it.food, 10)}</span>` : ""}</div>
+            <div class="tinyfeed-shop-name">${escapeText(it.name)}</div>
             ${it.cat ? `<div class="tinyfeed-shop-cat-tag">${escapeText(it.cat)}</div>` : ""}
             ${it.desc ? `<div class="tinyfeed-shop-desc">${escapeText(it.desc)}</div>` : ""}
             <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
@@ -1107,13 +1114,12 @@ function addShopItem() {
     const image = String($("#tinyfeed-shop-image").val() || "").trim();
     const emoji = String($("#tinyfeed-shop-emoji").val() || "").trim().slice(0, 4);
     const desc = String($("#tinyfeed-shop-desc").val() || "").trim();
-    const food = Math.max(0, parseInt($("#tinyfeed-shop-food").val(), 10) || 0);
     const cat = String($("#tinyfeed-shop-cat").val() || "").trim();
     if (!name) { toastr.info("ตั้งชื่อสินค้าก่อนนะ", "TinyShop"); return; }
     if (!Number.isFinite(price) || price <= 0) { toastr.info("ใส่ราคาสินค้าก่อนนะ", "TinyShop"); return; }
-    getShop().push({ id: shopId(), name, price, image, emoji, desc, food, cat });
+    getShop().push({ id: shopId(), name, price, image, emoji, desc, cat });
     saveShop();
-    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-emoji, #tinyfeed-shop-desc, #tinyfeed-shop-food").val("");
+    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-emoji, #tinyfeed-shop-desc").val("");
     renderShop();
     toastr.success(`เพิ่มสินค้า "${name}" แล้ว`, "TinyShop");
 }
@@ -1128,7 +1134,6 @@ function openShopEdit(id) {
     $("#tinyfeed-shop-edit-emoji").val(it.emoji || "");
     fillShopCatSelect($("#tinyfeed-shop-edit-cat"), it.cat || "");
     $("#tinyfeed-shop-edit-desc").val(it.desc || "");
-    $("#tinyfeed-shop-edit-food").val(it.food || "");
     $("#tinyfeed-shop-edit-modal").removeClass("tinyfeed-hidden");
 }
 function closeShopEditModal() { $("#tinyfeed-shop-edit-modal").addClass("tinyfeed-hidden"); shopEditId = null; }
@@ -1145,7 +1150,6 @@ function saveShopEdit() {
     it.emoji = String($("#tinyfeed-shop-edit-emoji").val() || "").trim().slice(0, 4);
     it.cat = String($("#tinyfeed-shop-edit-cat").val() || "").trim();
     it.desc = String($("#tinyfeed-shop-edit-desc").val() || "").trim();
-    it.food = Math.max(0, parseInt($("#tinyfeed-shop-edit-food").val(), 10) || 0);
     saveShop();
     closeShopEditModal();
     renderShop();
@@ -2478,7 +2482,7 @@ const clamp100 = (n) => Math.max(0, Math.min(100, Number(n) || 0));
 
 function defaultPet() {
     return {
-        exists: false, name: "", stage: "baby", bond: 0,
+        exists: false, name: "", stage: "baby", bond: 0, coins: 0,
         stats: { hunger: 0, energy: 100, cleanliness: 100, mood: 80, health: 100 },
         lastUpdateTimestamp: Date.now(), createdAt: 0, isDead: false, isSleeping: false, notified: {}, dm: [],
     };
@@ -2493,6 +2497,7 @@ function getPet() {
     if (typeof p.lastUpdateTimestamp !== "number") p.lastUpdateTimestamp = Date.now();
     if (typeof p.stage !== "string") p.stage = "baby";
     if (typeof p.bond !== "number" || !isFinite(p.bond)) p.bond = 0;
+    if (typeof p.coins !== "number" || !isFinite(p.coins)) p.coins = 0;
     if (!Array.isArray(p.dm)) p.dm = [];
     store.pet = p;
     return p;
@@ -2660,46 +2665,240 @@ function petAct(action) {
     if (react && getSetting("petAiReactions")) petReactThrottled(action);
 }
 
-// ให้อาหารจาก picker — fullness/mood/bond + cost (0 = ฟรี, >0 = หักจาก TinyBank)
-function petFeed(fullness, moodGain, bondGain, label, cost) {
+// ===== TinyPet: เหรียญเพ็ท + ร้านสัตว์เลี้ยง (แยกจาก TinyShop) =====
+function petCoins() { return Math.max(0, Math.floor(Number(getPet().coins) || 0)); }
+function petAddCoins(n) { const p = getPet(); p.coins = Math.max(0, (Number(p.coins) || 0) + Math.round(n)); }
+function petSpendCoins(n) {
+    const p = getPet();
+    n = Math.round(n);
+    if ((Number(p.coins) || 0) < n) { toastr.warning("เหรียญไม่พอ เติมเหรียญก่อนนะ 🪙", "TinyPet"); return false; }
+    p.coins = (Number(p.coins) || 0) - n;
+    return true;
+}
+function getPetShop() {
+    const store = extension_settings[extensionName] || {};
+    if (!Array.isArray(store.petShop)) { store.petShop = (defaultSettings.petShop || []).slice(); setSetting("petShop", store.petShop); }
+    return store.petShop;
+}
+function savePetShop() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    extension_settings[extensionName].petShop = getPetShop();
+    saveSettingsDebounced();
+}
+function petItemId() { return "pi" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+
+const PET_ITEM_TYPES = { food: "อาหาร", toy: "ของเล่น", care: "ของใช้", heal: "ยา/ฟื้นฟู" };
+const PET_ITEM_EMOJI = { food: "🍖", toy: "🎾", care: "🧼", heal: "💊" };
+const PET_ITEM_SPRITE = { food: "eating", toy: "playing", care: "cleaning", heal: "eating" };
+let isPetShopBusy = false;
+let petItemEditId = null;
+
+// ผลของไอเทมจาก type + amount (deltas "ดี" เป็นบวก; ของเล่นหักพลังงานนิดหน่อย)
+function petItemEffect(it) {
+    const a = Math.max(0, parseInt(it.amount, 10) || 0);
+    switch (it.type) {
+        case "toy": return { mood: a, bond: Math.round(a / 5), energy: -Math.round(a / 4) };
+        case "care": return { cleanliness: a, mood: Math.round(a / 3) };
+        case "heal": return { health: a, mood: Math.round(a / 4) };
+        case "food": default: return { fullness: a };
+    }
+}
+function petEffectText(it) {
+    const e = petItemEffect(it);
+    const parts = [];
+    if (e.fullness) parts.push(`อิ่ม +${e.fullness}`);
+    if (e.energy) parts.push(`พลังงาน ${e.energy > 0 ? "+" : ""}${e.energy}`);
+    if (e.cleanliness) parts.push(`สะอาด +${e.cleanliness}`);
+    if (e.mood) parts.push(`อารมณ์ +${e.mood}`);
+    if (e.health) parts.push(`สุขภาพ +${e.health}`);
+    if (e.bond) parts.push(`ผูกพัน +${e.bond}`);
+    return parts.join(", ") || "—";
+}
+function petApplyEffect(effect) {
+    const s = getPet().stats;
+    if (effect.fullness) s.hunger = clamp100(s.hunger - effect.fullness);
+    if (effect.energy) s.energy = clamp100(s.energy + effect.energy);
+    if (effect.cleanliness) s.cleanliness = clamp100(s.cleanliness + effect.cleanliness);
+    if (effect.mood) s.mood = clamp100(s.mood + effect.mood);
+    if (effect.health) s.health = clamp100(s.health + effect.health);
+    if (effect.bond) petBondAdd(effect.bond);
+}
+
+function openPetShop() {
     const p = getPet();
     if (!p.exists || p.isDead) return;
-    if (p.isSleeping) { toastr.info("เพ็ทกำลังหลับอยู่ ปลุกก่อนนะ", "TinyPet"); return; }
-    if (petOnCooldown("feed")) return;
-    if (cost > 0 && !bankDeduct(cost, `อาหารเพ็ท: ${label}`, "pet")) return;   // ยอดไม่พอ → toast ในตัว
-    petApplyDecay();
-    const s = p.stats;
-    if (s.hunger <= 10) { s.mood = clamp100(s.mood - 5); s.health = clamp100(s.health - 3); toastr.info("เพ็ทอิ่มแล้ว อย่าให้กินเยอะเกินไป!", "TinyPet"); }
-    else { s.hunger = clamp100(s.hunger - fullness); s.mood = clamp100(s.mood + moodGain); petBondAdd(bondGain); }
-    p.lastUpdateTimestamp = Date.now();
-    savePet();
-    setPetActionSprite("eating", 1600);
-    closePetFoodPicker();
-    renderPet();
-    if (getSetting("petAiReactions")) petReactThrottled("feed");
+    renderPetShop();
+    $("#tinyfeed-pet-shop-modal").removeClass("tinyfeed-hidden");
 }
-function openPetFoodPicker() {
-    const p = getPet();
-    if (!p.exists || p.isDead) return;
-    if (p.isSleeping) { toastr.info("เพ็ทกำลังหลับอยู่ ปลุกก่อนนะ", "TinyPet"); return; }
-    renderPetFoodList();
-    $("#tinyfeed-pet-food-modal").removeClass("tinyfeed-hidden");
-}
-function closePetFoodPicker() { $("#tinyfeed-pet-food-modal").addClass("tinyfeed-hidden"); }
-function renderPetFoodList() {
-    $("#tinyfeed-pet-food-balance").text(formatMoney(getBankData().balance));
-    const foods = getShop().filter((it) => parseInt(it.food, 10) > 0);
-    const free = `<div class="tinyfeed-pet-food-opt" data-id="__free__">
+function closePetShop() { $("#tinyfeed-pet-shop-modal").addClass("tinyfeed-hidden"); }
+function renderPetShop() {
+    $("#tinyfeed-pet-shop-coins").text(petCoins().toLocaleString());
+    const items = getPetShop();
+    const free = `<div class="tinyfeed-pet-shop-item" data-id="__free__">
         <span class="tinyfeed-pet-food-emoji">🍚</span>
-        <span class="tinyfeed-pet-food-info"><b>อาหารพื้นฐาน</b><small>ฟื้นความอิ่ม +35</small></span>
-        <span class="tinyfeed-pet-food-price">ฟรี</span>
+        <span class="tinyfeed-pet-food-info"><b>อาหารพื้นฐาน</b><small>อิ่ม +35 · ฟรี</small></span>
+        <button class="tinyfeed-pet-buy tinyfeed-btn-primary" data-id="__free__">ฟรี</button>
     </div>`;
-    const rows = foods.map((it) => `<div class="tinyfeed-pet-food-opt" data-id="${escapeAttr(it.id)}">
-        ${it.image ? `<img class="tinyfeed-pet-food-img" src="${escapeAttr(it.image)}" alt="" onerror="this.remove()" />` : `<span class="tinyfeed-pet-food-emoji">🍖</span>`}
-        <span class="tinyfeed-pet-food-info"><b>${escapeText(it.name)}</b><small>ฟื้นความอิ่ม +${parseInt(it.food, 10)}</small></span>
-        <span class="tinyfeed-pet-food-price">${formatMoney(it.price)}</span>
-    </div>`).join("");
-    $("#tinyfeed-pet-food-list").html(free + rows);
+    const rows = items.map((it) => {
+        const thumb = it.image
+            ? `<img class="tinyfeed-pet-food-img" src="${escapeAttr(it.image)}" alt="" onerror="this.remove()" />`
+            : `<span class="tinyfeed-pet-food-emoji">${escapeText(it.emoji || PET_ITEM_EMOJI[it.type] || "🎁")}</span>`;
+        return `<div class="tinyfeed-pet-shop-item" data-id="${escapeAttr(it.id)}">
+            ${thumb}
+            <span class="tinyfeed-pet-food-info"><b>${escapeText(it.name)}</b><small>${escapeText(petEffectText(it))}${it.desc ? " · " + escapeText(it.desc) : ""}</small></span>
+            <span class="tinyfeed-pet-item-edit" title="แก้ไข"><i class="fa-solid fa-pen"></i></span>
+            <span class="tinyfeed-pet-item-del" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+            <button class="tinyfeed-pet-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">🪙 ${Math.max(0, parseInt(it.price, 10) || 0)}</button>
+        </div>`;
+    }).join("");
+    $("#tinyfeed-pet-shop-list").html(free + rows);
+}
+function buyPetItem(id) {
+    const p = getPet();
+    if (!p.exists || p.isDead) return;
+    if (p.isSleeping) { toastr.info("เพ็ทกำลังหลับอยู่ ปลุกก่อนนะ", "TinyPet"); return; }
+    if (id === "__free__") {
+        if (petOnCooldown("feed")) return;
+        petApplyDecay();
+        const s = p.stats;
+        if (s.hunger <= 10) { s.mood = clamp100(s.mood - 5); s.health = clamp100(s.health - 3); toastr.info("เพ็ทอิ่มแล้ว อย่าให้กินเยอะเกินไป!", "TinyPet"); }
+        else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); petBondAdd(2); }
+        p.lastUpdateTimestamp = Date.now();
+        savePet(); setPetActionSprite("eating", 1600); closePetShop(); renderPet();
+        if (getSetting("petAiReactions")) petReactThrottled("feed");
+        return;
+    }
+    const it = getPetShop().find((x) => String(x.id) === String(id));
+    if (!it) return;
+    if (petOnCooldown("shop")) return;
+    const price = Math.max(0, parseInt(it.price, 10) || 0);
+    if (price > 0 && !petSpendCoins(price)) return;
+    petApplyDecay();
+    petApplyEffect(petItemEffect(it));
+    getPet().lastUpdateTimestamp = Date.now();
+    savePet();
+    setPetActionSprite(PET_ITEM_SPRITE[it.type] || "eating", 1600);
+    closePetShop();
+    renderPet();
+    toastr.success(`ใช้ "${it.name}" แล้ว`, "TinyPet");
+    if (getSetting("petAiReactions")) petReactThrottled(it.type === "toy" ? "play" : it.type === "care" ? "clean" : "feed");
+}
+
+// เติมเหรียญจาก TinyBank
+function openPetTopup() {
+    $("#tinyfeed-pet-topup-amount").val("");
+    $("#tinyfeed-pet-topup-bank").text(formatMoney(getBankData().balance));
+    $("#tinyfeed-pet-topup-rate").text(Math.max(1, parseInt(getSetting("petCoinRate"), 10) || 1));
+    $("#tinyfeed-pet-topup-modal").removeClass("tinyfeed-hidden");
+    setTimeout(() => $("#tinyfeed-pet-topup-amount").trigger("focus"), 30);
+}
+function closePetTopup() { $("#tinyfeed-pet-topup-modal").addClass("tinyfeed-hidden"); }
+function petTopup() {
+    const baht = parseInt($("#tinyfeed-pet-topup-amount").val(), 10);
+    if (!Number.isFinite(baht) || baht <= 0) { toastr.info("ใส่จำนวนเงินก่อนนะ", "TinyPet"); return; }
+    if (!bankDeduct(baht, "เติมเหรียญเพ็ท", "pet")) return;   // ยอดไม่พอ → toast ในตัว
+    const coins = baht * Math.max(1, parseInt(getSetting("petCoinRate"), 10) || 1);
+    petAddCoins(coins);
+    savePet();
+    closePetTopup();
+    renderPetShop();
+    toastr.success(`เติม ${coins.toLocaleString()} เหรียญแล้ว 🪙`, "TinyPet");
+}
+
+// เพิ่ม/แก้ไขไอเทม
+function openPetItemEdit(id) {
+    petItemEditId = id ? String(id) : null;
+    const it = id ? getPetShop().find((x) => String(x.id) === String(id)) : null;
+    $("#tinyfeed-pet-item-title").text(it ? "แก้ไขไอเทม" : "เพิ่มไอเทม");
+    $("#tinyfeed-pet-item-name").val(it ? it.name : "");
+    $("#tinyfeed-pet-item-price").val(it ? it.price : "");
+    $("#tinyfeed-pet-item-emoji").val(it ? (it.emoji || "") : "");
+    $("#tinyfeed-pet-item-image").val(it ? (it.image || "") : "");
+    $("#tinyfeed-pet-item-type").val(it ? (it.type || "food") : "food");
+    $("#tinyfeed-pet-item-amount").val(it ? it.amount : 40);
+    $("#tinyfeed-pet-item-desc").val(it ? (it.desc || "") : "");
+    $("#tinyfeed-pet-item-modal").removeClass("tinyfeed-hidden");
+}
+function closePetItemModal() { $("#tinyfeed-pet-item-modal").addClass("tinyfeed-hidden"); petItemEditId = null; }
+function savePetItem() {
+    const name = String($("#tinyfeed-pet-item-name").val() || "").trim();
+    if (!name) { toastr.info("ตั้งชื่อไอเทมก่อนนะ", "TinyPet"); return; }
+    const data = {
+        name,
+        price: Math.max(0, parseInt($("#tinyfeed-pet-item-price").val(), 10) || 0),
+        emoji: String($("#tinyfeed-pet-item-emoji").val() || "").trim().slice(0, 4),
+        image: String($("#tinyfeed-pet-item-image").val() || "").trim(),
+        type: String($("#tinyfeed-pet-item-type").val() || "food"),
+        amount: Math.max(0, parseInt($("#tinyfeed-pet-item-amount").val(), 10) || 0),
+        desc: String($("#tinyfeed-pet-item-desc").val() || "").trim(),
+    };
+    const shop = getPetShop();
+    if (petItemEditId) { const it = shop.find((x) => String(x.id) === petItemEditId); if (it) Object.assign(it, data); }
+    else shop.push(Object.assign({ id: petItemId() }, data));
+    savePetShop();
+    closePetItemModal();
+    renderPetShop();
+    toastr.success("บันทึกไอเทมแล้ว", "TinyPet");
+}
+function deletePetItem(id) {
+    const shop = getPetShop();
+    const i = shop.findIndex((x) => String(x.id) === String(id));
+    if (i < 0) return;
+    shop.splice(i, 1);
+    savePetShop();
+    renderPetShop();
+}
+
+// AI สร้างไอเทมร้านเพ็ท
+async function generatePetItems(opts) {
+    opts = opts || {};
+    if (isPetShopBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { if (!opts.silent) toastr.error("เวอร์ชัน ST นี้ไม่มี generateQuietPrompt", "TinyPet"); return; }
+    if (!getCurrentCharacter()) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyPet"); return; }
+    isPetShopBusy = true;
+    const btn = $("#tinyfeed-pet-shop-generate");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const q = buildPrompt("petShopItems", {
+            petName: getPet().name || "เพ็ท",
+            types: Object.entries(PET_ITEM_TYPES).map(([k, v]) => `${v}(${k})`).join(", "),
+            context: crossAppContext("pet"),
+        });
+        const raw = await tinyGenerate(q, 400, "pet");
+        const added = parsePetItems(raw);
+        if (!added) { if (!opts.silent) toastr.warning("AI ไม่ได้ส่งไอเทมกลับมา ลองใหม่นะ", "TinyPet"); return; }
+        savePetShop();
+        renderPetShop();
+        if (!opts.silent) toastr.success(`AI สร้างไอเทม ${added} ชิ้นแล้ว`, "TinyPet");
+    } catch (e) {
+        console.error(`[${extensionName}] generate pet items failed:`, e);
+        if (!opts.silent) toastr.error("สร้างไอเทมไม่สำเร็จ ลองใหม่นะ", "TinyPet");
+    } finally {
+        isPetShopBusy = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+// ITEM: ชื่อ | ราคาเหรียญ | ประเภท | อิโมจิ | ค่าพลัง | รายละเอียด
+function parsePetItems(raw) {
+    const s = stripReasoning(raw);
+    const valid = Object.keys(PET_ITEM_TYPES);
+    const re = /ITEM:\s*(.+)/gi;
+    let m, count = 0;
+    while ((m = re.exec(s)) !== null) {
+        const parts = m[1].split("|").map((x) => x.trim());
+        const name = (parts[0] || "").replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const price = Math.abs(Math.round(parseFloat(String(parts[1] || "").replace(/[^\d.]/g, "")) || 0));
+        let type = (parts[2] || "").trim().toLowerCase();
+        const emoji = (parts[3] || "").trim().slice(0, 4);
+        const amount = Math.max(1, Math.abs(parseInt(String(parts[4] || "").replace(/[^\d]/g, ""), 10) || 30));
+        const desc = (parts[5] || "").trim();
+        if (!name) continue;
+        if (!valid.includes(type)) type = "food";
+        getPetShop().push({ id: petItemId(), name, price: price || 10, emoji, image: "", type, amount, desc });
+        count++;
+    }
+    return count;
 }
 
 // หลังตาย: กลับไปหน้า "รับเลี้ยง" (ให้ตั้งชื่อใหม่) — ไม่ auto-adopt ทันที
@@ -2960,6 +3159,7 @@ function renderPet() {
             <div class="tinyfeed-pet-bond" title="ผูกพันเพิ่มจากการดูแล + เอ่ยถึงเพ็ทในบทบาท">
                 <span class="tinyfeed-pet-bond-label"><i class="fa-solid fa-heart-circle-check"></i> ความผูกพัน ${bondTitle}</span>
                 <span class="tinyfeed-pet-bond-bar"><span style="width:${bondPct}%"></span></span>
+                <span class="tinyfeed-pet-coins" title="เหรียญเพ็ท">🪙 ${petCoins().toLocaleString()}</span>
             </div>
         </div>
         <div class="tinyfeed-pet-stats">
@@ -2976,6 +3176,7 @@ function renderPet() {
             <button class="tinyfeed-pet-act" data-act="sleep"><i class="fa-solid ${sleepIcon}"></i><span>${sleepLabel}</span></button>
         </div>
         <div class="tinyfeed-pet-extra-actions">
+            <button id="tinyfeed-pet-shop-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-store"></i> <span>ร้านค้า</span></button>
             <button id="tinyfeed-pet-speak" class="tinyfeed-btn-generate"><i class="fa-solid fa-comment-dots"></i> <span>ให้เพ็ทพูด</span></button>
             <button id="tinyfeed-pet-post" class="tinyfeed-btn-generate"><i class="fa-solid fa-hashtag"></i> <span>โพสต์ลงฟีด</span></button>
         </div>
@@ -3926,6 +4127,12 @@ const PROMPT_DEFS = {
         default:
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งรายการสินค้า 3-5 ชิ้นที่น่าจะมีขายในร้านค้าของโลกในเนื้อเรื่องนี้ ให้เข้ากับบรรยากาศ/ยุคสมัย/ธีมของเรื่อง ตั้งราคาสมเหตุสมผล เลือกหมวดจากรายการนี้เท่านั้น: {{cats}}. เลือกอิโมจิ 1 ตัวที่สื่อถึงสินค้า ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
             `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อสินค้า> | <ราคาเป็นตัวเลข> | <หมวด> | <อิโมจิ> | <รายละเอียดสั้น>`,
+    },
+    petShopItems: {
+        label: "สร้างไอเทมร้านเพ็ท (TinyPet)", marker: "ITEM:", tokens: ["petName", "types", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งไอเทมสำหรับร้านสัตว์เลี้ยงของ {{petName}} จำนวน 4-6 ชิ้น (คละทั้งอาหาร/ของเล่น/ของใช้) ให้เข้ากับโลกของเนื้อเรื่อง ตั้งราคาเป็นเหรียญสมเหตุสมผล เลือกอิโมจิ 1 ตัว ประเภทเลือกจาก: {{types}}. ค่าพลัง 20-70 ตามความแรง ใช้ภาษาเดียวกับเนื้อเรื่อง.{{context}}\n` +
+            `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อ> | <ราคาเหรียญ> | <ประเภท food/toy/care/heal> | <อิโมจิ> | <ค่าพลัง> | <รายละเอียดสั้น>`,
     },
 };
 
@@ -5935,6 +6142,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-pet-decay-energy").val(getSetting("petDecayEnergy"));
     $("#tinyfeed-cfg-pet-decay-clean").val(getSetting("petDecayClean"));
     $("#tinyfeed-cfg-pet-offline").val(getSetting("petOfflineCapHours"));
+    $("#tinyfeed-cfg-pet-coinrate").val(getSetting("petCoinRate"));
     renderPetSpriteCfg();
     $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
     $("#tinyfeed-cfg-gallery-scope").val(getSetting("galleryPromptScope") || "all");
@@ -5999,15 +6207,17 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-pet-food-modal", "#tinyfeed-shop-edit-modal"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
         closeCharPicker();
         closeSlipModal();
         closeDonateModal();
-        closePetFoodPicker();
         closeShopEditModal();
+        closePetShop();
+        closePetItemModal();
+        closePetTopup();
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -6366,19 +6576,32 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-shop-edit-save", saveShopEdit);
 
         // ===== TinyPet =====
-        $(document).on("click", ".tinyfeed-pet-act", function () {
-            const act = String($(this).data("act"));
-            if (act === "feed") openPetFoodPicker();   // ให้อาหาร = เปิดเมนูอาหาร (ฟรี + จาก TinyShop)
-            else petAct(act);
+        $(document).on("click", ".tinyfeed-pet-act", function () { petAct(String($(this).data("act"))); });
+        // ร้านสัตว์เลี้ยง (เหรียญเพ็ท แยกจาก TinyShop)
+        $(document).on("click", "#tinyfeed-pet-shop-btn", openPetShop);
+        $(document).on("click", "#tinyfeed-pet-shop-close", closePetShop);
+        $(document).on("click", "#tinyfeed-pet-shop-modal", function (e) { if (e.target === this) closePetShop(); });
+        $(document).on("click", ".tinyfeed-pet-buy", function () { buyPetItem(String($(this).data("id"))); });
+        $(document).on("click", ".tinyfeed-pet-item-edit", function (e) {
+            e.stopPropagation();
+            openPetItemEdit(String($(this).closest(".tinyfeed-pet-shop-item").data("id")));
         });
-        $(document).on("click", "#tinyfeed-pet-food-close", closePetFoodPicker);
-        $(document).on("click", "#tinyfeed-pet-food-modal", function (e) { if (e.target === this) closePetFoodPicker(); });
-        $(document).on("click", ".tinyfeed-pet-food-opt", function () {
-            const id = String($(this).data("id"));
-            if (id === "__free__") { petFeed(35, 5, 2, "อาหารพื้นฐาน", 0); return; }
-            const it = getShop().find((x) => String(x.id) === id);
-            if (it) petFeed(parseInt(it.food, 10) || 20, 8, 3, it.name, it.price);
+        $(document).on("click", ".tinyfeed-pet-item-del", function (e) {
+            e.stopPropagation();
+            deletePetItem(String($(this).closest(".tinyfeed-pet-shop-item").data("id")));
         });
+        $(document).on("click", "#tinyfeed-pet-shop-add", function () { openPetItemEdit(null); });
+        $(document).on("click", "#tinyfeed-pet-shop-generate", function () { generatePetItems(); });
+        $(document).on("click", "#tinyfeed-pet-topup-btn", openPetTopup);
+        // แก้/เพิ่มไอเทม
+        $(document).on("click", "#tinyfeed-pet-item-close", closePetItemModal);
+        $(document).on("click", "#tinyfeed-pet-item-modal", function (e) { if (e.target === this) closePetItemModal(); });
+        $(document).on("click", "#tinyfeed-pet-item-save", savePetItem);
+        // เติมเหรียญ
+        $(document).on("click", "#tinyfeed-pet-topup-close", closePetTopup);
+        $(document).on("click", "#tinyfeed-pet-topup-modal", function (e) { if (e.target === this) closePetTopup(); });
+        $(document).on("click", "#tinyfeed-pet-topup-send", petTopup);
+        $(document).on("keydown", "#tinyfeed-pet-topup-amount", function (e) { if (e.key === "Enter") { e.preventDefault(); petTopup(); } });
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
         $(document).on("click", "#tinyfeed-pet-post", function () { petPostToFeed({ notify: false, silent: false }); });
         $(document).on("click", "#tinyfeed-pet-adopt", function () { petAdopt($("#tinyfeed-pet-name-input").val()); });
@@ -7071,6 +7294,10 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-pet-offline", function () {
             const v = parseInt($(this).val(), 10);
             setSetting("petOfflineCapHours", Number.isFinite(v) && v > 0 ? v : 12);
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-coinrate", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("petCoinRate", Number.isFinite(v) && v > 0 ? v : 1);
         });
         $(document).on("input", ".tinyfeed-pet-sprite-url", function () {
             const state = $(this).data("state");

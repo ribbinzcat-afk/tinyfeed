@@ -783,6 +783,10 @@
                         <span class="tinyfeed-field-label">เพดานคิด decay ตอนหายไปนาน (ชม.)</span>
                         <input id="tinyfeed-cfg-pet-offline" type="number" min="1" />
                     </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เรตเติมเหรียญ (เหรียญ/1 บาท TinyBank)</span>
+                        <input id="tinyfeed-cfg-pet-coinrate" type="number" min="1" />
+                    </label>
                     <div class="tinyfeed-field-label">รูป sprite ต่อสถานะ (ใส่ลิงก์เอง · ว่าง = ใช้ไฟล์ในตัว assets/pet-sprites/)</div>
                     <div id="tinyfeed-pet-sprite-list"></div>
                     <small class="tinyfeed-field-hint">รองรับลิงก์ PNG/GIF/รูปเคลื่อนไหว · วางไฟล์เองในโฟลเดอร์ <code>assets/pet-sprites/&lt;สถานะ&gt;.png</code> ก็ได้ (ไม่ต้องใส่ลิงก์)</small>
@@ -1048,7 +1052,6 @@
                     <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ · ใช้แทนอิโมจิ)" />
                     <select id="tinyfeed-shop-cat"></select>
                     <input id="tinyfeed-shop-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
-                    <input id="tinyfeed-shop-food" type="number" min="0" placeholder="🐾 อาหารสัตว์: ฟื้นความอิ่ม (0 = ไม่ใช่อาหาร)" />
                     <div class="tinyfeed-shop-addbtns">
                         <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
                         <button id="tinyfeed-shop-generate" class="tinyfeed-btn-generate">
@@ -1115,14 +1118,58 @@
             </div>
         </div>
 
-        <div id="tinyfeed-pet-food-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+        <div id="tinyfeed-pet-shop-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
             <div class="tinyfeed-gallery-picker-card">
                 <div class="tinyfeed-gallery-picker-head">
-                    <span>เลือกอาหาร · ยอดคงเหลือ <b id="tinyfeed-pet-food-balance"></b></span>
-                    <span id="tinyfeed-pet-food-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                    <span>ร้านสัตว์เลี้ยง · 🪙 <b id="tinyfeed-pet-shop-coins">0</b> <button id="tinyfeed-pet-topup-btn" class="tinyfeed-pet-topup-link">เติมเหรียญ</button></span>
+                    <span id="tinyfeed-pet-shop-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
-                <div id="tinyfeed-pet-food-list" class="tinyfeed-pet-food-list"></div>
-                <small class="tinyfeed-field-hint">อาหารพิเศษเพิ่มได้ในแอป TinyShop (ใส่ค่า "ฟื้นความอิ่ม") · จ่ายด้วยเงินใน TinyBank</small>
+                <div id="tinyfeed-pet-shop-list" class="tinyfeed-pet-food-list"></div>
+                <div class="tinyfeed-pet-shop-managebar">
+                    <button id="tinyfeed-pet-shop-add" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มไอเทม</span></button>
+                    <button id="tinyfeed-pet-shop-generate" class="tinyfeed-btn-generate"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI สร้าง</span></button>
+                </div>
+                <small class="tinyfeed-field-hint">ซื้อด้วย "เหรียญเพ็ท" (แยกจากเงิน RP) · เติมเหรียญจาก TinyBank ได้ · แยกไอเทมจาก TinyShop ไม่ปนกัน</small>
+            </div>
+        </div>
+
+        <div id="tinyfeed-pet-item-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span id="tinyfeed-pet-item-title">เพิ่มไอเทม</span>
+                    <span id="tinyfeed-pet-item-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-pet-item-name" type="text" placeholder="ชื่อไอเทม" />
+                    <div class="tinyfeed-shop-addrow">
+                        <input id="tinyfeed-pet-item-price" type="number" min="0" placeholder="ราคา (เหรียญ)" />
+                        <input id="tinyfeed-pet-item-emoji" type="text" maxlength="4" placeholder="อิโมจิ 🍖" />
+                    </div>
+                    <select id="tinyfeed-pet-item-type">
+                        <option value="food">อาหาร (เพิ่มความอิ่ม)</option>
+                        <option value="toy">ของเล่น (เพิ่มอารมณ์/ผูกพัน)</option>
+                        <option value="care">ของใช้ (เพิ่มความสะอาด)</option>
+                        <option value="heal">ยา/ฟื้นฟู (เพิ่มสุขภาพ)</option>
+                    </select>
+                    <input id="tinyfeed-pet-item-amount" type="number" min="1" placeholder="ค่าพลัง (เช่น 40)" />
+                    <input id="tinyfeed-pet-item-image" type="text" placeholder="ลิงก์รูป (ใช้แทนอิโมจิ)" />
+                    <input id="tinyfeed-pet-item-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <button id="tinyfeed-pet-item-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> บันทึก</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-pet-topup-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>เติมเหรียญเพ็ท</span>
+                    <span id="tinyfeed-pet-topup-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <div class="tinyfeed-donate-balance">เงิน TinyBank: <b id="tinyfeed-pet-topup-bank"></b> · เรต <b id="tinyfeed-pet-topup-rate">1</b> เหรียญ/บาท</div>
+                    <input id="tinyfeed-pet-topup-amount" type="number" min="1" placeholder="จำนวนเงินที่จะเติม (บาท)" />
+                    <button id="tinyfeed-pet-topup-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-coins"></i> เติมเหรียญ</button>
+                </div>
             </div>
         </div>
 
@@ -1141,7 +1188,6 @@
                     <input id="tinyfeed-shop-edit-image" type="text" placeholder="ลิงก์รูป (ใช้แทนอิโมจิ)" />
                     <select id="tinyfeed-shop-edit-cat"></select>
                     <input id="tinyfeed-shop-edit-desc" type="text" placeholder="รายละเอียด" />
-                    <input id="tinyfeed-shop-edit-food" type="number" min="0" placeholder="🐾 อาหารสัตว์: ฟื้นความอิ่ม (0 = ไม่ใช่)" />
                     <button id="tinyfeed-shop-edit-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> บันทึก</button>
                 </div>
             </div>
