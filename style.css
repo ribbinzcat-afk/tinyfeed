@@ -3766,7 +3766,8 @@
 }
 .tinyfeed-pet-state-dead, .tinyfeed-pet-state-sleeping, .tinyfeed-pet-state-sick { animation: none; }
 .tinyfeed-pet-state-dead { opacity: 0.75; filter: grayscale(0.6); }
-.tinyfeed-pet-emoji { position: absolute; font-size: 92px; line-height: 1; user-select: none; }
+.tinyfeed-pet-emoji { position: absolute; font-size: 92px; line-height: 1; user-select: none; display: none; }
+.tinyfeed-pet-noimg .tinyfeed-pet-emoji { display: block; }   /* โชว์อิโมจิเฉพาะตอนไม่มีรูป sprite */
 .tinyfeed-pet-sprite {
     position: relative;
     z-index: 1;
@@ -3791,6 +3792,11 @@
     margin-left: 4px;
 }
 .tinyfeed-pet-mood { color: var(--tf-text-muted); font-size: 0.86em; }
+.tinyfeed-pet-bond { display: flex; align-items: center; gap: 8px; font-size: 0.78em; color: var(--tf-text-muted); margin-top: 2px; }
+.tinyfeed-pet-bond-label { white-space: nowrap; }
+.tinyfeed-pet-bond-label i { color: #ec4899; margin-right: 3px; }
+.tinyfeed-pet-bond-bar { width: 96px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--tf-text-muted) 25%, transparent); overflow: hidden; }
+.tinyfeed-pet-bond-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #ec4899, #f472b6); border-radius: 999px; transition: width 0.4s ease; }
 .tinyfeed-pet-bubble {
     position: absolute;
     top: 0;
@@ -3862,7 +3868,7 @@
 .tinyfeed-pet-act i { font-size: 1.5em; color: var(--tf-accent); }
 .tinyfeed-pet-act:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar)); }
 .tinyfeed-pet-act:active { transform: scale(0.94); }
-.tinyfeed-pet-speakbtn { align-self: center; }
+.tinyfeed-pet-extra-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
 /* หน้าจอ create / dead */
 .tinyfeed-pet-screen {
     flex: 1;
@@ -3894,6 +3900,27 @@
 .tinyfeed-pet-screen input:focus { border-color: var(--tf-accent); }
 /* avatar อิโมจิในแจ้งเตือน */
 .tinyfeed-pet-notif-ava { display: flex; align-items: center; justify-content: center; font-size: 1.2em; background: color-mix(in srgb, var(--tf-accent) 20%, transparent); }
+/* เมนูเลือกอาหาร */
+.tinyfeed-pet-food-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.tinyfeed-pet-food-opt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 11px;
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    background: var(--tf-topbar);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-pet-food-opt:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar)); }
+.tinyfeed-pet-food-emoji { font-size: 1.5em; width: 34px; text-align: center; flex-shrink: 0; }
+.tinyfeed-pet-food-img { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.tinyfeed-pet-food-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tinyfeed-pet-food-info b { color: var(--tf-text-strong); font-size: 0.9em; }
+.tinyfeed-pet-food-info small { color: var(--tf-text-muted); font-size: 0.78em; }
+.tinyfeed-pet-food-price { flex-shrink: 0; font-size: 0.85em; font-weight: 600; color: var(--tf-accent); }
+.tinyfeed-shop-food-badge { font-size: 0.8em; color: #ec4899; }
 /* ตัวแก้ลิงก์ sprite ในหน้า settings */
 .tinyfeed-pet-sprite-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .tinyfeed-pet-sprite-emoji { flex-shrink: 0; font-size: 1.2em; width: 22px; text-align: center; }

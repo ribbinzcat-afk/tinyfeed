@@ -736,9 +736,17 @@
                         <span>ให้ AI แต่งบทพูดเพ็ท (หลังกดปุ่ม)</span>
                         <input id="tinyfeed-cfg-pet-ai" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้เพ็ทโพสต์ลงฟีดเองเป็นระยะ (ตอนอารมณ์ดี)</span>
+                        <input id="tinyfeed-cfg-pet-autopost" type="checkbox" />
+                    </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ความยาวบทพูดเพ็ท (token)</span>
                         <input id="tinyfeed-cfg-pet-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมบทพูดเพ็ท (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-pet-extra" rows="2" placeholder="เช่น: เป็นแมวขี้อ้อน, พูดลงท้ายเมี้ยว, สายพันธุ์มังกรจิ๋ว, ซุกซน..."></textarea>
                     </label>
                     <div class="tinyfeed-field-label">อัตราลดต่อนาที (ยิ่งมากยิ่งต้องดูแลถี่)</div>
                     <label class="tinyfeed-field">
@@ -1020,6 +1028,7 @@
                         <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ)" />
                     </div>
                     <input id="tinyfeed-shop-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <input id="tinyfeed-shop-food" type="number" min="0" placeholder="🐾 อาหารสัตว์: ฟื้นความอิ่ม (0 = ไม่ใช่อาหาร)" />
                     <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
                 </div>
                 <div id="tinyfeed-shop-grid" class="tinyfeed-shop-grid"></div>
@@ -1077,6 +1086,17 @@
                     <input id="tinyfeed-donate-note" type="text" placeholder="ข้อความถึงสตรีมเมอร์ (ไม่บังคับ)" />
                     <button id="tinyfeed-donate-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-gift"></i> โดเนท</button>
                 </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-pet-food-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>เลือกอาหาร · ยอดคงเหลือ <b id="tinyfeed-pet-food-balance"></b></span>
+                    <span id="tinyfeed-pet-food-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-pet-food-list" class="tinyfeed-pet-food-list"></div>
+                <small class="tinyfeed-field-hint">อาหารพิเศษเพิ่มได้ในแอป TinyShop (ใส่ค่า "ฟื้นความอิ่ม") · จ่ายด้วยเงินใน TinyBank</small>
             </div>
         </div>
 
