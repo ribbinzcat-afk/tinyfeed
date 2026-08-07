@@ -124,7 +124,10 @@ const defaultSettings = {
     streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
     bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
     connectSlipEnabled: false,    // ให้คู่แชทส่งสลิปโอนเงินเข้าบัญชีเราได้ (AI)
-    shop: [],                     // แคตตาล็อกร้านค้า (global) [{ id, name, price, image, desc }]
+    shop: [],                     // แคตตาล็อกร้านค้า (global) [{ id, name, price, image, emoji, desc, food, cat }]
+    shopCategories: ["เสื้อผ้า", "ของกิน", "ไอเทม/ของใช้", "ของแต่งบ้าน", "อื่นๆ"],  // หมวดสินค้า (แก้ในตั้งค่า)
+    shopTokens: 400,              // ความยาวผลลัพธ์ตอน AI สร้างสินค้า
+    shopExtraPrompt: "",          // คำสั่งเสริมตอน AI สร้างสินค้า
     // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
     donateTiers: [
         { min: 0, color: "#1d9bf0" },
@@ -1035,26 +1038,63 @@ function getShopOwned() {
     return data.shopOwned;
 }
 function shopId() { return "sh" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+// หมวดสินค้า (global setting) — คล้ายห้องของ TinyForum · คืน "ดิบ" (รวมช่องว่าง) ให้ตัวแก้ในตั้งค่าทำงานได้
+function getShopCategories() {
+    const c = getSetting("shopCategories");
+    if (!Array.isArray(c)) return defaultSettings.shopCategories.slice();
+    return c.map((x) => String(x == null ? "" : x));
+}
+// เฉพาะหมวดที่มีชื่อจริง (สำหรับ chip bar / select / prompt)
+function shopCatsClean() { return getShopCategories().map((x) => x.trim()).filter(Boolean); }
+let shopFilterCat = "__all__";   // หมวดที่กรองอยู่ในแอป
+let shopEditId = null;           // id สินค้าที่กำลังแก้ไข
+let isShopBusy = false;          // กัน AI สร้างสินค้าซ้อน
+
+// แถบชิปหมวด: "ทั้งหมด" + แต่ละหมวด
+function renderShopCatBar() {
+    const cats = shopCatsClean();
+    const chip = (val, label) => `<div class="tinyfeed-shop-cat-chip${shopFilterCat === val ? " tinyfeed-shop-cat-chip-active" : ""}" data-cat="${escapeAttr(val)}">${escapeText(label)}</div>`;
+    $("#tinyfeed-shop-catbar").html(chip("__all__", "ทั้งหมด") + cats.map((c) => chip(c, c)).join(""));
+}
+// เติม <select> หมวด (add form / edit modal) คงค่าที่เลือกไว้ถ้ายังมี
+function fillShopCatSelect($sel, keep) {
+    const cats = shopCatsClean();
+    const cur = keep != null ? keep : $sel.val();
+    $sel.html(`<option value="">— ไม่ระบุหมวด —</option>` + cats.map((c) => `<option value="${escapeAttr(c)}">${escapeText(c)}</option>`).join(""));
+    if (cur && cats.includes(cur)) $sel.val(cur);
+}
+// thumbnail: รูป > อิโมจิ > ไอคอนกล่อง
+function shopThumbHtml(it) {
+    if (it.image) return `<img class="tinyfeed-shop-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
+    if (it.emoji) return `<div class="tinyfeed-shop-thumb tinyfeed-shop-emoji-thumb">${escapeText(it.emoji)}</div>`;
+    return `<div class="tinyfeed-shop-thumb tinyfeed-shop-noimg"><i class="fa-solid fa-box"></i></div>`;
+}
 
 function renderShop() {
     $("#tinyfeed-shop-balance").text(formatMoney(getBankData().balance));
-    const items = getShop();
+    fillShopCatSelect($("#tinyfeed-shop-cat"));
+    // กรองหมวดที่หายไปแล้ว
+    if (shopFilterCat !== "__all__" && !shopCatsClean().includes(shopFilterCat)) shopFilterCat = "__all__";
+    renderShopCatBar();
+    const owned = getShopOwned();
+    let items = getShop();
+    if (shopFilterCat !== "__all__") items = items.filter((it) => (it.cat || "") === shopFilterCat);
     if (!items.length) {
-        $("#tinyfeed-shop-grid").html(emptyStateHtml("fa-bag-shopping", "ยังไม่มีสินค้า", "เพิ่มสินค้าด้านบน แล้วซื้อด้วยเงินใน TinyBank"));
+        $("#tinyfeed-shop-grid").html(emptyStateHtml("fa-bag-shopping", "ยังไม่มีสินค้า",
+            shopFilterCat === "__all__" ? 'เพิ่มเอง หรือกด "ให้ AI สร้างสินค้า"' : "หมวดนี้ยังไม่มีสินค้า"));
         return;
     }
-    const owned = getShopOwned();
     $("#tinyfeed-shop-grid").html(items.map((it) => {
         const n = owned[it.id] || 0;
         return `<div class="tinyfeed-shop-item" data-id="${escapeAttr(it.id)}">
             <div class="tinyfeed-shop-thumb-wrap">
-                ${it.image
-                    ? `<img class="tinyfeed-shop-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`
-                    : `<div class="tinyfeed-shop-thumb tinyfeed-shop-noimg"><i class="fa-solid fa-box"></i></div>`}
+                ${shopThumbHtml(it)}
                 ${n ? `<span class="tinyfeed-shop-owned">มี ${n}</span>` : ""}
+                <span class="tinyfeed-shop-edit" title="แก้ไขสินค้า"><i class="fa-solid fa-pen"></i></span>
                 <span class="tinyfeed-shop-del" title="ลบสินค้า"><i class="fa-solid fa-trash"></i></span>
             </div>
             <div class="tinyfeed-shop-name">${escapeText(it.name)}${parseInt(it.food, 10) > 0 ? ` <span class="tinyfeed-shop-food-badge" title="อาหารสัตว์ TinyPet">🐾+${parseInt(it.food, 10)}</span>` : ""}</div>
+            ${it.cat ? `<div class="tinyfeed-shop-cat-tag">${escapeText(it.cat)}</div>` : ""}
             ${it.desc ? `<div class="tinyfeed-shop-desc">${escapeText(it.desc)}</div>` : ""}
             <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
         </div>`;
@@ -1065,15 +1105,103 @@ function addShopItem() {
     const name = String($("#tinyfeed-shop-name").val() || "").trim();
     const price = parseInt($("#tinyfeed-shop-price").val(), 10);
     const image = String($("#tinyfeed-shop-image").val() || "").trim();
+    const emoji = String($("#tinyfeed-shop-emoji").val() || "").trim().slice(0, 4);
     const desc = String($("#tinyfeed-shop-desc").val() || "").trim();
     const food = Math.max(0, parseInt($("#tinyfeed-shop-food").val(), 10) || 0);
+    const cat = String($("#tinyfeed-shop-cat").val() || "").trim();
     if (!name) { toastr.info("ตั้งชื่อสินค้าก่อนนะ", "TinyShop"); return; }
     if (!Number.isFinite(price) || price <= 0) { toastr.info("ใส่ราคาสินค้าก่อนนะ", "TinyShop"); return; }
-    getShop().push({ id: shopId(), name, price, image, desc, food });
+    getShop().push({ id: shopId(), name, price, image, emoji, desc, food, cat });
     saveShop();
-    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-desc, #tinyfeed-shop-food").val("");
+    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-emoji, #tinyfeed-shop-desc, #tinyfeed-shop-food").val("");
     renderShop();
     toastr.success(`เพิ่มสินค้า "${name}" แล้ว`, "TinyShop");
+}
+// แก้ไขสินค้า (ใส่รูป/อิโมจิ/หมวด/รายละเอียด)
+function openShopEdit(id) {
+    const it = getShop().find((x) => String(x.id) === String(id));
+    if (!it) return;
+    shopEditId = String(id);
+    $("#tinyfeed-shop-edit-name").val(it.name || "");
+    $("#tinyfeed-shop-edit-price").val(it.price || "");
+    $("#tinyfeed-shop-edit-image").val(it.image || "");
+    $("#tinyfeed-shop-edit-emoji").val(it.emoji || "");
+    fillShopCatSelect($("#tinyfeed-shop-edit-cat"), it.cat || "");
+    $("#tinyfeed-shop-edit-desc").val(it.desc || "");
+    $("#tinyfeed-shop-edit-food").val(it.food || "");
+    $("#tinyfeed-shop-edit-modal").removeClass("tinyfeed-hidden");
+}
+function closeShopEditModal() { $("#tinyfeed-shop-edit-modal").addClass("tinyfeed-hidden"); shopEditId = null; }
+function saveShopEdit() {
+    const it = getShop().find((x) => String(x.id) === String(shopEditId));
+    if (!it) { closeShopEditModal(); return; }
+    const name = String($("#tinyfeed-shop-edit-name").val() || "").trim();
+    const price = parseInt($("#tinyfeed-shop-edit-price").val(), 10);
+    if (!name) { toastr.info("ตั้งชื่อสินค้าก่อนนะ", "TinyShop"); return; }
+    if (!Number.isFinite(price) || price <= 0) { toastr.info("ใส่ราคาสินค้าก่อนนะ", "TinyShop"); return; }
+    it.name = name;
+    it.price = price;
+    it.image = String($("#tinyfeed-shop-edit-image").val() || "").trim();
+    it.emoji = String($("#tinyfeed-shop-edit-emoji").val() || "").trim().slice(0, 4);
+    it.cat = String($("#tinyfeed-shop-edit-cat").val() || "").trim();
+    it.desc = String($("#tinyfeed-shop-edit-desc").val() || "").trim();
+    it.food = Math.max(0, parseInt($("#tinyfeed-shop-edit-food").val(), 10) || 0);
+    saveShop();
+    closeShopEditModal();
+    renderShop();
+    toastr.success("บันทึกแล้ว", "TinyShop");
+}
+// AI สร้างสินค้าเข้ากับโลกของเนื้อเรื่อง
+async function generateShopItems(opts) {
+    opts = opts || {};
+    if (isShopBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { if (!opts.silent) toastr.error("เวอร์ชัน ST นี้ไม่มี generateQuietPrompt", "TinyShop"); return; }
+    if (!getCurrentCharacter()) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyShop"); return; }
+    isShopBusy = true;
+    const btn = $("#tinyfeed-shop-generate");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const cats = shopCatsClean();
+        const extra = String(getSetting("shopExtraPrompt") || "").trim();
+        const q = buildPrompt("shopItems", {
+            cats: cats.join(", "),
+            extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
+            context: crossAppContext("shop"),
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("shopTokens"), 10) || 400), "shop");
+        const added = parseShopItems(raw, cats);
+        if (!added) { if (!opts.silent) toastr.warning("AI ไม่ได้ส่งสินค้ากลับมา ลองใหม่นะ", "TinyShop"); return; }
+        saveShop();
+        renderShop();
+        if (!opts.silent) toastr.success(`AI สร้างสินค้า ${added} ชิ้นแล้ว`, "TinyShop");
+    } catch (e) {
+        console.error(`[${extensionName}] generate shop items failed:`, e);
+        if (!opts.silent) toastr.error("สร้างสินค้าไม่สำเร็จ ลองใหม่นะ", "TinyShop");
+    } finally {
+        isShopBusy = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+// ITEM: ชื่อ | ราคา | หมวด | อิโมจิ | รายละเอียด  (คืนจำนวนที่เพิ่ม)
+function parseShopItems(raw, cats) {
+    const s = stripReasoning(raw);
+    const lowerCats = cats.map((c) => c.toLowerCase());
+    const re = /ITEM:\s*(.+)/gi;
+    let m, count = 0;
+    while ((m = re.exec(s)) !== null) {
+        const parts = m[1].split("|").map((x) => x.trim());
+        const name = (parts[0] || "").replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const price = Math.abs(Math.round(parseFloat(String(parts[1] || "").replace(/[^\d.]/g, "")) || 0));
+        let cat = (parts[2] || "").trim();
+        const emoji = (parts[3] || "").trim().slice(0, 4);
+        const desc = (parts[4] || "").trim();
+        if (!name || !price) continue;
+        if (!lowerCats.includes(cat.toLowerCase())) cat = cats[0] || "";
+        getShop().push({ id: shopId(), name, price, image: "", emoji, desc, food: 0, cat });
+        count++;
+    }
+    return count;
 }
 function deleteShopItem(id) {
     const shop = getShop();
@@ -3793,6 +3921,12 @@ const PROMPT_DEFS = {
             `เขียนโพสต์สั้นๆ 1 โพสต์ (1-2 ประโยค) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
             `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
     },
+    shopItems: {
+        label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "extra", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งรายการสินค้า 3-5 ชิ้นที่น่าจะมีขายในร้านค้าของโลกในเนื้อเรื่องนี้ ให้เข้ากับบรรยากาศ/ยุคสมัย/ธีมของเรื่อง ตั้งราคาสมเหตุสมผล เลือกหมวดจากรายการนี้เท่านั้น: {{cats}}. เลือกอิโมจิ 1 ตัวที่สื่อถึงสินค้า ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
+            `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อสินค้า> | <ราคาเป็นตัวเลข> | <หมวด> | <อิโมจิ> | <รายละเอียดสั้น>`,
+    },
 };
 
 function getPromptTemplate(id) {
@@ -4758,6 +4892,16 @@ function renderForumRooms() {
     $("#tinyfeed-room-list").html(rows);
 }
 
+// ตัวแก้หมวดสินค้า (หน้า settings) — โครงเดียวกับห้อง TinyForum
+function renderShopCats() {
+    const rows = getShopCategories().map((c, i) => `
+        <div class="tinyfeed-shopcat-row" data-index="${i}">
+            <input class="tinyfeed-shopcat-name" type="text" value="${escapeAttr(c)}" placeholder="ชื่อหมวด" />
+            <span class="tinyfeed-shopcat-del" title="ลบหมวด"><i class="fa-solid fa-trash"></i></span>
+        </div>`).join("");
+    $("#tinyfeed-shop-cat-list").html(rows);
+}
+
 // ===== ผู้ใช้ทำเอง =====
 function openForumNewForm() {
     const form = $("#tinyfeed-forum-newform");
@@ -5634,7 +5778,7 @@ const SETTINGS_LAYOUT = [
         head: "📱 ตั้งค่าเฉพาะแอป",
         titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร",
             "TinyConnect (แชต)", "TinyStream (ไลฟ์สตรีม)", "TinyMemo (กำหนดการ + โน้ต)",
-            "TinyForum (เว็บบอร์ด)", "ทริกเกอร์ด้วยคีย์เวิร์ด", "TinyGallery (คลังรูป + สติกเกอร์)", "TinyPet (สัตว์เลี้ยง)"],
+            "TinyForum (เว็บบอร์ด)", "ทริกเกอร์ด้วยคีย์เวิร์ด", "TinyGallery (คลังรูป + สติกเกอร์)", "TinyShop (ร้านค้า)", "TinyPet (สัตว์เลี้ยง)"],
     },
     {
         head: "🔧 ตั้งค่าขั้นสูง",
@@ -5775,6 +5919,9 @@ function populateSettings() {
     $("#tinyfeed-cfg-forum-batch").val(getSetting("forumCommentBatch") || 8);
     $("#tinyfeed-cfg-forum-extra").val(getSetting("forumExtraPrompt"));
     renderForumRooms();
+    renderShopCats();
+    $("#tinyfeed-cfg-shop-tokens").val(getSetting("shopTokens"));
+    $("#tinyfeed-cfg-shop-extra").val(getSetting("shopExtraPrompt"));
     $("#tinyfeed-cfg-kw-scope").val(getSetting("keywordScope") || "both");
     $("#tinyfeed-cfg-kw-cooldown").val(getSetting("keywordCooldownSec"));
     renderKeywordEditors();
@@ -5852,7 +5999,7 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-pet-food-modal"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-pet-food-modal", "#tinyfeed-shop-edit-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
@@ -5860,6 +6007,7 @@ function handleBack() {
         closeSlipModal();
         closeDonateModal();
         closePetFoodPicker();
+        closeShopEditModal();
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -6199,11 +6347,23 @@ jQuery(async () => {
 
         // ===== TinyShop: เพิ่ม/ซื้อ/ลบสินค้า =====
         $(document).on("click", "#tinyfeed-shop-add", addShopItem);
+        $(document).on("click", "#tinyfeed-shop-generate", function () { generateShopItems(); });
         $(document).on("click", ".tinyfeed-shop-buy", function () { buyShopItem(String($(this).data("id"))); });
         $(document).on("click", ".tinyfeed-shop-del", function (e) {
             e.stopPropagation();
             deleteShopItem(String($(this).closest(".tinyfeed-shop-item").data("id")));
         });
+        $(document).on("click", ".tinyfeed-shop-edit", function (e) {
+            e.stopPropagation();
+            openShopEdit(String($(this).closest(".tinyfeed-shop-item").data("id")));
+        });
+        $(document).on("click", ".tinyfeed-shop-cat-chip", function () {
+            shopFilterCat = String($(this).data("cat"));
+            renderShop();
+        });
+        $(document).on("click", "#tinyfeed-shop-edit-close", closeShopEditModal);
+        $(document).on("click", "#tinyfeed-shop-edit-modal", function (e) { if (e.target === this) closeShopEditModal(); });
+        $(document).on("click", "#tinyfeed-shop-edit-save", saveShopEdit);
 
         // ===== TinyPet =====
         $(document).on("click", ".tinyfeed-pet-act", function () {
@@ -7014,6 +7174,34 @@ jQuery(async () => {
             rooms.push("");
             setSetting("forumRooms", rooms);
             renderForumRooms();
+        });
+        // ตัวแก้หมวดสินค้า (global setting shopCategories)
+        $(document).on("input", ".tinyfeed-shopcat-name", function () {
+            const i = $(this).closest(".tinyfeed-shopcat-row").data("index");
+            const cats = getShopCategories();
+            cats[i] = $(this).val();
+            setSetting("shopCategories", cats);
+        });
+        $(document).on("click", ".tinyfeed-shopcat-del", function () {
+            const i = $(this).closest(".tinyfeed-shopcat-row").data("index");
+            const cats = getShopCategories();
+            cats.splice(i, 1);
+            setSetting("shopCategories", cats);
+            renderShopCats();
+            if (currentApp === "shop") renderShop();
+        });
+        $(document).on("click", "#tinyfeed-shop-cat-add", function () {
+            const cats = getShopCategories();
+            cats.push("");
+            setSetting("shopCategories", cats);
+            renderShopCats();
+        });
+        $(document).on("input", "#tinyfeed-cfg-shop-tokens", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("shopTokens", Number.isFinite(v) && v > 0 ? v : 400);
+        });
+        $(document).on("input", "#tinyfeed-cfg-shop-extra", function () {
+            setSetting("shopExtraPrompt", $(this).val());
         });
 
         // เดสก์ท็อป (มีเมาส์/คีย์บอร์ด): ใบ้ว่ากด Shift+Enter ขึ้นบรรทัดใหม่ได้

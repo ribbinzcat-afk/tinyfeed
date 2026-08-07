@@ -3635,6 +3635,80 @@
 @media (pointer: coarse) {
     .tinyfeed-shop-del { opacity: 1; }
 }
+/* ปุ่มแก้ไขสินค้า (ดินสอ) — อยู่ข้างปุ่มลบ */
+.tinyfeed-shop-edit {
+    position: absolute;
+    top: 5px;
+    right: 33px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 0.64em;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.tinyfeed-shop-item:hover .tinyfeed-shop-edit { opacity: 1; }
+@media (pointer: coarse) { .tinyfeed-shop-edit { opacity: 1; } }
+/* thumbnail แบบอิโมจิ */
+.tinyfeed-shop-emoji-thumb { display: flex; align-items: center; justify-content: center; font-size: 2.6em; }
+/* ป้ายหมวดบนสินค้า */
+.tinyfeed-shop-cat-tag {
+    align-self: flex-start;
+    font-size: 0.66em;
+    color: var(--tf-accent);
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+    border-radius: 999px;
+    padding: 1px 8px;
+}
+/* ปุ่มเพิ่ม/AI + select หมวด ในฟอร์ม */
+.tinyfeed-shop-addbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.tinyfeed-shop-addbtns > button { flex: 1; }
+.tinyfeed-shop-addform select {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+}
+/* แถบชิปหมวด (เลื่อนแนวนอน) */
+.tinyfeed-shop-catbar {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 2px 0 8px;
+    scrollbar-width: none;
+    flex-shrink: 0;
+}
+.tinyfeed-shop-catbar::-webkit-scrollbar { display: none; }
+.tinyfeed-shop-cat-chip {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--tf-border);
+    color: var(--tf-text-muted);
+    background: var(--tf-topbar);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-shop-cat-chip-active { color: #fff; background: var(--tf-accent); border-color: var(--tf-accent); }
+/* ตัวแก้หมวดสินค้าในตั้งค่า (โครงเดียวกับห้อง forum) */
+.tinyfeed-shopcat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tinyfeed-shopcat-row input { flex: 1; min-width: 0; }
+.tinyfeed-shopcat-del { flex-shrink: 0; padding: 4px 6px; color: var(--tf-text-muted); cursor: pointer; opacity: 0.6; transition: color 0.2s ease, opacity 0.2s ease; }
+.tinyfeed-shopcat-del:hover { color: #f4212e; opacity: 1; }
 
 /* หัวข้อย่อยในกล่องโปรไฟล์ (แยกส่วนผู้ใช้ / ตัวละคร) */
 .tinyfeed-profile-head {

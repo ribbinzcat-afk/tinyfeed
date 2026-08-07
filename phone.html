@@ -730,6 +730,24 @@
                 </div>
 
                 <div class="tinyfeed-settings-group">
+                    <div class="tinyfeed-settings-title">TinyShop (ร้านค้า)</div>
+                    <div class="tinyfeed-field-label">หมวดสินค้า (AI เลือกจากรายการนี้)</div>
+                    <div id="tinyfeed-shop-cat-list"></div>
+                    <button id="tinyfeed-shop-cat-add" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-plus"></i> <span>เพิ่มหมวด</span>
+                    </button>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวผลลัพธ์ตอน AI สร้างสินค้า (token)</span>
+                        <input id="tinyfeed-cfg-shop-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมตอน AI สร้างสินค้า (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-shop-extra" rows="2" placeholder="เช่น: เน้นของแฟนตาซี, ร้านขายยา, สินค้าไฮเทค, ราคาถูก..."></textarea>
+                    </label>
+                    <small class="tinyfeed-field-hint">กด "ให้ AI สร้างสินค้า" ในแอป TinyShop ให้ AI แต่งสินค้าเข้ากับโลกของเรื่อง · หมวดใช้ร่วมทุกแชท · แก้รูป/อิโมจิ/หมวดของสินค้าได้จากปุ่มดินสอบนสินค้า</small>
+                </div>
+
+                <div class="tinyfeed-settings-group">
                     <div class="tinyfeed-settings-title">TinyPet (สัตว์เลี้ยง)</div>
                     <small class="tinyfeed-field-hint">สัตว์เลี้ยงเป็น <b>global</b> (ตัวเดียวกันทุกแชท) · ค่าต่างๆ ลดตามเวลาจริงแม้ปิด ST ไป</small>
                     <label class="tinyfeed-field-row">
@@ -1025,12 +1043,20 @@
                     <input id="tinyfeed-shop-name" type="text" placeholder="ชื่อสินค้า" />
                     <div class="tinyfeed-shop-addrow">
                         <input id="tinyfeed-shop-price" type="number" min="1" placeholder="ราคา" />
-                        <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ)" />
+                        <input id="tinyfeed-shop-emoji" type="text" maxlength="4" placeholder="อิโมจิ 👕 (ไม่บังคับ)" />
                     </div>
+                    <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ · ใช้แทนอิโมจิ)" />
+                    <select id="tinyfeed-shop-cat"></select>
                     <input id="tinyfeed-shop-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
                     <input id="tinyfeed-shop-food" type="number" min="0" placeholder="🐾 อาหารสัตว์: ฟื้นความอิ่ม (0 = ไม่ใช่อาหาร)" />
-                    <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
+                    <div class="tinyfeed-shop-addbtns">
+                        <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
+                        <button id="tinyfeed-shop-generate" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI สร้างสินค้า</span>
+                        </button>
+                    </div>
                 </div>
+                <div id="tinyfeed-shop-catbar" class="tinyfeed-shop-catbar"></div>
                 <div id="tinyfeed-shop-grid" class="tinyfeed-shop-grid"></div>
             </div>
         </div>
@@ -1097,6 +1123,27 @@
                 </div>
                 <div id="tinyfeed-pet-food-list" class="tinyfeed-pet-food-list"></div>
                 <small class="tinyfeed-field-hint">อาหารพิเศษเพิ่มได้ในแอป TinyShop (ใส่ค่า "ฟื้นความอิ่ม") · จ่ายด้วยเงินใน TinyBank</small>
+            </div>
+        </div>
+
+        <div id="tinyfeed-shop-edit-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>แก้ไขสินค้า</span>
+                    <span id="tinyfeed-shop-edit-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-shop-edit-name" type="text" placeholder="ชื่อสินค้า" />
+                    <div class="tinyfeed-shop-addrow">
+                        <input id="tinyfeed-shop-edit-price" type="number" min="1" placeholder="ราคา" />
+                        <input id="tinyfeed-shop-edit-emoji" type="text" maxlength="4" placeholder="อิโมจิ 👕" />
+                    </div>
+                    <input id="tinyfeed-shop-edit-image" type="text" placeholder="ลิงก์รูป (ใช้แทนอิโมจิ)" />
+                    <select id="tinyfeed-shop-edit-cat"></select>
+                    <input id="tinyfeed-shop-edit-desc" type="text" placeholder="รายละเอียด" />
+                    <input id="tinyfeed-shop-edit-food" type="number" min="0" placeholder="🐾 อาหารสัตว์: ฟื้นความอิ่ม (0 = ไม่ใช่)" />
+                    <button id="tinyfeed-shop-edit-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> บันทึก</button>
+                </div>
             </div>
         </div>
 
