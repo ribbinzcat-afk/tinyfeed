@@ -1903,7 +1903,7 @@ function sendConnectMessage(text) {
     const clean = String(text || "").trim();
     if (!clean || !activeThread) return;
     getThread(activeThread).push({ from: "user", text: escapeHtml(clean), ts: Date.now() });
-    if (activeThread === "pet") { petBondAdd(1); savePet(); }   // เพ็ท = global → persist ด้วย savePet + คุยด้วยเพิ่มผูกพันนิดหน่อย
+    if (activeThread === "pet") { petBondAdd(2); savePet(); }   // เพ็ท = global → persist ด้วย savePet + คุยด้วยเพิ่มผูกพันนิดหน่อย
     else saveFeedData();
     $("#tinyfeed-connect-input").val("").css("height", "");   // เคลียร์ + คืนความสูงเริ่มต้น
     renderThread();
@@ -2503,12 +2503,43 @@ function getPet() {
     store.pet = p;
     return p;
 }
-// ความผูกพัน: xp สะสม → เลเวล (100 xp/เลเวล, สูงสุด 10) · Lv.10 = "เพื่อนซี้"
-function petBondLevel(bond) { return Math.min(10, Math.floor((Number(bond) || 0) / 100)); }
+// ความผูกพัน: xp สะสม → เลเวล (PET_BOND_PER_LEVEL xp/เลเวล, สูงสุด 10) · Lv.10 = "เพื่อนซี้"
+const PET_BOND_PER_LEVEL = 50;   // ลดจาก 100 → ขึ้นเลเวลง่ายขึ้น (ใช้กับ evolution ด้วย)
+function petBondLevel(bond) { return Math.min(10, Math.floor((Number(bond) || 0) / PET_BOND_PER_LEVEL)); }
 function petBondAdd(amount) {
     const p = getPet();
     if (!p.exists || p.isDead) return;
     p.bond = Math.max(0, (Number(p.bond) || 0) + amount);
+}
+
+// ===== TinyPet: วิวัฒนาการ (evolution) — baby→teen→adult ผูกกับเลเวล bond (เส้นตรง ไม่ถอยหลัง) =====
+const PET_STAGES = ["baby", "teen", "adult"];
+const PET_STAGE_BOND = { teen: 3, adult: 6 };   // เลเวล bond ขั้นต่ำของแต่ละระยะ (PER_LEVEL=50 → 150xp / 300xp)
+const PET_STAGE_LABEL = { baby: "เด็ก", teen: "วัยรุ่น", adult: "โตเต็มวัย" };
+function petStageForBond(level) {
+    if (level >= PET_STAGE_BOND.adult) return "adult";
+    if (level >= PET_STAGE_BOND.teen) return "teen";
+    return "baby";
+}
+// เลื่อนระยะเมื่อเลเวล bond ถึงเกณฑ์ (ไปข้างหน้าเท่านั้น) — เรียกใน petApplyDecay ทุกครั้ง (ครอบทั้งเปิดแอป/tick พื้นหลัง)
+function petCheckEvolve(p) {
+    if (!p.exists || p.isDead) return;
+    const curIdx = PET_STAGES.indexOf(p.stage);
+    if (curIdx < 0) { p.stage = "baby"; return; }
+    const tgtIdx = PET_STAGES.indexOf(petStageForBond(petBondLevel(p.bond)));
+    if (tgtIdx > curIdx) { p.stage = PET_STAGES[tgtIdx]; petOnEvolve(PET_STAGES[tgtIdx]); }
+}
+function petOnEvolve(stage) {
+    const p = getPet();
+    const label = PET_STAGE_LABEL[stage] || stage;
+    savePet();
+    setPetActionSprite("happy", 2600);   // โชว์ท่าดีใจสั้นๆ ตอนโต
+    try { toastr.success(`${p.name || "เพ็ท"} โตเป็น${label}แล้ว! 🎉`, "TinyPet"); } catch (e) {}
+    const lines = {
+        teen: "ดูสิ~ ฉันโตเป็นวัยรุ่นแล้วนะ! ขอบคุณที่ดูแลกันมาตลอดเลย 🥹",
+        adult: "ฉันโตเต็มวัยแล้ว! เราผ่านอะไรด้วยกันมาเยอะเลยเนอะ 💖",
+    };
+    petSendDM(lines[stage] || "ฉันโตขึ้นแล้ว! 🎉");
 }
 function savePet() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
@@ -2548,6 +2579,7 @@ function petReachBelow(start, rate, thresh, min) {
 function petApplyDecay() {
     const p = getPet();
     if (!p.exists || p.isDead) { p.lastUpdateTimestamp = Date.now(); return p; }
+    petCheckEvolve(p);   // เช็กเลื่อนระยะทุกครั้ง (ก่อน guard เวลา เพื่อให้ทำงานแม้ยังไม่มีเวลาผ่าน)
     let min = (Date.now() - (p.lastUpdateTimestamp || Date.now())) / 60000;
     p.lastUpdateTimestamp = Date.now();
     if (!(min > 0)) return p;
@@ -2608,19 +2640,35 @@ function setPetActionSprite(state, ms) {
 }
 
 // URL รูป sprite: ลิงก์ที่ผู้ใช้ตั้งต่อสถานะ > ไฟล์ในตัว (assets/pet-sprites) · ว่าง/โหลดไม่ได้ = fallback emoji
-function petSpriteUrl(state) {
+// ผู้เลือกรูป sprite แบบไล่ลำดับ (stage-aware): เจาะจงระยะก่อน → fallback สถานะรวม (=ค่าเริ่มต้น/ร่าง baby) → อิโมจิ
+// baby ใช้คีย์สถานะล้วน (เป็น default/สำรองของทุกระยะ), teen/adult ใช้ `<stage>_<state>` ก่อนแล้วค่อย fallback
+function petSpriteCandidates(state) {
     const map = getSetting("petSprites") || {};
-    const custom = String(map[state] || "").trim();
-    if (custom) return custom;
-    return `${extensionFolderPath}/assets/pet-sprites/${state}.png`;
+    const stage = getPet().stage || "baby";
+    const keys = stage === "baby" ? [state] : [`${stage}_${state}`, state];
+    return keys.map((k) => {
+        const custom = String(map[k] || "").trim();
+        return custom || `${extensionFolderPath}/assets/pet-sprites/${k}.png`;
+    });
 }
+// รูปหลัก (สำหรับ avatar contact/DM ฯลฯ) = candidate แรก
+function petSpriteUrl(state) { return petSpriteCandidates(state)[0]; }
+// onerror ของ <img>: ลองรูปตัวถัดไปใน data-next ก่อน; หมดแล้ว → ซ่อนรูปเผยอิโมจิ (ต้อง global เพราะ onerror รันใน scope หน้าเว็บ)
+window.tinyfeedPetSpriteErr = function (img) {
+    try {
+        const next = JSON.parse(img.getAttribute("data-next") || "[]");
+        if (next.length) { img.src = next.shift(); img.setAttribute("data-next", JSON.stringify(next)); return; }
+    } catch (e) { /* ตกไปเผยอิโมจิ */ }
+    img.style.display = "none";
+    if (img.parentElement) img.parentElement.classList.add("tinyfeed-pet-noimg");
+};
 function petSpriteBoxHtml() {
     const st = petState();
     const emoji = PET_STATE_EMOJI[st] || "🐾";
-    const url = petSpriteUrl(st);
-    // อิโมจิซ่อนไว้ก่อน · โชว์เฉพาะเมื่อรูปโหลดไม่ได้ (onerror → ใส่คลาส noimg เผยอิโมจิ) → รูปมี = ไม่เห็นอิโมจิหลัง
+    const cands = petSpriteCandidates(st);
+    // อิโมจิซ่อนไว้ก่อน · onerror ไล่ candidate จนหมดค่อยเผยอิโมจิ → มีรูประยะไหนโหลดได้ = ไม่เห็นอิโมจิหลัง
     return `<div class="tinyfeed-pet-spritebox tinyfeed-pet-state-${st}">
-        <img class="tinyfeed-pet-sprite" src="${escapeAttr(url)}" alt="${escapeAttr(st)}" onerror="this.style.display='none';this.parentElement.classList.add('tinyfeed-pet-noimg')" />
+        <img class="tinyfeed-pet-sprite" src="${escapeAttr(cands[0])}" data-next="${escapeAttr(JSON.stringify(cands.slice(1)))}" alt="${escapeAttr(st)}" onerror="tinyfeedPetSpriteErr(this)" />
         <span class="tinyfeed-pet-emoji">${emoji}</span>
     </div>`;
 }
@@ -2647,15 +2695,15 @@ function petAct(action) {
     let sprite = "", react = false;
     if (action === "feed") {
         if (s.hunger <= 10) { s.mood = clamp100(s.mood - 5); s.health = clamp100(s.health - 3); toastr.info("เพ็ทอิ่มแล้ว อย่าให้กินเยอะเกินไป!", "TinyPet"); }
-        else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); petBondAdd(2); }
+        else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); petBondAdd(3); }
         sprite = "eating"; react = true;
     } else if (action === "play") {
         if (s.energy < 15) { toastr.info("เพ็ทเหนื่อยเกินกว่าจะเล่น ให้พักก่อนนะ", "TinyPet"); return; }
         s.mood = clamp100(s.mood + 20); s.energy = clamp100(s.energy - 15);
         s.hunger = clamp100(s.hunger + 6); s.cleanliness = clamp100(s.cleanliness - 6);
-        petBondAdd(4); sprite = "playing"; react = true;
+        petBondAdd(6); sprite = "playing"; react = true;
     } else if (action === "clean") {
-        s.cleanliness = 100; s.mood = clamp100(s.mood + 5); petBondAdd(2); sprite = "cleaning"; react = true;
+        s.cleanliness = 100; s.mood = clamp100(s.mood + 5); petBondAdd(3); sprite = "cleaning"; react = true;
     } else if (action === "sleep") {
         p.isSleeping = !p.isSleeping;
     }
@@ -2763,7 +2811,7 @@ function buyPetItem(id) {
         petApplyDecay();
         const s = p.stats;
         if (s.hunger <= 10) { s.mood = clamp100(s.mood - 5); s.health = clamp100(s.health - 3); toastr.info("เพ็ทอิ่มแล้ว อย่าให้กินเยอะเกินไป!", "TinyPet"); }
-        else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); petBondAdd(2); }
+        else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); petBondAdd(3); }
         p.lastUpdateTimestamp = Date.now();
         savePet(); setPetActionSprite("eating", 1600); closePetShop(); renderPet();
         if (getSetting("petAiReactions")) petReactThrottled("feed");
@@ -3381,7 +3429,7 @@ function petOnRpMessage() {
     if (!text || !text.includes(String(p.name).trim().toLowerCase())) return;   // ต้องเอ่ยถึงเพ็ท
     petBondRpAt = now;
     petApplyDecay();
-    petBondAdd(3);
+    petBondAdd(5);
     p.stats.mood = clamp100(p.stats.mood + 5);
     savePet();
     if (currentApp === "pet") renderPet();
@@ -3480,7 +3528,7 @@ function renderPet() {
     const sleepLabel = p.isSleeping ? "ปลุก" : "นอน";
     const sleepIcon = p.isSleeping ? "fa-sun" : "fa-moon";
     const bondLv = petBondLevel(p.bond);
-    const bondPct = bondLv >= 10 ? 100 : ((Number(p.bond) || 0) % 100);
+    const bondPct = bondLv >= 10 ? 100 : ((Number(p.bond) || 0) % PET_BOND_PER_LEVEL) / PET_BOND_PER_LEVEL * 100;
     const bondTitle = bondLv >= 10 ? "เพื่อนซี้ 💫" : `Lv.${bondLv}`;
     body.html(`
         <div class="tinyfeed-pet-stage-wrap">
@@ -3516,16 +3564,28 @@ function renderPet() {
     `);
 }
 // ตัวแก้ลิงก์ sprite ต่อสถานะ (หน้า settings)
+let petSpriteCfgStage = "baby";
 function renderPetSpriteCfg() {
     const map = getSetting("petSprites") || {};
     const labels = { idle: "ปกติ", happy: "มีความสุข", hungry: "หิว", sleepy: "ง่วง", dirty: "เลอะ", sick: "ป่วย", eating: "กินอาหาร", playing: "เล่น", cleaning: "อาบน้ำ", sleeping: "หลับ", dead: "เสียชีวิต" };
-    const html = PET_SPRITE_STATES.map((st) => `
+    const stg = PET_STAGES.includes(petSpriteCfgStage) ? petSpriteCfgStage : "baby";
+    const stageOpts = PET_STAGES.map((s) => `<option value="${s}"${s === stg ? " selected" : ""}>${PET_STAGE_LABEL[s]}</option>`).join("");
+    const rows = PET_SPRITE_STATES.map((st) => {
+        const key = stg === "baby" ? st : `${stg}_${st}`;   // baby = คีย์สถานะล้วน (default/สำรอง), teen/adult = <stage>_<state>
+        return `
         <div class="tinyfeed-pet-sprite-row">
             <span class="tinyfeed-pet-sprite-emoji">${PET_STATE_EMOJI[st]}</span>
             <span class="tinyfeed-pet-sprite-label">${labels[st] || st}</span>
-            <input class="tinyfeed-pet-sprite-url" data-state="${escapeAttr(st)}" type="text" placeholder="ลิงก์รูป (ว่าง = ใช้ไฟล์ในตัว)" value="${escapeAttr(map[st] || "")}" />
-        </div>`).join("");
-    $("#tinyfeed-pet-sprite-list").html(html);
+            <input class="tinyfeed-pet-sprite-url" data-key="${escapeAttr(key)}" type="text" placeholder="ลิงก์รูป (ว่าง = ใช้ไฟล์ในตัว)" value="${escapeAttr(map[key] || "")}" />
+        </div>`;
+    }).join("");
+    $("#tinyfeed-pet-sprite-list").html(`
+        <div class="tinyfeed-pet-sprite-stagebar">
+            <span>ระยะวิวัฒนาการ:</span>
+            <select id="tinyfeed-pet-sprite-stage">${stageOpts}</select>
+            <small>เด็ก = ค่าเริ่มต้น/สำรองของทุกระยะ · ไฟล์ในตัวตั้งชื่อ <code>&lt;ระยะ&gt;_&lt;สถานะ&gt;.png</code> เช่น <code>teen_idle.png</code> (ว่างไว้ = ใช้ร่างเด็ก)</small>
+        </div>
+        ${rows}`);
 }
 
 // ถอด HTML entity เบาๆ (สำหรับจับคู่ชื่อในโทเคน [sticker:...] / [img:...] ที่ผ่าน escape มาแล้ว)
@@ -7646,12 +7706,17 @@ jQuery(async () => {
             setSetting("petCoinRate", Number.isFinite(v) && v > 0 ? v : 1);
         });
         $(document).on("input", ".tinyfeed-pet-sprite-url", function () {
-            const state = $(this).data("state");
+            const key = String($(this).data("key") || "");
+            if (!key) return;
             const map = Object.assign({}, getSetting("petSprites") || {});
             const url = String($(this).val() || "").trim();
-            if (url) map[state] = url; else delete map[state];
+            if (url) map[key] = url; else delete map[key];
             setSetting("petSprites", map);
             if (currentApp === "pet") renderPet();   // เห็นผลทันที
+        });
+        $(document).on("change", "#tinyfeed-pet-sprite-stage", function () {
+            petSpriteCfgStage = String($(this).val() || "baby");
+            renderPetSpriteCfg();   // สลับระยะที่กำลังตั้งลิงก์รูป
         });
         $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
             setSetting("galleryPrompt", $(this).prop("checked"));

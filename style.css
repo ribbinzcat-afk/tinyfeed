@@ -4170,6 +4170,10 @@
     outline: none;
 }
 /* ตัวแก้ลิงก์ sprite ในหน้า settings */
+.tinyfeed-pet-sprite-stagebar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.85em; }
+.tinyfeed-pet-sprite-stagebar select { font-size: 0.9em; }
+.tinyfeed-pet-sprite-stagebar small { flex-basis: 100%; color: var(--tf-text-muted); font-size: 0.72em; line-height: 1.4; }
+.tinyfeed-pet-sprite-stagebar code { background: color-mix(in srgb, var(--tf-accent) 15%, var(--tf-topbar)); padding: 1px 5px; border-radius: 4px; }
 .tinyfeed-pet-sprite-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .tinyfeed-pet-sprite-emoji { flex-shrink: 0; font-size: 1.2em; width: 22px; text-align: center; }
 .tinyfeed-pet-sprite-label { flex-shrink: 0; width: 66px; font-size: 0.82em; color: var(--tf-text-muted); }
