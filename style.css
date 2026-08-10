@@ -4078,29 +4078,33 @@
 .tinyfeed-mem-card:active { transform: scale(0.95); }
 .tinyfeed-mem-open { background: var(--tf-topbar); cursor: default; }
 .tinyfeed-mem-matched { background: color-mix(in srgb, #22c55e 25%, var(--tf-topbar)); border-color: #22c55e; cursor: default; }
-/* ── เกมรับของตก (Catch) ── */
-.tinyfeed-catch-hud { display: flex; justify-content: space-between; align-items: center; font-size: 0.85em; color: var(--tf-text); padding: 0 4px; }
-.tinyfeed-catch-hud b { color: var(--tf-accent); }
-.tinyfeed-catch-area {
-    position: relative;
-    width: 100%;
-    height: 300px;
-    border-radius: 14px;
-    overflow: hidden;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--tf-accent) 16%, var(--tf-topbar)), var(--tf-topbar));
+/* ── เกมหา emoji ที่ต่าง (Spot) ── */
+.tinyfeed-spot-hud { display: flex; justify-content: space-between; align-items: center; font-size: 0.82em; color: var(--tf-text-muted); padding: 0 4px; }
+.tinyfeed-spot-hud b { color: var(--tf-accent); }
+.tinyfeed-spot-grid { display: grid; gap: 6px; touch-action: manipulation; }
+.tinyfeed-spot-tile {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5em;
+    line-height: 1;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--tf-accent) 18%, var(--tf-topbar));
     border: 1px solid var(--tf-border);
+    cursor: pointer;
     user-select: none;
-    touch-action: manipulation;
+    transition: transform 0.08s ease, background 0.15s ease;
 }
-#tinyfeed-catch-layer { position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-.tinyfeed-catch-item { position: absolute; transform: translateX(-50%); font-size: 1.7em; line-height: 1; will-change: top; }
-.tinyfeed-catch-basket { position: absolute; bottom: 8px; transform: translateX(-50%); font-size: 2.1em; line-height: 1; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
-.tinyfeed-catch-tap { position: absolute; top: 0; bottom: 0; width: 50%; z-index: 2; cursor: pointer; }
-.tinyfeed-catch-tapleft { left: 0; }
-.tinyfeed-catch-tapright { right: 0; }
-.tinyfeed-catch-tap:active { background: rgba(255,255,255,.06); }
-.tinyfeed-catch-flash { position: absolute; inset: 0; background: rgba(239,68,68,.28); z-index: 1; }
-.tinyfeed-catch-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
+.tinyfeed-spot-tile:active { transform: scale(0.9); }
+.tinyfeed-spot-wrong .tinyfeed-spot-tile { border-color: #ef4444; }
+.tinyfeed-spot-wrong { animation: tinyfeed-spot-shake 0.24s ease; }
+@keyframes tinyfeed-spot-shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+.tinyfeed-spot-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
 /* ลิงก์ "เติมเหรียญ" ในหัวร้าน */
 .tinyfeed-pet-topup-link {
     background: none;

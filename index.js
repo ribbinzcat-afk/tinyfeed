@@ -2931,7 +2931,7 @@ function petGameReward(coins, moodGain, bondGain) {
 
 const PET_GAMES = [
     { id: "memory", emoji: "🃏", name: "จับคู่การ์ด", desc: "เกมความจำ · จับคู่ให้ครบ", ready: true },
-    { id: "catch", emoji: "🍎", name: "รับของตก", desc: "เลื่อนตะกร้ารับของดี · 30 วิ", ready: true },
+    { id: "spot", emoji: "🔍", name: "หา emoji ที่ต่าง", desc: "แตะตัวที่ต่าง · จับเวลา 40 วิ", ready: true },
     { id: "whack", emoji: "🔨", name: "ตีตุ่น", desc: "เร็วๆ นี้", ready: false },
 ];
 let currentPetGame = null;
@@ -2941,9 +2941,9 @@ function openPetGame() {
     renderPetGameMenu();
     $("#tinyfeed-pet-game-modal").removeClass("tinyfeed-hidden");
 }
-function closePetGame() { $("#tinyfeed-pet-game-modal").addClass("tinyfeed-hidden"); memoryState = null; stopCatchGame(); }
+function closePetGame() { $("#tinyfeed-pet-game-modal").addClass("tinyfeed-hidden"); memoryState = null; stopSpotGame(); }
 function renderPetGameMenu() {
-    stopCatchGame();
+    stopSpotGame();
     const e = Math.round(getPet().stats.energy);
     const cost = petGameEnergyCost();
     const cards = PET_GAMES.map((g) => `
@@ -2962,7 +2962,7 @@ function petLaunchGame(id) {
     if (!petCanPlayGame()) return;
     currentPetGame = id;
     if (id === "memory") startMemoryGame();
-    else if (id === "catch") startCatchGame();
+    else if (id === "spot") startSpotGame();
 }
 function renderPetGameResult(html) {
     $("#tinyfeed-pet-game-body").html(`<div class="tinyfeed-pet-game-result">${html}
@@ -3033,100 +3033,94 @@ function memoryWin() {
         <div class="tinyfeed-pet-game-result-detail">ใช้ ${st.moves} ตา · ได้ 🪙 <b>${coins}</b> · อารมณ์ +15 · ผูกพัน +3</div>`);
 }
 
-// ── เกม 2: รับของตก (Catch) ──
-// เลื่อนตะกร้าซ้าย/ขวา (แตะครึ่งจอ) รับของดี เลี่ยงระเบิด · จับเวลา 30 วิ
-const CATCH_LANES = 3;
-const CATCH_GOOD = ["🍖", "🍎", "🐟", "🦴", "🎾", "🍗", "🧀", "⭐"];
-const CATCH_BAD = ["💣", "🥾", "🗑️"];
-const CATCH_DURATION = 30000;   // มิลลิวินาที
-let catchState = null;
-let catchTimer = null;
-function catchLaneCenter(lane) { return (lane + 0.5) * (100 / CATCH_LANES); }
-function stopCatchGame() {
-    if (catchTimer) { clearInterval(catchTimer); catchTimer = null; }
-    catchState = null;
+// ── เกม 2: หา emoji ที่ต่าง (Spot the odd one) ──
+// low-motion: วาดกริดใหม่ "เฉพาะตอนแตะ"; timer แค่เดินเลขทุก 250ms (ไม่แตะกริด) → ลื่นบนมือถือ
+const SPOT_DURATION = 40000;   // มิลลิวินาที
+const SPOT_TIERS = [
+    // ง่าย (ต่างชัด)
+    [["🐶", "🐱"], ["🍎", "🍔"], ["⭐", "🌙"], ["🐟", "🦴"], ["🌵", "🌲"], ["🚗", "🚌"], ["🎈", "🎀"]],
+    // กลาง (หมวด/ทรงใกล้กัน)
+    [["🍊", "🍋"], ["🐸", "🐢"], ["🌻", "🌼"], ["🐮", "🐷"], ["🍇", "🫐"], ["🦊", "🐱"], ["🍅", "🍎"]],
+    // ยาก (คล้ายกันมาก)
+    [["😀", "😄"], ["😺", "😸"], ["🌕", "🌝"], ["🟠", "🟡"], ["🔵", "🟣"], ["🥔", "🥚"], ["🌛", "🌜"]],
+];
+let spotState = null;
+let spotTimer = null;
+function spotTierForRound(round) { return round <= 2 ? 0 : round <= 4 ? 1 : 2; }
+function spotGridCols(round) { return Math.min(6, 3 + Math.floor((round - 1) / 2)); }   // 3,3,4,4,5,5,6,6…
+function stopSpotGame() {
+    if (spotTimer) { clearInterval(spotTimer); spotTimer = null; }
+    spotState = null;
 }
-function startCatchGame() {
-    petGameStart();      // หักพลังงาน
-    stopCatchGame();     // กันซ้อน
+function startSpotGame() {
+    petGameStart();     // หักพลังงาน
+    stopSpotGame();     // กันซ้อน
     const now = Date.now();
-    catchState = { lane: 1, score: 0, items: [], timeLeft: Math.round(CATCH_DURATION / 1000), startedAt: now, endsAt: now + CATCH_DURATION, lastSpawn: now - 500, flash: false, flashUntil: 0 };
-    $("#tinyfeed-pet-game-title").text("รับของตก 🍎");
-    renderCatch();
-    catchTimer = setInterval(catchTick, 55);
+    spotState = { round: 1, score: 0, endsAt: now + SPOT_DURATION, timeLeft: Math.round(SPOT_DURATION / 1000), cols: 3, oddIdx: 0, base: "🐶", odd: "🐱", wrongFlash: false };
+    spotNewRound();
+    $("#tinyfeed-pet-game-title").text("หา emoji ที่ต่าง 🔍");
+    renderSpot();
+    spotTimer = setInterval(spotTimerTick, 250);   // timer เบา: อัปเดตเลขเวลาอย่างเดียว
 }
-function renderCatch() {
-    if (!catchState) return;
-    $("#tinyfeed-pet-game-body").html(`
-        <div class="tinyfeed-catch-hud">
-            <span>⏱ <b id="tinyfeed-catch-time">${catchState.timeLeft}</b> วิ</span>
-            <span>คะแนน <b id="tinyfeed-catch-score">${catchState.score}</b></span>
-        </div>
-        <div class="tinyfeed-catch-area">
-            <div id="tinyfeed-catch-layer"></div>
-            <div class="tinyfeed-catch-tap tinyfeed-catch-tapleft" data-dir="-1"></div>
-            <div class="tinyfeed-catch-tap tinyfeed-catch-tapright" data-dir="1"></div>
-        </div>
-        <div class="tinyfeed-catch-hint">แตะซ้าย/ขวาเพื่อเลื่อนตะกร้า · รับของดี เลี่ยงระเบิด</div>
-    `);
-    paintCatch();
+// สุ่มด่านใหม่: เลือกคู่ตามระดับความยาก + สลับ base/odd + ตำแหน่งตัวต่าง
+function spotNewRound() {
+    const st = spotState;
+    st.cols = spotGridCols(st.round);
+    const tier = SPOT_TIERS[spotTierForRound(st.round)];
+    const pair = tier[Math.floor(Math.random() * tier.length)];
+    if (Math.random() < 0.5) { st.base = pair[0]; st.odd = pair[1]; }
+    else { st.base = pair[1]; st.odd = pair[0]; }
+    st.oddIdx = Math.floor(Math.random() * st.cols * st.cols);
 }
-function paintCatch() {
-    const st = catchState;
+function renderSpot() {
+    const st = spotState;
     if (!st) return;
-    $("#tinyfeed-catch-time").text(st.timeLeft);
-    $("#tinyfeed-catch-score").text(st.score);
-    const items = st.items.map((it) => `<div class="tinyfeed-catch-item${it.bad ? " tinyfeed-catch-bad" : ""}" style="left:${catchLaneCenter(it.lane)}%;top:${it.y}%">${it.emoji}</div>`).join("");
-    const basket = `<div class="tinyfeed-catch-basket" style="left:${catchLaneCenter(st.lane)}%">🧺</div>`;
-    const flash = st.flash ? `<div class="tinyfeed-catch-flash"></div>` : "";
-    $("#tinyfeed-catch-layer").html(items + basket + flash);
-}
-function catchMove(dir) {
-    if (!catchState) return;
-    catchState.lane = Math.max(0, Math.min(CATCH_LANES - 1, catchState.lane + dir));
-    paintCatch();
-}
-function spawnCatchItem() {
-    const st = catchState;
-    const bad = Math.random() < 0.22;
-    const arr = bad ? CATCH_BAD : CATCH_GOOD;
-    st.items.push({ lane: Math.floor(Math.random() * CATCH_LANES), y: -8, emoji: arr[Math.floor(Math.random() * arr.length)], bad, caught: false });
-}
-function catchTick() {
-    // กันค้าง: ถ้า modal ถูกปิด/ซ่อนโดยไม่ได้ผ่าน closePetGame ก็หยุดลูปเอง
-    if (!catchState || $("#tinyfeed-pet-game-modal").hasClass("tinyfeed-hidden")) { stopCatchGame(); return; }
-    const st = catchState;
-    const now = Date.now();
-    const elapsed = (now - st.startedAt) / 1000;
-    st.timeLeft = Math.max(0, Math.ceil((st.endsAt - now) / 1000));
-    // เกิดของใหม่ (ยิ่งนานยิ่งถี่)
-    const spawnEvery = Math.max(430, 820 - elapsed * 13);
-    if (now - st.lastSpawn >= spawnEvery) { st.lastSpawn = now; spawnCatchItem(); }
-    // ของตกลง (ยิ่งนานยิ่งเร็ว)
-    const speed = 3.6 + elapsed * 0.11;
-    for (const it of st.items) it.y += speed;
-    // ตรวจการรับ (โซนตะกร้า ~ล่างสุด, เลนเดียวกัน)
-    for (const it of st.items) {
-        if (it.caught) continue;
-        if (it.y >= 78 && it.y <= 102 && it.lane === st.lane) {
-            it.caught = true;
-            if (it.bad) { st.score = Math.max(0, st.score - 2); st.flashUntil = now + 220; }
-            else { st.score += 1; }
-        }
+    const n = st.cols * st.cols;
+    let tiles = "";
+    for (let i = 0; i < n; i++) {
+        tiles += `<div class="tinyfeed-spot-tile" data-idx="${i}">${i === st.oddIdx ? st.odd : st.base}</div>`;
     }
-    st.items = st.items.filter((it) => !it.caught && it.y <= 110);
-    st.flash = now < st.flashUntil;
-    paintCatch();
-    if (now >= st.endsAt) catchWin();
+    $("#tinyfeed-pet-game-body").html(`
+        <div class="tinyfeed-spot-hud">
+            <span>⏱ <b id="tinyfeed-spot-time">${st.timeLeft}</b> วิ</span>
+            <span>รอบ <b>${st.round}</b> · คะแนน <b>${st.score}</b></span>
+        </div>
+        <div class="tinyfeed-spot-grid${st.wrongFlash ? " tinyfeed-spot-wrong" : ""}" style="grid-template-columns:repeat(${st.cols},1fr)">${tiles}</div>
+        <div class="tinyfeed-spot-hint">แตะตัวที่ต่างจากเพื่อน · ตอบผิด −3 วิ</div>
+    `);
 }
-function catchWin() {
-    const score = catchState ? catchState.score : 0;
-    stopCatchGame();
-    const coins = Math.max(5, score * 2);
+// timer เบาสุด: อัปเดตแค่ตัวเลข ไม่ rebuild กริด (จึงไม่แลค)
+function spotTimerTick() {
+    if (!spotState || $("#tinyfeed-pet-game-modal").hasClass("tinyfeed-hidden")) { stopSpotGame(); return; }
+    const st = spotState;
+    st.timeLeft = Math.max(0, Math.ceil((st.endsAt - Date.now()) / 1000));
+    $("#tinyfeed-spot-time").text(st.timeLeft);
+    if (Date.now() >= st.endsAt) spotWin();
+}
+function spotTap(idx) {
+    const st = spotState;
+    if (!st) return;
+    if (idx === st.oddIdx) {
+        st.score++;
+        st.round++;
+        spotNewRound();
+        renderSpot();
+    } else {
+        // ตอบผิด: หักเวลา + สั่นแดง (ไม่จบเกม)
+        st.endsAt -= 3000;
+        st.wrongFlash = true;
+        renderSpot();
+        setTimeout(() => { if (spotState) { spotState.wrongFlash = false; renderSpot(); } }, 240);
+    }
+}
+function spotWin() {
+    const score = spotState ? spotState.score : 0;
+    stopSpotGame();
+    const coins = Math.max(5, score * 3);
     petGameReward(coins, 15, 3);
     renderPetGameResult(`<div class="tinyfeed-pet-game-result-emoji">${score > 0 ? "🎉" : "🍃"}</div>
-        <div class="tinyfeed-pet-game-result-title">${score >= 15 ? "สุดยอด!" : score >= 6 ? "เก่งมาก!" : "เล่นอีกได้นะ"}</div>
-        <div class="tinyfeed-pet-game-result-detail">รับได้ ${score} คะแนน · ได้ 🪙 <b>${coins}</b> · อารมณ์ +15 · ผูกพัน +3</div>`);
+        <div class="tinyfeed-pet-game-result-title">${score >= 12 ? "ตาไวมาก!" : score >= 5 ? "เก่งมาก!" : "เล่นอีกได้นะ"}</div>
+        <div class="tinyfeed-pet-game-result-detail">ผ่าน ${score} รอบ · ได้ 🪙 <b>${coins}</b> · อารมณ์ +15 · ผูกพัน +3</div>`);
 }
 
 // หลังตาย: กลับไปหน้า "รับเลี้ยง" (ให้ตั้งชื่อใหม่) — ไม่ auto-adopt ทันที
@@ -6842,7 +6836,7 @@ jQuery(async () => {
             if (currentPetGame) petLaunchGame(currentPetGame); else renderPetGameMenu();
         });
         $(document).on("click", ".tinyfeed-mem-card", function () { memoryFlip(parseInt($(this).data("idx"), 10)); });
-        $(document).on("click", ".tinyfeed-catch-tap", function () { catchMove(parseInt($(this).data("dir"), 10)); });
+        $(document).on("click", ".tinyfeed-spot-tile", function () { spotTap(parseInt($(this).data("idx"), 10)); });
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
         $(document).on("click", "#tinyfeed-pet-post", function () { petPostToFeed({ notify: false, silent: false }); });
         $(document).on("click", "#tinyfeed-pet-adopt", function () { petAdopt($("#tinyfeed-pet-name-input").val()); });
