@@ -4105,6 +4105,35 @@
     75% { transform: translateX(5px); }
 }
 .tinyfeed-spot-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
+/* ── เกมตีตัวตุ่น (Whack) ── */
+.tinyfeed-whack-hud { display: flex; justify-content: space-between; align-items: center; font-size: 0.82em; color: var(--tf-text-muted); padding: 0 4px; }
+.tinyfeed-whack-hud b { color: var(--tf-accent); }
+.tinyfeed-whack-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; touch-action: manipulation; }
+.tinyfeed-whack-hole {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: color-mix(in srgb, #000 22%, var(--tf-topbar));
+    border: 2px solid var(--tf-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: inset 0 6px 10px rgba(0, 0, 0, 0.35);
+}
+.tinyfeed-whack-hole:active { border-color: var(--tf-accent); }
+.tinyfeed-whack-bomb { border-color: #ef4444; }
+.tinyfeed-whack-mole {
+    font-size: 1.9em;
+    line-height: 1;
+    transform: translateY(120%);
+    opacity: 0;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.tinyfeed-whack-up .tinyfeed-whack-mole { transform: translateY(0); opacity: 1; }
+.tinyfeed-whack-wrong { animation: tinyfeed-spot-shake 0.24s ease; }
+.tinyfeed-whack-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
 /* ลิงก์ "เติมเหรียญ" ในหัวร้าน */
 .tinyfeed-pet-topup-link {
     background: none;

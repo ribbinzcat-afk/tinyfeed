@@ -2932,18 +2932,19 @@ function petGameReward(coins, moodGain, bondGain) {
 const PET_GAMES = [
     { id: "memory", emoji: "🃏", name: "จับคู่การ์ด", desc: "เกมความจำ · จับคู่ให้ครบ", ready: true },
     { id: "spot", emoji: "🔍", name: "หา emoji ที่ต่าง", desc: "แตะตัวที่ต่าง · จับเวลา 40 วิ", ready: true },
-    { id: "whack", emoji: "🔨", name: "ตีตุ่น", desc: "เร็วๆ นี้", ready: false },
+    { id: "whack", emoji: "🔨", name: "ตีตัวตุ่น", desc: "ตี 🐹 เลี่ยง 💣 · จับเวลา 35 วิ", ready: true },
 ];
 let currentPetGame = null;
+function stopAllPetGames() { stopSpotGame(); stopWhackGame(); }
 function openPetGame() {
     const p = getPet();
     if (!p.exists || p.isDead) return;
     renderPetGameMenu();
     $("#tinyfeed-pet-game-modal").removeClass("tinyfeed-hidden");
 }
-function closePetGame() { $("#tinyfeed-pet-game-modal").addClass("tinyfeed-hidden"); memoryState = null; stopSpotGame(); }
+function closePetGame() { $("#tinyfeed-pet-game-modal").addClass("tinyfeed-hidden"); memoryState = null; stopAllPetGames(); }
 function renderPetGameMenu() {
-    stopSpotGame();
+    stopAllPetGames();
     const e = Math.round(getPet().stats.energy);
     const cost = petGameEnergyCost();
     const cards = PET_GAMES.map((g) => `
@@ -2963,6 +2964,7 @@ function petLaunchGame(id) {
     currentPetGame = id;
     if (id === "memory") startMemoryGame();
     else if (id === "spot") startSpotGame();
+    else if (id === "whack") startWhackGame();
 }
 function renderPetGameResult(html) {
     $("#tinyfeed-pet-game-body").html(`<div class="tinyfeed-pet-game-result">${html}
@@ -3121,6 +3123,114 @@ function spotWin() {
     renderPetGameResult(`<div class="tinyfeed-pet-game-result-emoji">${score > 0 ? "🎉" : "🍃"}</div>
         <div class="tinyfeed-pet-game-result-title">${score >= 12 ? "ตาไวมาก!" : score >= 5 ? "เก่งมาก!" : "เล่นอีกได้นะ"}</div>
         <div class="tinyfeed-pet-game-result-detail">ผ่าน ${score} รอบ · ได้ 🪙 <b>${coins}</b> · อารมณ์ +15 · ผูกพัน +3</div>`);
+}
+
+// ── เกม 3: ตีตัวตุ่น (Whack) ──
+// low-motion: สร้างกริดหลุมครั้งเดียว, loop เบาสลับ "class" ต่อหลุม (ตุ่นโผล่ด้วย CSS transform) — ไม่ rebuild กระดาน
+const WHACK_HOLES = 9;          // 3×3
+const WHACK_DURATION = 35000;   // มิลลิวินาที
+let whackState = null;
+let whackTimer = null;
+function stopWhackGame() {
+    if (whackTimer) { clearInterval(whackTimer); whackTimer = null; }
+    whackState = null;
+}
+function startWhackGame() {
+    petGameStart();     // หักพลังงาน
+    stopWhackGame();    // กันซ้อน
+    const now = Date.now();
+    whackState = {
+        score: 0, timeLeft: Math.round(WHACK_DURATION / 1000), endsAt: now + WHACK_DURATION,
+        holes: Array.from({ length: WHACK_HOLES }, () => ({ active: false, bomb: false, upUntil: 0 })),
+        nextSpawnAt: now + 400,
+    };
+    $("#tinyfeed-pet-game-title").text("ตีตัวตุ่น 🔨");
+    renderWhack();
+    whackTimer = setInterval(whackTick, 120);
+}
+function renderWhack() {
+    const st = whackState;
+    if (!st) return;
+    let holes = "";
+    for (let i = 0; i < WHACK_HOLES; i++) {
+        holes += `<div class="tinyfeed-whack-hole" data-idx="${i}"><span class="tinyfeed-whack-mole"></span></div>`;
+    }
+    $("#tinyfeed-pet-game-body").html(`
+        <div class="tinyfeed-whack-hud">
+            <span>⏱ <b id="tinyfeed-whack-time">${st.timeLeft}</b> วิ</span>
+            <span>คะแนน <b id="tinyfeed-whack-score">${st.score}</b></span>
+        </div>
+        <div class="tinyfeed-whack-grid">${holes}</div>
+        <div class="tinyfeed-whack-hint">แตะ 🐹 ให้โดน · เลี่ยง 💣 · ยิ่งไวยิ่งได้เยอะ</div>
+    `);
+    for (let i = 0; i < WHACK_HOLES; i++) paintWhackHole(i);
+}
+// อัปเดต DOM เฉพาะหลุมเดียว (ไม่แตะทั้งกระดาน)
+function paintWhackHole(i) {
+    const st = whackState;
+    if (!st) return;
+    const h = st.holes[i];
+    const $hole = $(`.tinyfeed-whack-hole[data-idx="${i}"]`);
+    if (!$hole.length) return;
+    $hole.toggleClass("tinyfeed-whack-up", h.active);
+    $hole.toggleClass("tinyfeed-whack-bomb", h.active && h.bomb);
+    // ตอน active ตั้งอิโมจิ; ตอน inactive คงอิโมจิเดิมไว้ให้สไลด์ลงหลุม (โดน overflow:hidden ตัด + จางหาย) ไม่เคลียร์ทันที
+    if (h.active) $hole.find(".tinyfeed-whack-mole").text(h.bomb ? "💣" : "🐹");
+}
+// loop เบา: อัปเดตเลขเวลา + ซ่อนตัวหมดเวลา + เกิดตัวใหม่ (แตะ DOM เฉพาะหลุมที่เปลี่ยน)
+function whackTick() {
+    if (!whackState || $("#tinyfeed-pet-game-modal").hasClass("tinyfeed-hidden")) { stopWhackGame(); return; }
+    const st = whackState;
+    const now = Date.now();
+    st.timeLeft = Math.max(0, Math.ceil((st.endsAt - now) / 1000));
+    $("#tinyfeed-whack-time").text(st.timeLeft);
+    const elapsed = (WHACK_DURATION - (st.endsAt - now)) / 1000;
+    // ซ่อนตัวที่หมดเวลาโผล่
+    for (let i = 0; i < WHACK_HOLES; i++) {
+        if (st.holes[i].active && now >= st.holes[i].upUntil) {
+            st.holes[i].active = false;
+            paintWhackHole(i);
+        }
+    }
+    // เกิดตัวใหม่ (ยิ่งนานยิ่งถี่ + โผล่สั้นลง)
+    if (now >= st.nextSpawnAt) {
+        const empty = [];
+        for (let i = 0; i < WHACK_HOLES; i++) if (!st.holes[i].active) empty.push(i);
+        if (empty.length) {
+            const i = empty[Math.floor(Math.random() * empty.length)];
+            const upMs = Math.max(650, 1050 - elapsed * 12);
+            st.holes[i] = { active: true, bomb: Math.random() < 0.18, upUntil: now + upMs };
+            paintWhackHole(i);
+        }
+        const gap = Math.max(430, 820 - elapsed * 12);
+        st.nextSpawnAt = now + gap;
+    }
+    if (now >= st.endsAt) whackWin();
+}
+function whackHit(i) {
+    const st = whackState;
+    if (!st) return;
+    const h = st.holes[i];
+    if (!h.active) return;   // แตะหลุมว่าง = ไม่มีอะไรเกิด
+    h.active = false;
+    paintWhackHole(i);
+    if (h.bomb) {
+        st.score = Math.max(0, st.score - 2);
+        const $g = $(".tinyfeed-whack-grid").addClass("tinyfeed-whack-wrong");
+        setTimeout(() => $g.removeClass("tinyfeed-whack-wrong"), 240);
+    } else {
+        st.score++;
+    }
+    $("#tinyfeed-whack-score").text(st.score);
+}
+function whackWin() {
+    const score = whackState ? whackState.score : 0;
+    stopWhackGame();
+    const coins = Math.max(5, score * 3);
+    petGameReward(coins, 15, 3);
+    renderPetGameResult(`<div class="tinyfeed-pet-game-result-emoji">${score > 0 ? "🎉" : "🍃"}</div>
+        <div class="tinyfeed-pet-game-result-title">${score >= 20 ? "มือไวสุดๆ!" : score >= 8 ? "เก่งมาก!" : "เล่นอีกได้นะ"}</div>
+        <div class="tinyfeed-pet-game-result-detail">ตีโดน ${score} ตัว · ได้ 🪙 <b>${coins}</b> · อารมณ์ +15 · ผูกพัน +3</div>`);
 }
 
 // หลังตาย: กลับไปหน้า "รับเลี้ยง" (ให้ตั้งชื่อใหม่) — ไม่ auto-adopt ทันที
@@ -6837,6 +6947,7 @@ jQuery(async () => {
         });
         $(document).on("click", ".tinyfeed-mem-card", function () { memoryFlip(parseInt($(this).data("idx"), 10)); });
         $(document).on("click", ".tinyfeed-spot-tile", function () { spotTap(parseInt($(this).data("idx"), 10)); });
+        $(document).on("click", ".tinyfeed-whack-hole", function () { whackHit(parseInt($(this).data("idx"), 10)); });
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
         $(document).on("click", "#tinyfeed-pet-post", function () { petPostToFeed({ notify: false, silent: false }); });
         $(document).on("click", "#tinyfeed-pet-adopt", function () { petAdopt($("#tinyfeed-pet-name-input").val()); });
