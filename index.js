@@ -178,6 +178,7 @@ const defaultSettings = {
     petAutoPost: false,           // ให้เพ็ทโพสต์ลงฟีดเองเป็นระยะ (ตอนอารมณ์ดี)
     // ร้านสัตว์เลี้ยง (แยกจาก TinyShop) — ซื้อด้วย "เหรียญเพ็ท" (เติมจาก TinyBank / รับจากมินิเกม)
     petCoinRate: 1,               // เหรียญที่ได้ต่อ 1 บาท TinyBank ตอนเติม
+    petGameEnergyCost: 15,        // พลังงานที่ใช้ต่อการเล่นมินิเกม 1 รอบ (เป็นตัวจำกัดกันฟาร์มเหรียญ)
     petShop: [                    // [{ id, name, price(เหรียญ), emoji, image, type, amount, desc }]
         { id: "pi_food1", name: "ขนมอบกรอบ", price: 8, emoji: "🍪", image: "", type: "food", amount: 40, desc: "ของว่างอร่อยๆ" },
         { id: "pi_toy1", name: "ลูกบอลนุ่ม", price: 12, emoji: "🎾", image: "", type: "toy", amount: 30, desc: "ของเล่นโปรด" },
@@ -2901,6 +2902,133 @@ function parsePetItems(raw) {
     return count;
 }
 
+// ===== TinyPet: มินิเกม (เกมเซ็นเตอร์ + ระบบพลังงาน/รางวัลร่วม) =====
+function petGameEnergyCost() { return Math.max(0, parseInt(getSetting("petGameEnergyCost"), 10) || 15); }
+function petCanPlayGame() {
+    const p = getPet();
+    if (!p.exists || p.isDead) return false;
+    if (p.isSleeping) { toastr.info("เพ็ทกำลังหลับอยู่ ปลุกก่อนนะ", "TinyPet"); return false; }
+    if (p.stats.energy < petGameEnergyCost()) { toastr.info("เพ็ทเหนื่อยเกินจะเล่น ให้พักก่อนนะ 😪", "TinyPet"); return false; }
+    return true;
+}
+// หักพลังงานตอนเริ่มเล่น (พลังงานคือตัวจำกัดการเล่นตามธรรมชาติ — ไม่ต้องมี cooldown แยก)
+function petGameStart() {
+    petApplyDecay();
+    const p = getPet();
+    p.stats.energy = clamp100(p.stats.energy - petGameEnergyCost());
+    p.lastUpdateTimestamp = Date.now();
+    savePet();
+}
+// ให้รางวัลตอนจบเกม: เหรียญ + อารมณ์ + ผูกพัน
+function petGameReward(coins, moodGain, bondGain) {
+    const p = getPet();
+    petAddCoins(coins);
+    p.stats.mood = clamp100(p.stats.mood + (moodGain || 0));
+    petBondAdd(bondGain || 0);
+    p.lastUpdateTimestamp = Date.now();
+    savePet();
+}
+
+const PET_GAMES = [
+    { id: "memory", emoji: "🃏", name: "จับคู่การ์ด", desc: "เกมความจำ · จับคู่ให้ครบ", ready: true },
+    { id: "catch", emoji: "🍎", name: "รับของตก", desc: "เร็วๆ นี้", ready: false },
+    { id: "whack", emoji: "🔨", name: "ตีตุ่น", desc: "เร็วๆ นี้", ready: false },
+];
+function openPetGame() {
+    const p = getPet();
+    if (!p.exists || p.isDead) return;
+    renderPetGameMenu();
+    $("#tinyfeed-pet-game-modal").removeClass("tinyfeed-hidden");
+}
+function closePetGame() { $("#tinyfeed-pet-game-modal").addClass("tinyfeed-hidden"); memoryState = null; }
+function renderPetGameMenu() {
+    const e = Math.round(getPet().stats.energy);
+    const cost = petGameEnergyCost();
+    const cards = PET_GAMES.map((g) => `
+        <div class="tinyfeed-pet-game-card${g.ready ? "" : " tinyfeed-pet-game-soon"}" ${g.ready ? `data-game="${g.id}"` : ""}>
+            <span class="tinyfeed-pet-game-emoji">${g.emoji}</span>
+            <span class="tinyfeed-pet-game-info"><b>${escapeText(g.name)}</b><small>${escapeText(g.desc)}</small></span>
+            ${g.ready ? `<i class="fa-solid fa-chevron-right"></i>` : `<span class="tinyfeed-pet-game-soonlabel">เร็วๆ นี้</span>`}
+        </div>`).join("");
+    $("#tinyfeed-pet-game-title").text("เล่นเกมกับเพ็ท");
+    $("#tinyfeed-pet-game-body").html(`
+        <div class="tinyfeed-pet-game-energy">พลังงานเพ็ท: <b>${e}</b> · เล่น 1 เกมใช้ ${cost} · ได้ 🪙 + อารมณ์ + ผูกพัน</div>
+        <div class="tinyfeed-pet-game-list">${cards}</div>
+    `);
+}
+function petLaunchGame(id) {
+    if (!petCanPlayGame()) return;
+    if (id === "memory") startMemoryGame();
+}
+function renderPetGameResult(html) {
+    $("#tinyfeed-pet-game-body").html(`<div class="tinyfeed-pet-game-result">${html}
+        <button id="tinyfeed-pet-game-again" class="tinyfeed-btn-primary"><i class="fa-solid fa-rotate-right"></i> เล่นอีก</button>
+        <button id="tinyfeed-pet-game-menu" class="tinyfeed-btn-ghost">กลับเมนูเกม</button>
+    </div>`);
+}
+
+// ── เกม 1: จับคู่การ์ด (Memory) ──
+const MEMORY_EMOJIS = ["🍖", "🎾", "🦴", "🐟", "🧶", "🥎", "🐾", "🎁", "⭐", "🧸"];
+let memoryState = null;
+function startMemoryGame() {
+    petGameStart();   // หักพลังงาน
+    const pairs = 6;
+    const pool = MEMORY_EMOJIS.slice().sort(() => Math.random() - 0.5).slice(0, pairs);
+    const cards = pool.concat(pool)
+        .map((emoji) => ({ emoji, flipped: false, matched: false }))
+        .sort(() => Math.random() - 0.5);
+    memoryState = { cards, pairs, first: null, moves: 0, locked: false };
+    $("#tinyfeed-pet-game-title").text("จับคู่การ์ด 🃏");
+    renderMemory();
+}
+function renderMemory() {
+    const st = memoryState;
+    if (!st) return;
+    const grid = st.cards.map((c, i) => {
+        const face = c.matched || c.flipped;
+        return `<div class="tinyfeed-mem-card${face ? " tinyfeed-mem-open" : ""}${c.matched ? " tinyfeed-mem-matched" : ""}" data-idx="${i}">
+            <span>${face ? c.emoji : "❓"}</span>
+        </div>`;
+    }).join("");
+    $("#tinyfeed-pet-game-body").html(`
+        <div class="tinyfeed-mem-bar">ตา: <b>${st.moves}</b> · จับคู่ได้ <b>${st.cards.filter((c) => c.matched).length / 2}/${st.pairs}</b></div>
+        <div class="tinyfeed-mem-grid">${grid}</div>
+    `);
+}
+function memoryFlip(idx) {
+    const st = memoryState;
+    if (!st || st.locked) return;
+    const card = st.cards[idx];
+    if (!card || card.flipped || card.matched) return;
+    card.flipped = true;
+    if (st.first === null) { st.first = idx; renderMemory(); return; }
+    st.moves++;
+    const a = st.cards[st.first], b = card;
+    if (a.emoji === b.emoji) {
+        a.matched = b.matched = true;
+        st.first = null;
+        renderMemory();
+        if (st.cards.every((c) => c.matched)) memoryWin();
+    } else {
+        st.locked = true;
+        renderMemory();
+        setTimeout(() => {
+            a.flipped = false; b.flipped = false; st.first = null; st.locked = false;
+            renderMemory();
+        }, 850);
+    }
+}
+function memoryWin() {
+    const st = memoryState;
+    const perfect = st.pairs;   // จำนวนตาที่ดีที่สุด = จำนวนคู่
+    const coins = Math.max(6, 36 - Math.max(0, st.moves - perfect) * 3);
+    petGameReward(coins, 15, 3);
+    memoryState = null;
+    renderPetGameResult(`<div class="tinyfeed-pet-game-result-emoji">🎉</div>
+        <div class="tinyfeed-pet-game-result-title">เก่งมาก!</div>
+        <div class="tinyfeed-pet-game-result-detail">ใช้ ${st.moves} ตา · ได้ 🪙 <b>${coins}</b> · อารมณ์ +15 · ผูกพัน +3</div>`);
+}
+
 // หลังตาย: กลับไปหน้า "รับเลี้ยง" (ให้ตั้งชื่อใหม่) — ไม่ auto-adopt ทันที
 function petAdoptNew() {
     const p = getPet();
@@ -3176,6 +3304,7 @@ function renderPet() {
             <button class="tinyfeed-pet-act" data-act="sleep"><i class="fa-solid ${sleepIcon}"></i><span>${sleepLabel}</span></button>
         </div>
         <div class="tinyfeed-pet-extra-actions">
+            <button id="tinyfeed-pet-game-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-gamepad"></i> <span>เล่นเกม</span></button>
             <button id="tinyfeed-pet-shop-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-store"></i> <span>ร้านค้า</span></button>
             <button id="tinyfeed-pet-speak" class="tinyfeed-btn-generate"><i class="fa-solid fa-comment-dots"></i> <span>ให้เพ็ทพูด</span></button>
             <button id="tinyfeed-pet-post" class="tinyfeed-btn-generate"><i class="fa-solid fa-hashtag"></i> <span>โพสต์ลงฟีด</span></button>
@@ -6207,7 +6336,7 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
@@ -6218,6 +6347,7 @@ function handleBack() {
         closePetShop();
         closePetItemModal();
         closePetTopup();
+        closePetGame();
     } else if (currentApp === "connect" && isConnectThreadOpen()) {
         openConnectList();   // จากห้องแชต → กลับรายชื่อ
     } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
@@ -6602,6 +6732,17 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-pet-topup-modal", function (e) { if (e.target === this) closePetTopup(); });
         $(document).on("click", "#tinyfeed-pet-topup-send", petTopup);
         $(document).on("keydown", "#tinyfeed-pet-topup-amount", function (e) { if (e.key === "Enter") { e.preventDefault(); petTopup(); } });
+        // มินิเกม
+        $(document).on("click", "#tinyfeed-pet-game-btn", openPetGame);
+        $(document).on("click", "#tinyfeed-pet-game-close", closePetGame);
+        $(document).on("click", "#tinyfeed-pet-game-modal", function (e) { if (e.target === this) closePetGame(); });
+        $(document).on("click", ".tinyfeed-pet-game-card[data-game]", function () { petLaunchGame(String($(this).data("game"))); });
+        $(document).on("click", "#tinyfeed-pet-game-menu", renderPetGameMenu);
+        $(document).on("click", "#tinyfeed-pet-game-again", function () {
+            const title = String($("#tinyfeed-pet-game-title").text());
+            if (title.includes("จับคู่")) petLaunchGame("memory"); else renderPetGameMenu();
+        });
+        $(document).on("click", ".tinyfeed-mem-card", function () { memoryFlip(parseInt($(this).data("idx"), 10)); });
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
         $(document).on("click", "#tinyfeed-pet-post", function () { petPostToFeed({ notify: false, silent: false }); });
         $(document).on("click", "#tinyfeed-pet-adopt", function () { petAdopt($("#tinyfeed-pet-name-input").val()); });

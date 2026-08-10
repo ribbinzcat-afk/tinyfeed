@@ -4028,6 +4028,56 @@
 }
 .tinyfeed-pet-shop-managebar { display: flex; gap: 8px; margin-top: 10px; }
 .tinyfeed-pet-shop-managebar > button { flex: 1; }
+/* ===== มินิเกม (เกมเซ็นเตอร์ + Memory) ===== */
+.tinyfeed-pet-game-body { display: flex; flex-direction: column; gap: 10px; }
+.tinyfeed-pet-game-energy { font-size: 0.8em; color: var(--tf-text-muted); text-align: center; }
+.tinyfeed-pet-game-energy b { color: var(--tf-text); }
+.tinyfeed-pet-game-list { display: flex; flex-direction: column; gap: 8px; }
+.tinyfeed-pet-game-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    background: var(--tf-topbar);
+    cursor: pointer;
+    color: var(--tf-text-muted);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-pet-game-card[data-game]:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar)); }
+.tinyfeed-pet-game-soon { opacity: 0.55; cursor: default; }
+.tinyfeed-pet-game-emoji { font-size: 1.8em; width: 40px; text-align: center; flex-shrink: 0; }
+.tinyfeed-pet-game-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tinyfeed-pet-game-info b { color: var(--tf-text-strong); font-size: 0.95em; }
+.tinyfeed-pet-game-info small { color: var(--tf-text-muted); font-size: 0.78em; }
+.tinyfeed-pet-game-soonlabel { font-size: 0.72em; color: var(--tf-text-muted); flex-shrink: 0; }
+/* ผลจบเกม */
+.tinyfeed-pet-game-result { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 14px 8px; }
+.tinyfeed-pet-game-result-emoji { font-size: 3em; line-height: 1; }
+.tinyfeed-pet-game-result-title { font-weight: 700; font-size: 1.15em; color: var(--tf-text-strong); }
+.tinyfeed-pet-game-result-detail { font-size: 0.86em; color: var(--tf-text-muted); }
+.tinyfeed-pet-game-result .tinyfeed-btn-primary { width: 100%; max-width: 220px; }
+/* Memory */
+.tinyfeed-mem-bar { font-size: 0.82em; color: var(--tf-text-muted); text-align: center; }
+.tinyfeed-mem-bar b { color: var(--tf-text); }
+.tinyfeed-mem-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tinyfeed-mem-card {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.7em;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--tf-accent) 22%, var(--tf-topbar));
+    border: 1px solid var(--tf-border);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s ease, transform 0.1s ease;
+}
+.tinyfeed-mem-card:active { transform: scale(0.95); }
+.tinyfeed-mem-open { background: var(--tf-topbar); cursor: default; }
+.tinyfeed-mem-matched { background: color-mix(in srgb, #22c55e 25%, var(--tf-topbar)); border-color: #22c55e; cursor: default; }
 /* ลิงก์ "เติมเหรียญ" ในหัวร้าน */
 .tinyfeed-pet-topup-link {
     background: none;
