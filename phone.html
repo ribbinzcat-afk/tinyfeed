@@ -100,8 +100,16 @@
             </div>
             <div id="tinyfeed-detail" class="tinyfeed-panel tinyfeed-hidden"></div>
 
-            <div id="tinyfeed-settings-screen" class="tinyfeed-panel tinyfeed-hidden">
-                <div class="tinyfeed-settings-group">
+        </div>
+        </div>
+
+        <!-- หน้าตั้งค่า: เป็นพี่น้องของแอป ไม่ซ้อนอยู่ใน #tinyfeed-app-feed อีกแล้ว (CONVENTIONS.md บทที่ 3) -->
+        <div id="tinyfeed-settings-screen" class="tinyfeed-settings-screen tinyfeed-hidden">
+            <!-- ระดับ 1: รายการหัวข้อ (สร้างด้วย renderSettingsList) -->
+            <div id="tinyfeed-settings-list" class="tinyfeed-screen"></div>
+            <!-- ระดับ 2: เนื้อหาของหัวข้อที่เลือก — กลุ่มทั้งหมดซ่อนไว้ โชว์ทีละกลุ่ม -->
+            <div id="tinyfeed-settings-detail" class="tinyfeed-screen tinyfeed-hidden">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="appearance">
                     <div class="tinyfeed-settings-title">ปรับแต่งหน้าตา</div>
                     <div class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สีธีม (accent)</span>
@@ -150,7 +158,7 @@
                     <small class="tinyfeed-field-hint">ใส่ CSS เองเพื่อแต่งเพิ่ม เช่น ติดสติกเกอร์บนบับเบิลแชท · target ด้วยคลาส/ไอดี <code>.tinyfeed-*</code> / <code>#tinyfeed-*</code> · มีผลทั้งหน้าเว็บ ระวัง selector กว้างเกินไป</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="notif">
                     <div class="tinyfeed-settings-title">การแจ้งเตือน</div>
                     <label class="tinyfeed-field-row">
                         <span>เปิดการแจ้งเตือน (แบนเนอร์ + จุดแดง + สั่น)</span>
@@ -167,7 +175,7 @@
                     <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์ · กด “ทดสอบ” เพื่อเช็คว่าใช้ได้ไหม (จะบอกสาเหตุถ้าติด) · ⚠️ <b>ต้องเปิด ST ผ่าน HTTPS หรือ localhost</b> ถ้าเปิดผ่าน IP/HTTP เบราว์เซอร์จะบล็อก · ข้อความจะโผล่บน lock screen/แถบ OS แบบเห็นได้ ระวังเนื้อหา 18+</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="proactive">
                     <div class="tinyfeed-settings-title">ทักเชิงรุก (ตัวละครทักเอง)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้ตัวละคร/NPC ทักหาเองเป็นระยะ</span>
@@ -215,7 +223,7 @@
                     <small class="tinyfeed-field-hint">⚠️ ทำงานเฉพาะตอน<b>เปิดแท็บ SillyTavern ค้างไว้</b> (ย่อ/พับได้) · ต้องมีแชตที่มีตัวละครเปิดอยู่ · ยิง AI เป็นระยะ = เปลือง token ตั้งเว้นระยะ/โอกาส/ช่วงเงียบให้เหมาะ · ช่วงเงียบตั้งเริ่ม=ถึง = ไม่เงียบ</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="stream">
                     <div class="tinyfeed-settings-title">TinyStream (ไลฟ์สตรีม)</div>
                     <small class="tinyfeed-field-hint">เลือกสตรีมเมอร์หลัก + ตัวละครร่วมไลฟ์ได้ที่<b>หน้าแอป TinyStream</b> (กดที่รูปโปรไฟล์ในกรอบสตรีม · ปุ่ม + เพื่อเพิ่มตัวละครร่วม)</small>
                     <label class="tinyfeed-field">
@@ -258,7 +266,7 @@
                     <small class="tinyfeed-field-hint">ตอนเริ่มไลฟ์ตั้งหัวข้อ + แนวทางเองได้ (เว้นว่าง = ให้ AI ตั้ง) · สตรีมเมอร์จะทักเปิดไลฟ์เอง + มีปุ่ม "ให้สตรีมเมอร์พูด" ในหน้าไลฟ์ · มอโนล็อกทำงานตามรอบเวลาเดียวกับคอมเมนต์อัตโนมัติ</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="connect">
                     <div class="tinyfeed-settings-title">TinyConnect (แชต)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้คู่แชททักหาเราเองอัตโนมัติ</span>
@@ -296,7 +304,7 @@
                     <small class="tinyfeed-field-hint">เราโอนออกเองได้เสมอจากปุ่ม 💸 ในแชท (หักจาก TinyBank) · เปิดตัวเลือกนี้ = ตอนกด "ให้ตอบกลับ" คู่แชทอาจโอนเงินเข้าบัญชีเรา (ตามเนื้อเรื่อง) เข้า TinyBank อัตโนมัติ</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="api">
                     <div class="tinyfeed-settings-title">โมเดล / API</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">โมเดลที่ใช้สร้างโพสต์/ข่าว/คอมเมนต์</span>
@@ -316,7 +324,7 @@
                     <small class="tinyfeed-field-hint">แยกโมเดลของ TinyFeed ออกจากโมเดลตอบ RP ได้ · ต้องสร้าง connection profile ใน Connection Manager ของ ST ก่อน · โหมด "API หลัก" ได้ context เนื้อเรื่องอัตโนมัติ ส่วนโมเดลแยกเราจะแนบบทสนทนาล่าสุดให้ตามจำนวนนี้ (มากขึ้น = เข้าใจเนื้อเรื่องดีขึ้น แต่เปลือง token)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="wallpaper">
                     <div class="tinyfeed-settings-title">วอลเปเปอร์</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ลิงก์รูปวอลเปเปอร์หน้าโฮม</span>
@@ -329,7 +337,7 @@
                     </label>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="profile">
                     <div class="tinyfeed-settings-title">รูปโปรไฟล์</div>
                     <div class="tinyfeed-field-label tinyfeed-profile-head">โปรไฟล์ของคุณ — ผูกกับ persona: <b id="tinyfeed-cfg-persona-name">—</b></div>
                     <label class="tinyfeed-field">
@@ -380,7 +388,7 @@
                     <small class="tinyfeed-field-hint">ผูกกับการ์ดตัวละคร · เว้นว่าง = ใช้ชื่อ/รูปการ์ด · แอปจะแสดงตัวละครด้วยชื่อหลักที่เลือก · ชื่อในเนื้อหาที่ตรงกันจะถูกแทนด้วยรูปตัวละคร</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="feedPost">
                     <div class="tinyfeed-settings-title">โพสต์จากตัวละคร (AI)</div>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
@@ -408,7 +416,7 @@
                     </label>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="npc">
                     <div class="tinyfeed-settings-title">NPC ประจำ (ตัวละครนี้)</div>
                     <div id="tinyfeed-npc-list"></div>
                     <button id="tinyfeed-npc-add" class="tinyfeed-btn-generate">
@@ -417,7 +425,7 @@
                     <small class="tinyfeed-field-hint">กำหนดตัวละครประจำโลกของแชทนี้ · AI จะเลือกโพสต์จากรายชื่อนี้ · ใส่ลิงก์รูปให้ NPC มีรูปเฉพาะตัว (เว้นว่าง = วงกลมสีอักษรแรก)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="feedAuto">
                     <div class="tinyfeed-settings-title">สร้างโพสต์อัตโนมัติ</div>
                     <label class="tinyfeed-field-row">
                         <span>เปิดสร้างโพสต์อัตโนมัติ</span>
@@ -438,7 +446,7 @@
                     <small class="tinyfeed-field-hint">โหมด "ทุกๆ จำนวนข้อความ" = ครบตามจำนวนแล้วสร้างเลย · "ให้ AI ตัดสินใจเอง" = ครบแล้ว AI เช็คก่อนว่าควรโพสต์ไหม · นับจากตอนเปิดแชท</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="news">
                     <div class="tinyfeed-settings-title">ข่าวสาร</div>
                     <label class="tinyfeed-field-row">
                         <span>สร้างข่าวอัตโนมัติ</span>
@@ -472,7 +480,7 @@
                     <small class="tinyfeed-field-hint">ข่าวถูกตัด/ยาวเกิน = เพิ่ม token · ตั้งค่าน้อยไป = ข่าวสั้น</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="inject">
                     <div class="tinyfeed-settings-title">แทรกฟีดเข้าประวัติแชท</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ให้โมเดล RP หลักรับรู้ฟีด TinyFeed</span>
@@ -557,7 +565,7 @@
                     <small class="tinyfeed-field-hint">depth = แทรกลึกกี่ข้อความจากล่าสุด (ต่ำ = ใกล้ปัจจุบัน) ไม่เกี่ยวกับจำนวน เป็นตำแหน่งที่วางข้อมูลในประวัติแชท</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="comments">
                     <div class="tinyfeed-settings-title">คอมเมนต์</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">การตอบของ AI เมื่อเราคอมเมนต์</span>
@@ -581,7 +589,7 @@
                     <small class="tinyfeed-field-hint">ตอนสร้างโพสต์ใหม่ (ทั้ง AI สร้างและเราโพสต์เอง) จะมีคอมเมนต์ NPC ติดมาตามนี้ · โพสต์เราจะได้ยอดไลค์สุ่มด้วย (ใช้ generation เพิ่ม = เปลือง token ขึ้น)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="memo">
                     <div class="tinyfeed-settings-title">TinyMemo (กำหนดการ + โน้ต)</div>
                     <label class="tinyfeed-field-row">
                         <span>สแกนกำหนดการ/ความจำอัตโนมัติ</span>
@@ -610,7 +618,7 @@
                     <small class="tinyfeed-field-hint">สแกนครั้งเดียวได้ทั้ง 2 แท็บ: หา "กำหนดการที่กำลังจะเกิด" มาเรียงไทม์ไลน์ + ขีดฆ่าอันที่ผ่านไปแล้ว และจด "เหตุการณ์สำคัญ/สิ่งที่ควรจำ" ลงโน้ต · โหมด "ให้ AI ตัดสินใจ" จะเช็คก่อนว่ามีอะไรควรจดไหม (ประหยัด token) · เปิด auto แล้วจะมีแจ้งเตือนเมื่อมีรายการใหม่</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="forum">
                     <div class="tinyfeed-settings-title">TinyForum (เว็บบอร์ด)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้ชาวเน็ตตั้งกระทู้อัตโนมัติ</span>
@@ -648,7 +656,7 @@
                     <small class="tinyfeed-field-hint">ตอน AI ตั้งกระทู้จะเลือกห้องจากรายการนี้ · ห้องใช้ร่วมทุกแชท · โหลดคอมเมนต์เพิ่มได้เรื่อยๆ ในหน้ากระทู้ (ยิ่งเยอะยิ่งเปลือง token)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="gallery">
                     <div class="tinyfeed-settings-title">TinyGallery (คลังรูป + สติกเกอร์)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้บอทเลือกส่งสติกเกอร์/รูปจากคลังได้</span>
@@ -680,7 +688,7 @@
                     <small class="tinyfeed-field-hint">คลังรูป/สติกเกอร์เป็น <b>global</b> ใช้ร่วมทุกแชท ไม่เปลี่ยนตามแชท · เปิดตัวเลือกแรกจะแนบรายชื่อสติกเกอร์/รูป (ตามขอบเขต+จำนวนสูงสุด) เข้าไปตอน AI คุย/โพสต์ เพื่อให้เลือกส่งด้วย <code>[sticker:ชื่อ]</code> / <code>[img:ชื่อ]</code> · ผู้ใช้กดปุ่ม 😊 ในแถบพิมพ์เพื่อส่งเองได้ทุกแอป</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="bank">
                     <div class="tinyfeed-settings-title">TinyBank (ธนาคาร)</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สัญลักษณ์สกุลเงิน</span>
@@ -709,7 +717,7 @@
                     <small class="tinyfeed-field-hint">ยอดเงิน + ประวัติธุรกรรม<b>ผูกกับแชท</b> (แยกตามเนื้อเรื่อง) · เปิดระบบโดเนท → เวลาโหลดคอมเมนต์สดใน TinyStream, AI จะเลือกให้ผู้ชมโดเนท (กำหนดจำนวน+ข้อความเอง) เข้าบัญชีเรา เด้งการ์ดสีตาม tier บนจอไลฟ์ · ปิดไว้ = เพิ่ม/จ่ายเงินเองเท่านั้น</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="keywords">
                     <div class="tinyfeed-settings-title">ทริกเกอร์ด้วยคีย์เวิร์ด</div>
                     <small class="tinyfeed-field-hint">ตั้ง "โหมด" ของแต่ละแอปด้านบนเป็น <b>"เมื่อเจอคีย์เวิร์ด"</b> แล้วแอปนั้นจะสร้างเนื้อหาให้อัตโนมัติเมื่อข้อความ RP ล่าสุดมีคำที่ตรงกับรายการด้านล่าง · ทำงานทันทีในเบราว์เซอร์ ไม่หน่วง ไม่ต้องโหลดโมเดล · คั่นคำด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่</small>
                     <label class="tinyfeed-field">
@@ -729,7 +737,7 @@
                     <small class="tinyfeed-field-hint">กันทริกเกอร์ถี่เกินไป — เจอคีย์เวิร์ดแล้วต้องเว้นอย่างน้อยเท่านี้ก่อนจะสร้างซ้ำ (แยกต่อแอป)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="shop">
                     <div class="tinyfeed-settings-title">TinyShop (ร้านค้า)</div>
                     <div class="tinyfeed-field-label">หมวดสินค้า (AI เลือกจากรายการนี้)</div>
                     <div id="tinyfeed-shop-cat-list"></div>
@@ -747,7 +755,7 @@
                     <small class="tinyfeed-field-hint">กด "ให้ AI สร้างสินค้า" ในแอป TinyShop ให้ AI แต่งสินค้าเข้ากับโลกของเรื่อง · หมวดใช้ร่วมทุกแชท · แก้รูป/อิโมจิ/หมวดของสินค้าได้จากปุ่มดินสอบนสินค้า</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="pet">
                     <div class="tinyfeed-settings-title">TinyPet (สัตว์เลี้ยง)</div>
                     <small class="tinyfeed-field-hint">สัตว์เลี้ยงเป็น <b>global</b> (ตัวเดียวกันทุกแชท) · ค่าต่างๆ ลดตามเวลาจริงแม้ปิด ST ไป</small>
                     <label class="tinyfeed-field-row">
@@ -792,13 +800,12 @@
                     <small class="tinyfeed-field-hint">รองรับลิงก์ PNG/GIF/รูปเคลื่อนไหว · วางไฟล์เองในโฟลเดอร์ <code>assets/pet-sprites/&lt;สถานะ&gt;.png</code> ก็ได้ (ไม่ต้องใส่ลิงก์)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="prompts">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
                     <div id="tinyfeed-prompt-list"></div>
                 </div>
             </div>
-        </div>
         </div>
 
         <div id="tinyfeed-app-connect" class="tinyfeed-app tinyfeed-hidden">

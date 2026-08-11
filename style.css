@@ -1,3 +1,88 @@
+/* ============================================================
+   DESIGN TOKENS — แหล่งความจริงเดียวของค่าที่ใช้ซ้ำ
+   กติกา + เหตุผลอยู่ใน CONVENTIONS.md บทที่ 1
+   ห้ามใส่ค่าดิบ (hex / px / em) ที่อื่นในไฟล์นี้ ยกเว้นในบล็อกนี้
+   ============================================================ */
+
+/* ---- ค่าที่ไม่ขึ้นกับธีม (มืด/สว่างใช้ชุดเดียวกัน) ---- */
+#tinyfeed-phone {
+    /* ระยะห่าง */
+    --tf-sp-1: 4px;
+    --tf-sp-2: 6px;
+    --tf-sp-3: 8px;      /* ค่าเริ่มต้นของ gap */
+    --tf-sp-4: 12px;
+    --tf-sp-5: 16px;     /* padding มาตรฐานของ .tinyfeed-screen */
+    --tf-sp-6: 24px;
+
+    /* ความมน */
+    --tf-r-sm: 6px;      /* ชิป, แท็ก, thumbnail เล็ก */
+    --tf-r-md: 10px;     /* การ์ด, input, modal */
+    --tf-r-lg: 16px;     /* การ์ดใหญ่, bottom sheet */
+    --tf-r-pill: 999px;  /* ปุ่ม, avatar, badge */
+
+    /* ขนาดตัวอักษร */
+    --tf-fs-xs: 0.72em;  /* meta, timestamp, caption */
+    --tf-fs-sm: 0.82em;  /* ข้อความรอง, label */
+    --tf-fs-md: 0.9em;   /* ค่าเริ่มต้นของเนื้อหา */
+    --tf-fs-lg: 1.1em;   /* หัวข้อในแอป */
+    --tf-fs-xl: 1.5em;   /* ตัวเลขเด่น, hero */
+
+    /* สีตามความหมาย */
+    --tf-danger: #f4212e;   /* ลบ, ผิดพลาด, หัวใจไลก์ */
+    --tf-success: #22c55e;  /* สำเร็จ, เงินเข้า */
+    --tf-warn: #f59e0b;     /* เตือน */
+    --tf-info: #1d9bf0;     /* ข้อมูล */
+
+    /* สีแบรนด์ต่อแอป — แหล่งเดียว ห้ามเขียน hex ซ้ำใน JS
+       (--app-b ของไอคอนโฮม derive จาก --app-a ด้วย color-mix ไม่ต้องเก็บค่าที่สอง) */
+    --tf-app-feed: #1d9bf0;
+    --tf-app-connect: #22c55e;
+    --tf-app-stream: #a855f7;
+    --tf-app-memo: #f59e0b;      /* ยึดค่าของหน้าโฮม (APP_META เคยเป็น #14b8a6 = ไม่ตรงกัน) */
+    --tf-app-forum: #ef4444;
+    --tf-app-gallery: #ec4899;
+    --tf-app-bank: #10b981;
+    --tf-app-shop: #f97316;
+    --tf-app-pet: #8b5cf6;
+    --tf-app-verse: #6366f1;
+    --tf-app-theater: #e11d48;
+    --tf-app-news: #f59e0b;      /* ไม่ใช่แอป — เป็นแท็บใน feed */
+}
+
+/* ---- ค่าที่ขึ้นกับธีม (ต้องนิยามครบทั้งสองชุดเสมอ) ---- */
+#tinyfeed-phone.tinyfeed-theme-dark {
+    --tf-bg: #16181c;
+    --tf-text: #e7e9ea;
+    --tf-text-strong: #ffffff;
+    --tf-text-muted: #8b98a5;
+    --tf-text-soft: #d0d5da;
+    --tf-border: rgba(255, 255, 255, 0.08);
+    --tf-border-soft: rgba(255, 255, 255, 0.06);
+    --tf-accent: #1d9bf0;
+    --tf-topbar: #16181c;
+}
+
+#tinyfeed-phone.tinyfeed-theme-light {
+    --tf-bg: #ffffff;
+    --tf-text: #0f1419;
+    --tf-text-strong: #0f1419;
+    --tf-text-muted: #536471;
+    --tf-text-soft: #3c4650;
+    --tf-border: rgba(0, 0, 0, 0.1);
+    --tf-border-soft: rgba(0, 0, 0, 0.06);
+    --tf-accent: #1d9bf0;
+    --tf-topbar: #ffffff;
+}
+
+/* Runtime tokens (ตั้งจาก JS ห้ามตั้งที่นี่):
+   --tf-overlay-alpha    applyAppearance()  ← overlayOpacity
+   --tf-widget-alpha     applyAppearance()  ← widgetOpacity
+   --tf-home-hue         applyAppearance()
+   --tf-wp-overlay-alpha applyWallpaper()   ← wallpaperOverlay          */
+
+/* ===== END DESIGN TOKENS ===== */
+
+
 /* พื้นหลังมืดคลุมทั้งจอ */
 #tinyfeed-overlay {
     position: fixed;
@@ -631,18 +716,97 @@
     margin-bottom: 22px;
 }
 
-/* หัวข้อใหญ่คั่นหมวด (ตั้งค่าเครื่อง / แต่ละแอป) */
-.tinyfeed-settings-cat {
-    font-size: 1.05em;
-    font-weight: 700;
-    color: var(--tf-text-strong);
-    margin: 4px 0 16px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid var(--tf-accent);
+/* ===== หน้าตั้งค่า 2 ระดับ (เฟส 3) ===== */
+
+/* ตัวหน้าตั้งค่า — เป็นพี่น้องของแอปแล้ว จึงต้องเป็น flex column เองเหมือน .tinyfeed-app */
+.tinyfeed-settings-screen:not(.tinyfeed-hidden) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
 
-.tinyfeed-settings-cat:not(:first-child) {
-    margin-top: 14px;
+/* หัวข้อหมวดในรายการระดับ 1 */
+.tinyfeed-settings-cat {
+    font-size: var(--tf-fs-sm);
+    font-weight: 700;
+    color: var(--tf-text-muted);
+    letter-spacing: 0.02em;
+    margin: var(--tf-sp-6) 0 var(--tf-sp-3);
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-3);
+}
+
+.tinyfeed-settings-cat:first-child {
+    margin-top: var(--tf-sp-1);
+}
+
+.tinyfeed-settings-cat i {
+    color: var(--tf-accent);
+}
+
+/* แถวหัวข้อในรายการระดับ 1 */
+.tinyfeed-settings-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-4);
+    padding: var(--tf-sp-4) var(--tf-sp-3);
+    border-bottom: 1px solid var(--tf-border-soft);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.tinyfeed-settings-row:last-child {
+    border-bottom: none;
+}
+
+.tinyfeed-settings-row:hover {
+    background: var(--tf-border-soft);
+}
+
+.tinyfeed-settings-row:active {
+    background: var(--tf-border);
+}
+
+.tinyfeed-settings-row-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--tf-r-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--tf-fs-md);
+    color: var(--tf-accent);
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+}
+
+.tinyfeed-settings-row-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.tinyfeed-settings-row-name {
+    font-size: var(--tf-fs-md);
+    font-weight: 600;
+    color: var(--tf-text-strong);
+}
+
+.tinyfeed-settings-row-desc {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tinyfeed-settings-row-arrow {
+    flex-shrink: 0;
+    font-size: var(--tf-fs-sm);
+    color: var(--tf-text-muted);
+    opacity: 0.6;
 }
 
 .tinyfeed-settings-title {
@@ -1741,30 +1905,7 @@
     padding: 1px 5px;
 }
 
-/* ===== ตัวแปรธีม ===== */
-#tinyfeed-phone.tinyfeed-theme-dark {
-    --tf-bg: #16181c;
-    --tf-text: #e7e9ea;
-    --tf-text-strong: #ffffff;
-    --tf-text-muted: #8b98a5;
-    --tf-text-soft: #d0d5da;
-    --tf-border: rgba(255, 255, 255, 0.08);
-    --tf-border-soft: rgba(255, 255, 255, 0.06);
-    --tf-accent: #1d9bf0;
-    --tf-topbar: #16181c;
-}
-
-#tinyfeed-phone.tinyfeed-theme-light {
-    --tf-bg: #ffffff;
-    --tf-text: #0f1419;
-    --tf-text-strong: #0f1419;
-    --tf-text-muted: #536471;
-    --tf-text-soft: #3c4650;
-    --tf-border: rgba(0, 0, 0, 0.1);
-    --tf-border-soft: rgba(0, 0, 0, 0.06);
-    --tf-accent: #1d9bf0;
-    --tf-topbar: #ffffff;
-}
+/* ตัวแปรธีมย้ายไปรวมกับ design tokens ที่ต้นไฟล์แล้ว (ดู CONVENTIONS.md บทที่ 1) */
 
 .tinyfeed-topbar-right {
     display: flex;

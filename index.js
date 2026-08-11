@@ -260,103 +260,155 @@ function openPhone() {
     console.log(`[${extensionName}] Phone opened`);
 }
 
-// ===== App Shell: หน้าโฮม + สลับแอป =====
+// ===== App Shell: ทะเบียนแอป + หน้าโฮม + สลับแอป =====
+
+/* ทะเบียนแอปเดียวของทั้งระบบ — เพิ่มแอปใหม่ = เพิ่ม entry ที่นี่ที่เดียว
+ * (เดิมกระจาย 4 ที่: HOME_APPS / APP_META / MEMO_APPS / whitelist ใน openApp → ไม่ตรงกันสักที่)
+ * ความหมายของแต่ละ field + checklist เพิ่มแอปใหม่ อยู่ใน CONVENTIONS.md บทที่ 2
+ *   home     = โผล่บนหน้าโฮม
+ *   remember = จำเป็นหน้าจอล่าสุด (เดิม MEMO_APPS)
+ *   label    = ชื่อใน dashboard/keyword editor ถ้าต่างจาก name (เดิม APP_META)
+ *   a, b     = สีไล่เฉดของไอคอนโฮม (a = สีหลัก ใช้เป็นสีประจำแอปด้วย)
+ */
+const APPS = [
+    {
+        id: "feed", name: "TinyFeed", icon: "fa-hashtag", a: "#1d9bf0", b: "#0a6bd8",
+        panel: "#tinyfeed-app-feed", home: true, remember: true,
+        open() {
+            $(".tinyfeed-tabs").removeClass("tinyfeed-hidden");
+            applyFeedComposeMode();
+            switchTab(activeTab);
+        },
+    },
+    {
+        id: "connect", name: "TinyConnect", icon: "fa-comment-dots", a: "#22c55e", b: "#15a34a",
+        panel: "#tinyfeed-app-connect", home: true, remember: true,
+        open() { openConnectList(); },
+        back() { if (isConnectThreadOpen()) { openConnectList(); return true; } return false; },
+    },
+    {
+        id: "stream", name: "TinyStream", icon: "fa-video", a: "#a855f7", b: "#7e22ce",
+        panel: "#tinyfeed-app-stream", home: true, remember: true,
+        open() { renderStream(); maybeStartStreamTimer(); },
+    },
+    {
+        id: "memo", name: "TinyMemo", icon: "fa-calendar-check", a: "#f59e0b", b: "#d97706",
+        panel: "#tinyfeed-app-memo", home: true, remember: true,
+        open() { switchMemoTab(memoTab); },
+    },
+    {
+        id: "forum", name: "TinyForum", icon: "fa-comments", a: "#ef4444", b: "#b91c1c",
+        panel: "#tinyfeed-app-forum", home: true, remember: true,
+        open() { openForumList(); },
+        back() { if (isForumThreadOpen()) { openForumList(); return true; } return false; },
+    },
+    {
+        id: "gallery", name: "TinyGallery", label: "คลังสื่อ", icon: "fa-images", a: "#ec4899", b: "#be185d",
+        panel: "#tinyfeed-app-gallery", home: true, remember: true,
+        open() { openGallery(); },
+    },
+    {
+        id: "bank", name: "TinyBank", icon: "fa-wallet", a: "#10b981", b: "#047857",
+        panel: "#tinyfeed-app-bank", home: true, remember: true,
+        open() { renderBank(); },
+    },
+    {
+        id: "shop", name: "TinyShop", icon: "fa-bag-shopping", a: "#f97316", b: "#c2410c",
+        panel: "#tinyfeed-app-shop", home: true, remember: true,
+        open() { renderShop(); },
+    },
+    {
+        id: "pet", name: "TinyPet", icon: "fa-paw", a: "#8b5cf6", b: "#6d28d9",
+        panel: "#tinyfeed-app-pet", home: true, remember: false,   // เพ็ทมี state ของตัวเอง ไม่คืนหน้าจอ
+        open() {
+            petActionSprite = ""; petBubble = "";
+            renderPet();          // sync decay + วาดหน้าจอตามสถานะ (create/dead/active)
+            startPetLiveTick();   // อัปเดตบาร์สดๆ ระหว่างเปิดแอป
+        },
+    },
+    {
+        id: "verse", name: "TinyVerse", icon: "fa-globe", a: "#6366f1", b: "#4338ca",
+        panel: "#tinyfeed-app-verse", home: true, remember: true,
+        open() { openVerse(); },
+    },
+    {
+        id: "theater", name: "TinyTheater", icon: "fa-masks-theater", a: "#e11d48", b: "#9f1239",
+        panel: "#tinyfeed-app-theater", home: true, remember: true,
+        open() { openTheater(); },
+    },
+];
+
+const APP_BY_ID = Object.fromEntries(APPS.map((a) => [a.id, a]));
+
+/* ทะเบียน overlay/modal — ใช้ร่วมกันระหว่าง openApp (กันค้างข้ามแอป) และ handleBack (ปุ่มย้อนกลับ)
+ * เดิมสองที่นี้ถือลิสต์คนละชุด → char-profile / verse-import / verse-poster ปิดด้วยปุ่มย้อนกลับไม่ได้ */
+const OVERLAYS = [
+    { sel: "#tinyfeed-gallery-picker", close: closeGalleryOverlays },
+    { sel: "#tinyfeed-gallery-view", close: closeGalleryOverlays },
+    { sel: "#tinyfeed-gallery-edit", close: closeGalleryOverlays },
+    { sel: "#tinyfeed-char-picker", close: closeCharPicker },
+    { sel: "#tinyfeed-char-profile", close: closeCharProfile },
+    { sel: "#tinyfeed-verse-import-modal", close: closeVerseImport },
+    { sel: "#tinyfeed-verse-poster-modal", close: closeVersePosterPicker },
+    { sel: "#tinyfeed-slip-modal", close: closeSlipModal },
+    { sel: "#tinyfeed-donate-modal", close: closeDonateModal },
+    { sel: "#tinyfeed-shop-edit-modal", close: closeShopEditModal },
+    { sel: "#tinyfeed-pet-shop-modal", close: closePetShop },
+    { sel: "#tinyfeed-pet-item-modal", close: closePetItemModal },
+    { sel: "#tinyfeed-pet-topup-modal", close: closePetTopup },
+    { sel: "#tinyfeed-pet-game-modal", close: closePetGame },
+];
+
+function anyOverlayOpen() {
+    return OVERLAYS.some((o) => !$(o.sel).hasClass("tinyfeed-hidden"));
+}
+
+// ปิดเฉพาะ overlay ที่เปิดอยู่จริง (เดิมเรียก close ทุกตัวรัวๆ ไม่ว่าตัวไหนเปิด)
+function closeOpenOverlays() {
+    OVERLAYS.forEach((o) => { if (!$(o.sel).hasClass("tinyfeed-hidden")) o.close(); });
+}
+
+// หยุด timer ทุกตัวที่ผูกกับหน้าจอ (พื้นหลัง petTimer/proactiveTimer ยังเดินต่อ)
+function clearScreenTimers() {
+    clearStreamTimer();
+    clearHomeClock();
+    clearPetLiveTick();
+}
+
 let currentApp = "home";
 
 function goHome() {
     currentApp = "home";
-    clearStreamTimer();
-    clearPetLiveTick();
+    clearScreenTimers();
+    closeOpenOverlays();
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home").removeClass("tinyfeed-hidden");
     $(".tinyfeed-title").text("TinyPhone");
     $("#tinyfeed-home-btn, #tinyfeed-back").addClass("tinyfeed-hidden");
     $("#tinyfeed-settings-btn").removeClass("tinyfeed-hidden");   // เฟืองเข้าถึงได้จากโฮม
-    try { $("#tinyfeed-home .tinyfeed-home-hello").text(`สวัสดี, ${getUserName()}`); } catch (e) { /* ข้าม */ }
+    try { $("#tinyfeed-home .tinyfeed-home-hello").text(`สวัสดี, ${getUserName()}`); } catch (e) { /* ไม่มีชื่อผู้ใช้ = คงข้อความเดิมไว้ */ }
     renderHomeWidgets();
     renderHomeApps();
     saveLastScreen();
 }
 
-function openApp(app) {
-    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "pet", "verse", "theater"].includes(app)) {
+function openApp(id) {
+    const app = APP_BY_ID[id];
+    if (!app) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
-    clearStreamTimer();   // ออกจากแอปอื่น = หยุด timer stream
-    clearHomeClock();     // ออกจากโฮม = หยุดนาฬิกา
-    clearPetLiveTick();   // ออกจาก TinyPet = หยุด live tick (พื้นหลัง petTimer ยังเดินต่อ)
-    closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
-    closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
-    closeCharProfile();     // กันหน้าโปรไฟล์ค้างข้ามแอป
-    closeVerseImport();     // กันตัวเลือก import ค้างข้ามแอป
-    closeVersePosterPicker(); // กันตัวเลือกคนโพสต์ค้างข้ามแอป
-    closeSlipModal();       // กัน modal โอนเงินค้างข้ามแอป
+    clearScreenTimers();
+    closeOpenOverlays();   // กัน overlay ค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
     $("#tinyfeed-back").addClass("tinyfeed-hidden");
 
-    if (app === "feed") {
-        currentApp = "feed";
-        $("#tinyfeed-app-feed").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyFeed");
-        $(".tinyfeed-tabs").removeClass("tinyfeed-hidden");
-        applyFeedComposeMode();
-        switchTab(activeTab);
-    } else if (app === "connect") {
-        currentApp = "connect";
-        $("#tinyfeed-app-connect").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyConnect");
-        openConnectList();
-    } else if (app === "memo") {
-        currentApp = "memo";
-        $("#tinyfeed-app-memo").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyMemo");
-        switchMemoTab(memoTab);
-    } else if (app === "forum") {
-        currentApp = "forum";
-        $("#tinyfeed-app-forum").removeClass("tinyfeed-hidden");
-        openForumList();
-    } else if (app === "gallery") {
-        currentApp = "gallery";
-        $("#tinyfeed-app-gallery").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyGallery");
-        openGallery();
-    } else if (app === "bank") {
-        currentApp = "bank";
-        $("#tinyfeed-app-bank").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyBank");
-        renderBank();
-    } else if (app === "shop") {
-        currentApp = "shop";
-        $("#tinyfeed-app-shop").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyShop");
-        renderShop();
-    } else if (app === "pet") {
-        currentApp = "pet";
-        $("#tinyfeed-app-pet").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyPet");
-        petActionSprite = ""; petBubble = "";
-        renderPet();          // sync decay + วาดหน้าจอตามสถานะ (create/dead/active)
-        startPetLiveTick();   // อัปเดตบาร์สดๆ ระหว่างเปิดแอป
-    } else if (app === "verse") {
-        currentApp = "verse";
-        $("#tinyfeed-app-verse").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyVerse");
-        openVerse();
-    } else if (app === "theater") {
-        currentApp = "theater";
-        $("#tinyfeed-app-theater").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyTheater");
-        openTheater();
-    } else {
-        currentApp = "stream";
-        $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
-        $(".tinyfeed-title").text("TinyStream");
-        renderStream();
-        maybeStartStreamTimer();
-    }
+    currentApp = app.id;
+    $(app.panel).removeClass("tinyfeed-hidden");
+    $(".tinyfeed-title").text(app.name);
+    if (typeof app.open === "function") app.open();
     saveLastScreen();
 }
 
@@ -2135,23 +2187,11 @@ function updateHomeClock() {
 }
 
 // ===== หน้าโฮม: กริดแอปแบบแบ่งหน้า (รองรับแอปในอนาคต) =====
-const HOME_APPS = [
-    { app: "feed", icon: "fa-hashtag", name: "TinyFeed", a: "#1d9bf0", b: "#0a6bd8" },
-    { app: "connect", icon: "fa-comment-dots", name: "TinyConnect", a: "#22c55e", b: "#15a34a" },
-    { app: "stream", icon: "fa-video", name: "TinyStream", a: "#a855f7", b: "#7e22ce" },
-    { app: "memo", icon: "fa-calendar-check", name: "TinyMemo", a: "#f59e0b", b: "#d97706" },
-    { app: "forum", icon: "fa-comments", name: "TinyForum", a: "#ef4444", b: "#b91c1c" },
-    { app: "gallery", icon: "fa-images", name: "TinyGallery", a: "#ec4899", b: "#be185d" },
-    { app: "bank", icon: "fa-wallet", name: "TinyBank", a: "#10b981", b: "#047857" },
-    { app: "shop", icon: "fa-bag-shopping", name: "TinyShop", a: "#f97316", b: "#c2410c" },
-    { app: "pet", icon: "fa-paw", name: "TinyPet", a: "#8b5cf6", b: "#6d28d9" },
-    { app: "verse", icon: "fa-globe", name: "TinyVerse", a: "#6366f1", b: "#4338ca" },
-    { app: "theater", icon: "fa-masks-theater", name: "TinyTheater", a: "#e11d48", b: "#9f1239" },
-];
+// แอปที่โผล่บนหน้าโฮม — มาจากทะเบียน APPS (ดู App Shell ด้านบน) ไม่ใช่ลิสต์แยก
 const HOME_APPS_PER_PAGE = 9;   // 3 คอลัมน์ × 3 แถวต่อหน้า
 
 function appIconHtml(a) {
-    return `<div class="tinyfeed-app-icon" data-app="${a.app}">
+    return `<div class="tinyfeed-app-icon" data-app="${a.id}">
         <div class="tinyfeed-app-tile" style="--app-a:${a.a}; --app-b:${a.b};"><i class="fa-solid ${a.icon}"></i></div>
         <span class="tinyfeed-app-name">${a.name}</span>
     </div>`;
@@ -2160,9 +2200,10 @@ function appIconHtml(a) {
 function renderHomeApps() {
     const pager = $("#tinyfeed-home-pager");
     if (!pager.length) return;
+    const homeApps = APPS.filter((a) => a.home);
     const pages = [];
-    for (let i = 0; i < HOME_APPS.length; i += HOME_APPS_PER_PAGE) {
-        const slice = HOME_APPS.slice(i, i + HOME_APPS_PER_PAGE);
+    for (let i = 0; i < homeApps.length; i += HOME_APPS_PER_PAGE) {
+        const slice = homeApps.slice(i, i + HOME_APPS_PER_PAGE);
         pages.push(`<div class="tinyfeed-home-page">${slice.map(appIconHtml).join("")}</div>`);
     }
     pager.html(pages.join(""));
@@ -2197,18 +2238,13 @@ function tinyTokenCount(text) {
     return Math.ceil(text.length / 4);
 }
 
-// ป้ายกำกับ/ไอคอน/สีของแต่ละแอป (ใช้ร่วมทั้ง dashboard แทรก + dashboard เจน)
-const APP_META = {
-    feed: { label: "TinyFeed", icon: "fa-hashtag", color: "#1d9bf0" },
-    news: { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b" },
-    connect: { label: "TinyConnect", icon: "fa-comment-dots", color: "#22c55e" },
-    stream: { label: "TinyStream", icon: "fa-video", color: "#a855f7" },
-    memo: { label: "TinyMemo", icon: "fa-calendar-check", color: "#14b8a6" },
-    forum: { label: "TinyForum", icon: "fa-comments", color: "#ef4444" },
-    gallery: { label: "คลังสื่อ", icon: "fa-images", color: "#ec4899" },
-    verse: { label: "TinyVerse", icon: "fa-globe", color: "#6366f1" },
-    theater: { label: "TinyTheater", icon: "fa-masks-theater", color: "#e11d48" },
-};
+/* ป้ายกำกับ/ไอคอน/สีของแต่ละแอป (ใช้ร่วมทั้ง dashboard แทรก + dashboard เจน + keyword editor)
+ * สร้างจากทะเบียน APPS ที่เดียว + "news" ที่ไม่ใช่แอปแยก (เป็นแท็บใน TinyFeed)
+ * ผลพลอยได้: bank/shop/pet ที่เดิมตกหล่นจากลิสต์นี้ ตอนนี้มีป้ายของตัวเองแล้ว (เดิมโชว์ "การเจน" ทั่วไป) */
+const APP_META = Object.fromEntries([
+    ...APPS.map((a) => [a.id, { label: a.label || a.name, icon: a.icon, color: a.a }]),
+    ["news", { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b" }],
+]);
 
 // ── สถิติโทเคน "จริง" ณ จุดส่ง (อัปเดตตอน inject/generate เกิดขึ้นจริง) ──
 let lastGenTokens = null;      // { app,label,icon,color,mode,context,prompt,crossApp,gallery,output,ts }
@@ -7218,23 +7254,27 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "verse", "theater"];
+// แอปที่จำหน้าจอได้ = ทะเบียน APPS ที่ตั้ง remember:true (ไม่ใช่ลิสต์แยก)
+function canRememberApp(id) {
+    return !!(APP_BY_ID[id] && APP_BY_ID[id].remember);
+}
+
 function saveLastScreen() {
     try {
         const data = getFeedData();
         data.ui = {
-            app: MEMO_APPS.includes(currentApp) ? currentApp : "home",
+            app: canRememberApp(currentApp) ? currentApp : "home",
             thread: activeThread || null,
             forumThread: activeForumThread || null,
         };
         saveFeedData();
-    } catch (e) { /* ข้าม */ }
+    } catch (e) { /* ไม่มีแชทเปิดอยู่ = ข้ามการจำหน้าจอ */ }
 }
 
 function restoreLastScreen() {
     let ui = null;
-    try { ui = getFeedData().ui; } catch (e) { /* ข้าม */ }
-    if (!ui || !MEMO_APPS.includes(ui.app)) { goHome(); return; }
+    try { ui = getFeedData().ui; } catch (e) { /* ไม่มีแชทเปิดอยู่ = ไปหน้าโฮม */ }
+    if (!ui || !canRememberApp(ui.app)) { goHome(); return; }
     if (ui.app === "connect") {
         openApp("connect");
         if (ui.thread) {
@@ -7293,60 +7333,118 @@ function closeDetail() {
     switchTab(activeTab);
 }
 
-// ===== จัดกลุ่มหน้า settings: ตั้งค่าเครื่อง vs ตั้งค่าแอป =====
+/* ===== หน้าตั้งค่า 2 ระดับ: รายการหัวข้อ → เนื้อหาของหัวข้อนั้น =====
+ * อ้างกลุ่มด้วย id (`data-group` ใน phone.html) ไม่ใช่ข้อความหัวข้อภาษาไทยแบบเดิม
+ * — เดิมแก้คำในหัวข้อแล้วกลุ่มหลุดไปท้ายหน้าเงียบๆ ตอนนี้ id ไม่ตรงจะฟ้องใน console ทันที */
 const SETTINGS_LAYOUT = [
     {
-        head: "⚙️ ทั่วไป (General)",
-        titles: ["การแจ้งเตือน", "ทักเชิงรุก (ตัวละครทักเอง)"],
+        head: "ทั่วไป", icon: "fa-gear",
+        groups: [
+            { id: "notif", name: "การแจ้งเตือน", icon: "fa-bell", desc: "แบนเนอร์ · กระดิ่ง · แจ้งเตือนระบบ" },
+            { id: "proactive", name: "ทักเชิงรุก", icon: "fa-hand", desc: "ให้ตัวละครทักเราเองเป็นระยะ" },
+        ],
     },
     {
-        head: "🎨 ธีม & CSS",
-        titles: ["ปรับแต่งหน้าตา", "วอลเปเปอร์"],
+        head: "ธีม & หน้าตา", icon: "fa-palette",
+        groups: [
+            { id: "appearance", name: "ปรับแต่งหน้าตา", icon: "fa-brush", desc: "สีเน้น · ความทึบ · วิดเจ็ต · CSS เอง" },
+            { id: "wallpaper", name: "วอลเปเปอร์", icon: "fa-image", desc: "รูปพื้นหลัง + ความมืดที่ทับ" },
+        ],
     },
     {
-        head: "👤 ตัวละคร (Profile & NPC)",
-        titles: ["รูปโปรไฟล์", "NPC ประจำ (ตัวละครนี้)"],
+        head: "ตัวละคร", icon: "fa-user",
+        groups: [
+            { id: "profile", name: "รูปโปรไฟล์", icon: "fa-id-badge", desc: "รูป · ชื่อ · นามแฝง ของเราและตัวละคร" },
+            { id: "npc", name: "NPC ประจำ", icon: "fa-users", desc: "ตัวประกอบของการ์ดใบนี้" },
+        ],
     },
     {
-        head: "💰 การเงิน",
-        titles: ["TinyBank (ธนาคาร)"],
+        head: "การเงิน", icon: "fa-coins",
+        groups: [
+            { id: "bank", name: "TinyBank", icon: "fa-wallet", desc: "สกุลเงิน · โดเนท · ระดับ SuperChat" },
+        ],
     },
     {
-        head: "📱 ตั้งค่าเฉพาะแอป",
-        titles: ["โพสต์จากตัวละคร (AI)", "สร้างโพสต์อัตโนมัติ", "คอมเมนต์", "ข่าวสาร",
-            "TinyConnect (แชต)", "TinyStream (ไลฟ์สตรีม)", "TinyMemo (กำหนดการ + โน้ต)",
-            "TinyForum (เว็บบอร์ด)", "ทริกเกอร์ด้วยคีย์เวิร์ด", "TinyGallery (คลังรูป + สติกเกอร์)", "TinyShop (ร้านค้า)", "TinyPet (สัตว์เลี้ยง)"],
+        head: "ตั้งค่าเฉพาะแอป", icon: "fa-mobile-screen",
+        groups: [
+            { id: "feedPost", name: "โพสต์จากตัวละคร (AI)", icon: "fa-feather-pointed", desc: "ให้ AI เขียนโพสต์ในฟีด" },
+            { id: "feedAuto", name: "สร้างโพสต์อัตโนมัติ", icon: "fa-robot", desc: "โพสต์เองทุกกี่ข้อความ" },
+            { id: "comments", name: "คอมเมนต์", icon: "fa-comment", desc: "NPC มาคอมเมนต์ · ตอบกลับ" },
+            { id: "news", name: "ข่าวสาร", icon: "fa-newspaper", desc: "ข่าวในโลกของเรื่อง" },
+            { id: "connect", name: "TinyConnect", icon: "fa-comment-dots", desc: "แชต · สลิปโอนเงิน · ทักเอง" },
+            { id: "stream", name: "TinyStream", icon: "fa-video", desc: "ไลฟ์ · คอมเมนต์สด · พื้นหลังเวที" },
+            { id: "memo", name: "TinyMemo", icon: "fa-calendar-check", desc: "กำหนดการ + โน้ต" },
+            { id: "forum", name: "TinyForum", icon: "fa-comments", desc: "กระทู้ · ห้อง · คอมเมนต์" },
+            { id: "keywords", name: "ทริกเกอร์ด้วยคีย์เวิร์ด", icon: "fa-key", desc: "คำที่กระตุ้นให้แต่ละแอปทำงาน" },
+            { id: "gallery", name: "TinyGallery", icon: "fa-images", desc: "อัลบั้มที่ AI มองเห็น" },
+            { id: "shop", name: "TinyShop", icon: "fa-bag-shopping", desc: "หมวดสินค้า · prompt เสริม" },
+            { id: "pet", name: "TinyPet", icon: "fa-paw", desc: "ค่าลด · สไปรต์ · เหรียญ · เกม" },
+        ],
     },
     {
-        head: "🔧 ตั้งค่าขั้นสูง",
-        titles: ["โมเดล / API", "แทรกฟีดเข้าประวัติแชท", "Prompt (ขั้นสูง)"],
+        head: "ขั้นสูง", icon: "fa-screwdriver-wrench",
+        groups: [
+            { id: "api", name: "โมเดล / API", icon: "fa-plug", desc: "ใช้โมเดลแยกจากแชทหลัก" },
+            { id: "inject", name: "แทรกฟีดเข้าประวัติแชท", icon: "fa-syringe", desc: "ส่งอะไรเข้า RP บ้าง · ลึกแค่ไหน" },
+            { id: "prompts", name: "Prompt (ขั้นสูง)", icon: "fa-pen-nib", desc: "แก้ prompt ที่ใช้สั่ง AI" },
+        ],
     },
 ];
 
-// เรียงกลุ่ม settings ใหม่ + ใส่หัวข้อใหญ่คั่น (ทำครั้งเดียว)
-function organizeSettings() {
-    const screen = $("#tinyfeed-settings-screen");
-    if (!screen.length || screen.attr("data-organized")) return;
-    const groups = {};
-    screen.find(".tinyfeed-settings-group").each(function () {
-        const t = $(this).find(".tinyfeed-settings-title").first().text().trim();
-        if (t) groups[t] = this;
-    });
-    const frag = document.createDocumentFragment();
-    for (const sec of SETTINGS_LAYOUT) {
-        const picked = sec.titles.map((t) => groups[t]).filter(Boolean);
-        if (!picked.length) continue;
-        const h = document.createElement("div");
-        h.className = "tinyfeed-settings-cat";
-        h.textContent = sec.head;
-        frag.appendChild(h);
-        picked.forEach((el) => frag.appendChild(el));
-        sec.titles.forEach((t) => delete groups[t]);
-    }
-    // กลุ่มที่ไม่ได้ระบุใน layout ต่อท้ายไว้ (กันตกหล่น)
-    Object.values(groups).forEach((el) => frag.appendChild(el));
-    screen.empty().append(frag);
-    screen.attr("data-organized", "1");
+const SETTINGS_GROUP_BY_ID = Object.fromEntries(
+    SETTINGS_LAYOUT.flatMap((sec) => sec.groups.map((g) => [g.id, Object.assign({ head: sec.head }, g)])),
+);
+
+let settingsGroupOpen = "";   // id ของหัวข้อที่กางอยู่ ("" = อยู่หน้ารายการ)
+
+// ระดับ 1: รายการหัวข้อ (สร้างครั้งเดียว)
+function renderSettingsList() {
+    const box = $("#tinyfeed-settings-list");
+    if (!box.length || box.attr("data-built")) return;
+    const html = SETTINGS_LAYOUT.map((sec) => `
+        <div class="tinyfeed-settings-cat"><i class="fa-solid ${sec.icon}"></i> ${escapeText(sec.head)}</div>
+        ${sec.groups.map((g) => `
+            <div class="tinyfeed-settings-row" data-group="${escapeAttr(g.id)}">
+                <div class="tinyfeed-settings-row-icon"><i class="fa-solid ${g.icon}"></i></div>
+                <div class="tinyfeed-settings-row-text">
+                    <div class="tinyfeed-settings-row-name">${escapeText(g.name)}</div>
+                    <div class="tinyfeed-settings-row-desc">${escapeText(g.desc)}</div>
+                </div>
+                <i class="fa-solid fa-chevron-right tinyfeed-settings-row-arrow"></i>
+            </div>`).join("")}
+    `).join("");
+    box.html(html).attr("data-built", "1");
+
+    // กันกลุ่มใน HTML ที่ไม่มีใน layout (หรือกลับกัน) หลุดไปเงียบๆ
+    const inHtml = $("#tinyfeed-settings-detail .tinyfeed-settings-group").map(function () {
+        return $(this).data("group");
+    }).get();
+    const inLayout = Object.keys(SETTINGS_GROUP_BY_ID);
+    const orphanHtml = inHtml.filter((id) => !inLayout.includes(id));
+    const orphanLayout = inLayout.filter((id) => !inHtml.includes(id));
+    if (orphanHtml.length) console.error("[tinyfeed] กลุ่มตั้งค่าใน phone.html ที่ไม่มีใน SETTINGS_LAYOUT:", orphanHtml);
+    if (orphanLayout.length) console.error("[tinyfeed] กลุ่มใน SETTINGS_LAYOUT ที่หา data-group ใน phone.html ไม่เจอ:", orphanLayout);
+}
+
+// ระดับ 2: กางหัวข้อเดียว
+function openSettingsGroup(id) {
+    const g = SETTINGS_GROUP_BY_ID[id];
+    const el = $(`#tinyfeed-settings-detail .tinyfeed-settings-group[data-group="${id}"]`);
+    if (!g || !el.length) return;
+    settingsGroupOpen = id;
+    $("#tinyfeed-settings-detail .tinyfeed-settings-group").addClass("tinyfeed-hidden");
+    el.removeClass("tinyfeed-hidden");
+    $("#tinyfeed-settings-list").addClass("tinyfeed-hidden");
+    $("#tinyfeed-settings-detail").removeClass("tinyfeed-hidden").scrollTop(0);
+    $(".tinyfeed-title").text(g.name);
+}
+
+// กลับจากหัวข้อ → รายการหัวข้อ
+function closeSettingsGroup() {
+    settingsGroupOpen = "";
+    $("#tinyfeed-settings-detail").addClass("tinyfeed-hidden");
+    $("#tinyfeed-settings-list").removeClass("tinyfeed-hidden").scrollTop(0);
+    $(".tinyfeed-title").text("ตั้งค่า");
 }
 
 // ===== Stage 5: หน้า settings ในโทรศัพท์ =====
@@ -7515,49 +7613,41 @@ let settingsReturn = "feed";   // แอปที่จะกลับไปห�
 
 function openSettings() {
     populateSettings();
+    renderSettingsList();
     settingsReturn = currentApp === "settings" ? settingsReturn : currentApp;   // จำแอปเดิม
-    // settings-screen อยู่ใน app-feed → ต้องโชว์ app-feed เป็น host แต่ซ่อนเนื้อฟีด
+    // settings-screen เป็นพี่น้องของแอปแล้ว (เฟส 3) — ไม่ต้องยืม app-feed เป็น host อีก
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
-    $("#tinyfeed-app-feed").removeClass("tinyfeed-hidden");
-    $(".tinyfeed-panel").addClass("tinyfeed-hidden");
     $("#tinyfeed-settings-screen").removeClass("tinyfeed-hidden");
-    $(".tinyfeed-tabs").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
     $("#tinyfeed-back").removeClass("tinyfeed-hidden");
-    $(".tinyfeed-title").text("ตั้งค่า");
+    closeSettingsGroup();   // เข้ามาที่หน้ารายการหัวข้อเสมอ (ตั้ง title = "ตั้งค่า" ให้ด้วย)
     currentApp = "settings";
 }
 
 function closeSettings() {
     $("#tinyfeed-back").addClass("tinyfeed-hidden");
+    $("#tinyfeed-settings-screen").addClass("tinyfeed-hidden");
     if (settingsReturn === "home" || !settingsReturn) goHome();
-    else openApp(settingsReturn);   // feed / connect / stream
+    else openApp(settingsReturn);
 }
 
-// ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
+/* ปุ่มย้อนกลับใช้ร่วมกัน — ไล่ตามลำดับใน CONVENTIONS.md บทที่ 3 (back stack)
+ * 1) overlay/modal ที่เปิดอยู่  2) หัวข้อตั้งค่าที่กางอยู่  3) หน้าย่อยในแอป (APPS[].back)
+ * 4) หน้าตั้งค่า  5) detail */
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-char-profile", "#tinyfeed-verse-import-modal", "#tinyfeed-verse-poster-modal", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
-        .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
-    if (overlayOpen) {
-        closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
-        closeCharPicker();
-        closeSlipModal();
-        closeDonateModal();
-        closeShopEditModal();
-        closePetShop();
-        closePetItemModal();
-        closePetTopup();
-        closePetGame();
-    } else if (currentApp === "connect" && isConnectThreadOpen()) {
-        openConnectList();   // จากห้องแชต → กลับรายชื่อ
-    } else if (currentApp === "forum" && isForumThreadOpen() && !isSettingsOpen()) {
-        openForumList();     // จากหน้ากระทู้ → กลับรายการกระทู้
-    } else if (isSettingsOpen()) {
-        closeSettings();
-    } else {
-        closeDetail();
+    if (anyOverlayOpen()) {
+        closeOpenOverlays();   // ปิดเฉพาะตัวที่เปิดอยู่จริง
+        return;
     }
+    if (isSettingsOpen()) {
+        if (settingsGroupOpen) closeSettingsGroup();   // จากหัวข้อ → รายการหัวข้อ
+        else closeSettings();                          // จากรายการ → กลับแอปเดิม
+        return;
+    }
+    const app = APP_BY_ID[currentApp];
+    if (app && typeof app.back === "function" && app.back()) return;   // แอปจัดการเองแล้ว
+    closeDetail();
 }
 
 jQuery(async () => {
@@ -7574,7 +7664,7 @@ jQuery(async () => {
         // โหลด panel โทรศัพท์ แปะไว้ที่ body
         const phoneHtml = await $.get(`${extensionFolderPath}/phone.html`);
         $("body").append(phoneHtml);
-        organizeSettings();   // จัดกลุ่มหน้า settings ให้เป็นสัดส่วน
+        renderSettingsList();   // สร้างรายการหัวข้อตั้งค่า (ระดับ 1) + เช็คว่า layout กับ HTML ตรงกัน
 
         // โหลด drawer ตั้งค่าไปที่แผง extensions ด้านขวา
         const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
@@ -8412,6 +8502,10 @@ jQuery(async () => {
 
         // Stage 5: หน้า settings ในโทรศัพท์
         $(document).on("click", "#tinyfeed-settings-btn", openSettings);
+        // เลือกหัวข้อตั้งค่า (ระดับ 1 → ระดับ 2)
+        $(document).on("click", ".tinyfeed-settings-row", function () {
+            openSettingsGroup($(this).data("group"));
+        });
         // วอลเปเปอร์หน้าโฮม
         $(document).on("input", "#tinyfeed-cfg-wallpaper", function () {
             setSetting("wallpaperUrl", $(this).val().trim());
