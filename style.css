@@ -4372,3 +4372,19 @@
 .tinyfeed-th-nextbtn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
 .tinyfeed-th-hint { font-size: 0.72em; color: var(--tf-text-muted); line-height: 1.5; margin-top: 8px; }
 .tinyfeed-th-castname small { font-size: 0.85em; opacity: 0.75; }
+/* ปุ่มช่วยคิดโจทย์ What if + ชิปไอเดียจาก AI */
+.tinyfeed-th-whatiftools { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.tinyfeed-th-toolbtn { font-size: 0.78em; padding: 5px 12px; border-radius: 999px; cursor: pointer; }
+.tinyfeed-th-toolbtn:hover { border-color: var(--tf-accent); color: var(--tf-accent); }
+.tinyfeed-th-toolbtn.tinyfeed-generating { opacity: 0.55; pointer-events: none; }
+.tinyfeed-th-ideas { margin-top: 10px; }
+.tinyfeed-th-ideahead { font-size: 0.72em; color: var(--tf-text-muted); margin-bottom: 6px; }
+.tinyfeed-th-idea {
+    font-size: 0.8em; line-height: 1.5; color: var(--tf-text);
+    padding: 8px 11px; margin-bottom: 6px; border-radius: 10px; cursor: pointer;
+    background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar));
+    border: 1px solid var(--tf-border); word-break: break-word;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-th-idea:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 18%, var(--tf-topbar)); }
+.tinyfeed-th-idea:active { transform: scale(0.99); }

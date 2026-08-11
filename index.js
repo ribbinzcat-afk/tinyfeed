@@ -2846,6 +2846,32 @@ function addVerseComment(postId, text) {
 // ===== TinyTheater (แอปที่ 11): มินิเธียเตอร์ What if — หน้าตาแบบแอปสตรีมมิ่ง =====
 // data: extension_settings[ext].theater = { shows: [ { id,title,whatIf,genre,cover,castKeys,castNames,oneShot,episodes:[{no,title,blocks:[{type,author,avatar,text}],ts}],ts,updatedTs } ] }
 const THEATER_GENRES = ["โรแมนซ์", "ตลก", "ดราม่า", "สยองขวัญ", "แอ็กชัน", "ลึกลับ", "อบอุ่นหัวใจ", "แฟนตาซี"];
+// โจทย์สำเร็จรูปสำหรับปุ่มสุ่ม — {A}/{B} จะถูกแทนด้วยชื่อนักแสดงที่เลือกไว้
+const THEATER_WHATIF_PRESETS = [
+    "ถ้า {A} กับ {B} ตื่นมาแล้วสลับร่างกัน",
+    "ถ้า {A} กับ {B} ติดอยู่ในลิฟต์ด้วยกันทั้งคืน",
+    "ถ้า {A} ย้อนเวลากลับไปเจอ {B} ตอนเด็ก",
+    "ถ้า {A} กับ {B} ต้องมาเปิดร้านกาแฟด้วยกัน",
+    "ถ้าทุกคนจำ {A} ไม่ได้เลย ยกเว้น {B}",
+    "ถ้า {A} กับ {B} ติดอยู่ในวันเดิมซ้ำๆ ไม่รู้จบ",
+    "ถ้า {A} อ่านใจ {B} ได้เป็นเวลา 1 วัน",
+    "ถ้า {A} กับ {B} สลับโลกกันอยู่ — ต่างคนต่างหลุดเข้าไปในโลกของอีกฝ่าย",
+    "ถ้า {A} ต้องแกล้งเป็นแฟนกับ {B} เพื่อเอาตัวรอดจากสถานการณ์หนึ่ง",
+    "ถ้า {A} กับ {B} เจอกันในโรงเรียนมัธยมยุคปัจจุบัน",
+    "ถ้าโลกกำลังจะแตกในอีก 24 ชั่วโมง แล้ว {A} เลือกไปหา {B}",
+    "ถ้า {A} กลายเป็นแมวเป็นเวลา 1 สัปดาห์ และมีแต่ {B} ที่ดูแลได้",
+    "ถ้า {A} กับ {B} ต้องร่วมมือกันทั้งที่เกลียดขี้หน้ากัน",
+    "ถ้า {A} ค้นพบความลับที่ {B} ปกปิดมาตลอด",
+    "ถ้า {A} กับ {B} ได้เป็นเพื่อนร่วมห้องกันโดยบังเอิญ",
+];
+// สุ่มโจทย์จาก preset แล้วเติมชื่อนักแสดงที่เลือก (ไม่ได้เลือก = ใช้คำกลางๆ)
+function theaterRandomWhatIf() {
+    const names = theaterCastSel.map(theaterCastName).filter(Boolean);
+    const a = names[0] || "ตัวละคร A";
+    const b = names[1] || (names.length === 1 ? "อีกฝ่าย" : "ตัวละคร B");
+    const p = THEATER_WHATIF_PRESETS[Math.floor(Math.random() * THEATER_WHATIF_PRESETS.length)];
+    return p.split("{A}").join(a).split("{B}").join(b);
+}
 const THEATER_LENGTHS = {
     oneshot: { label: "ตอนเดียวจบ", hint: "เรื่องสั้นจบในตอน เน้นบทสนทนา", tokens: 500 },
     short: { label: "สั้น", hint: "อ่านเร็ว ~1 นาที", tokens: 450 },
@@ -2954,6 +2980,51 @@ let theaterEpIdx = 0;
 let theaterCastSel = [];
 let theaterCover = "";
 let theaterBusy = false;
+let theaterWhatIfIdeas = [];   // ไอเดียโจทย์ที่ AI เสนอ (โชว์เป็นชิปให้กดเลือก)
+// ให้ AI คิดโจทย์ What if ให้ 3 แบบ (อิงนักแสดงที่เลือก)
+async function theaterSuggestWhatIf() {
+    if (theaterBusy) return;
+    const v = getVerse();
+    const keys = theaterCastSel.filter((k) => k === POSTER_USER || v.chars[k]);
+    if (!keys.length) { toastr.info("เลือกนักแสดงก่อน แล้ว AI จะคิดโจทย์ให้เข้ากับตัวละคร", "TinyTheater"); return; }
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyTheater"); return; }
+    const genre = String($("#tinyfeed-th-genre").val() || "").trim();
+    theaterBusy = true;
+    $("#tinyfeed-th-ai").addClass("tinyfeed-generating");
+    try {
+        const q = buildPrompt("theaterWhatIf", {
+            chars: keys.map(theaterCastName).filter(Boolean).join(", "),
+            roster: theaterRosterBlock(keys, 300),
+            genre: genre || "(อิสระ)",
+        });
+        const raw = await tinyGenerate(q, 220, "theater");
+        const ideas = [];
+        const re = /WHATIF:\s*(.+)/gi;
+        let m;
+        while ((m = re.exec(stripReasoning(raw))) !== null) {
+            const t = stripWrapBrackets(m[1].trim());
+            if (t) ideas.push(t);
+        }
+        if (!ideas.length) { toastr.info("ยังคิดโจทย์ไม่ออก ลองใหม่นะ", "TinyTheater"); return; }
+        theaterWhatIfIdeas = ideas.slice(0, 5);
+        renderTheaterWhatIfIdeas();
+    } catch (e) {
+        console.error(`[${extensionName}] theaterSuggestWhatIf failed:`, e);
+        toastr.error("คิดโจทย์ไม่สำเร็จ", "TinyTheater");
+    } finally {
+        theaterBusy = false;
+        $("#tinyfeed-th-ai").removeClass("tinyfeed-generating");
+    }
+}
+// วาดชิปไอเดีย (แยกจาก renderTheaterCreate เพื่ออัปเดตได้โดยไม่ล้างช่องที่กรอกไว้)
+function renderTheaterWhatIfIdeas() {
+    const box = $("#tinyfeed-th-ideas");
+    if (!box.length) return;
+    if (!theaterWhatIfIdeas.length) { box.empty(); return; }
+    box.html(`<div class="tinyfeed-th-ideahead">แตะเพื่อใช้โจทย์นี้</div>` +
+        theaterWhatIfIdeas.map((t, i) => `<div class="tinyfeed-th-idea" data-idea="${i}">${escapeText(t)}</div>`).join(""));
+}
 function openTheater() { theaterScreen = "browse"; theaterShowId = null; renderTheater(); }
 function renderTheater() {
     const body = $("#tinyfeed-theater-body");
@@ -3024,6 +3095,11 @@ function renderTheaterCreate() {
         <div class="tinyfeed-th-formsec">
             <div class="tinyfeed-th-label">What if… <small>(หัวใจของเรื่อง)</small></div>
             <textarea id="tinyfeed-th-whatif" class="tinyfeed-th-whatif" rows="3" placeholder="เช่น ถ้าทั้งคู่ตื่นมาแล้วสลับร่างกัน…"></textarea>
+            <div class="tinyfeed-th-whatiftools">
+                <button id="tinyfeed-th-dice" class="tinyfeed-btn-ghost tinyfeed-th-toolbtn" title="สุ่มโจทย์สำเร็จรูป">🎲 สุ่มโจทย์</button>
+                <button id="tinyfeed-th-ai" class="tinyfeed-btn-ghost tinyfeed-th-toolbtn" title="ให้ AI คิดโจทย์จากตัวละครที่เลือก"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ AI คิดให้</button>
+            </div>
+            <div id="tinyfeed-th-ideas" class="tinyfeed-th-ideas"></div>
         </div>
         <div class="tinyfeed-th-formsec">
             <div class="tinyfeed-th-label">แนวเรื่อง <small>(เลือกหรือพิมพ์เองก็ได้)</small></div>
@@ -3047,6 +3123,7 @@ function renderTheaterCreate() {
         </button>
     `);
     $("#tinyfeed-th-length").val("medium");
+    renderTheaterWhatIfIdeas();   // คงไอเดียที่ AI เสนอไว้ข้ามการ re-render (เช่น ตอนสลับนักแสดง)
 }
 function renderTheaterRead() {
     const show = theaterShow(theaterShowId);
@@ -3122,7 +3199,7 @@ async function theaterCreateShow() {
         };
         getTheater().shows.unshift(show);
         saveTheater();
-        theaterCastSel = []; theaterCover = "";
+        theaterCastSel = []; theaterCover = ""; theaterWhatIfIdeas = [];
         theaterShowId = show.id; theaterEpIdx = 0; theaterScreen = "read";
         renderTheater();
     } catch (e) {
@@ -5349,6 +5426,14 @@ const PROMPT_DEFS = {
             `ตัวละครอื่นที่เห็นโพสต์นี้ (ใช้ข้อมูลกำหนดนิสัย/น้ำเสียงของแต่ละคน):\n{{roster}}\n` +
             `แต่งคอมเมนต์ 2-4 อันจากตัวละครในรายชื่อข้างบน (คนละคนกัน ห้ามใช้ {{author}}) ให้สมคาแรกเตอร์แต่ละคน สั้นๆ 1-2 ประโยค เป็นธรรมชาติเหมือนคอมเมนต์โซเชียลจริง ตัวละครต่างโลกกันทักกันได้อย่างสนุก. ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
             `ตอบบรรทัดละ 1 คอมเมนต์ในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อตัวละคร> | <ข้อความ>`,
+    },
+    theaterWhatIf: {
+        label: "คิดโจทย์ What if (TinyTheater)", marker: "WHATIF:", tokens: ["chars", "roster", "genre"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ช่วยคิดโจทย์ "What if" สำหรับมินิเธียเตอร์ (เรื่องสั้นแนวสมมติ) ที่มีนักแสดง: {{chars}}. ข้อมูลตัวละคร:\n{{roster}}\n` +
+            `แนวเรื่องที่อยากได้: {{genre}}\n` +
+            `เสนอโจทย์ 3 แบบที่ต่างกันชัดเจน แต่ละอันสั้นๆ 1 ประโยค ขึ้นต้นด้วย "ถ้า..." ให้เข้ากับนิสัย/ภูมิหลังของตัวละครเหล่านี้โดยเฉพาะ (ไม่ใช่โจทย์กลางๆ ที่ใครก็ใช้ได้) น่าสนใจและชวนให้อยากอ่านต่อ. ใช้ภาษาเดียวกับข้อมูลตัวละคร.\n` +
+            `ตอบบรรทัดละ 1 โจทย์ในรูปแบบนี้เท่านั้น:\nWHATIF: <โจทย์>`,
     },
     theaterEpisode: {
         label: "ตอนแรก (TinyTheater)", marker: "NARRATION:", tokens: ["chars", "roster", "whatIf", "genre", "length", "userRule"],
@@ -7944,7 +8029,7 @@ jQuery(async () => {
         });
         // ===== TinyTheater: มินิเธียเตอร์ What if =====
         $(document).on("click", "#tinyfeed-th-new", function () {
-            theaterCastSel = []; theaterCover = ""; theaterScreen = "create"; renderTheater();
+            theaterCastSel = []; theaterCover = ""; theaterWhatIfIdeas = []; theaterScreen = "create"; renderTheater();
         });
         $(document).on("click", "#tinyfeed-th-back", function () {
             if (theaterScreen === "read") { theaterScreen = "browse"; theaterShowId = null; }
@@ -7965,6 +8050,16 @@ jQuery(async () => {
             $("#tinyfeed-th-whatif").val(w); $("#tinyfeed-th-genre").val(g); $("#tinyfeed-th-length").val(l);
         });
         $(document).on("click", ".tinyfeed-th-genre", function () { $("#tinyfeed-th-genre").val(String($(this).data("genre"))); });
+        // โจทย์ What if: สุ่มจาก preset / ให้ AI คิดให้ / กดชิปเพื่อใช้
+        $(document).on("click", "#tinyfeed-th-dice", function () {
+            $("#tinyfeed-th-whatif").val(theaterRandomWhatIf()).focus();
+        });
+        $(document).on("click", "#tinyfeed-th-ai", theaterSuggestWhatIf);
+        $(document).on("click", ".tinyfeed-th-idea", function () {
+            const i = parseInt($(this).data("idea"), 10);
+            const t = theaterWhatIfIdeas[i];
+            if (t) $("#tinyfeed-th-whatif").val(t).focus();
+        });
         $(document).on("click", "#tinyfeed-th-cover", function () {
             openGalleryPicker("image", (token) => {
                 const m = String(token).match(/\[img:([^\]]+)\]/i);
