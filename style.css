@@ -261,7 +261,8 @@
 }
 
 /* ช่องพิมพ์: ยุบ = แคปซูลแถวเดียว */
-#tinyfeed-compose-input {
+#tinyfeed-compose-input,
+#tinyfeed-verse-input {
     flex: 1;
     box-sizing: border-box;
     height: 38px;
@@ -278,11 +279,13 @@
     transition: border-color 0.2s ease, border-radius 0.2s ease, background 0.2s ease;
 }
 
-#tinyfeed-compose-input::placeholder {
+#tinyfeed-compose-input::placeholder,
+#tinyfeed-verse-input::placeholder {
     color: var(--tf-text-muted);
 }
 
-#tinyfeed-compose-input:focus {
+#tinyfeed-compose-input:focus,
+#tinyfeed-verse-input:focus {
     border-color: var(--tf-accent);
 }
 
@@ -3227,7 +3230,8 @@
 }
 
 /* คทาบนปุ่มโพสต์ + หมุนตอนเจน */
-#tinyfeed-compose-post { display: inline-flex; align-items: center; gap: 7px; }
+#tinyfeed-compose-post,
+#tinyfeed-verse-post { display: inline-flex; align-items: center; gap: 7px; }
 .tinyfeed-post-wand.tinyfeed-spin { animation: tinyfeed-spin 0.9s linear infinite; }
 
 /* ตัวเลือกตัวละคร (char picker) */
@@ -4135,8 +4139,24 @@
 .tinyfeed-whack-wrong { animation: tinyfeed-spot-shake 0.24s ease; }
 .tinyfeed-whack-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
 
-/* ===== TinyVerse: roster + หน้าโปรไฟล์ ===== */
-.tinyfeed-verse-body { height: 100%; overflow-y: auto; padding: 10px; }
+/* ===== TinyVerse: roster + ฟีดโกลบอล + หน้าโปรไฟล์ ===== */
+.tinyfeed-verse-body { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.tinyfeed-verse-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--tf-border); }
+.tinyfeed-verse-tab { flex: 1; text-align: center; padding: 10px; font-size: 0.85em; color: var(--tf-text-muted); cursor: pointer; border-bottom: 2px solid transparent; }
+.tinyfeed-verse-tab-active { color: var(--tf-accent); border-bottom-color: var(--tf-accent); font-weight: 600; }
+.tinyfeed-verse-tabbody { flex: 1; overflow-y: auto; padding: 10px; min-height: 0; }
+/* คอมโพสฟีด — ใช้คลาสเดียวกับ TinyFeed (.tinyfeed-compose*) จึงได้หน้าตาเหมือนกัน */
+.tinyfeed-verse-compose { margin-bottom: 12px; }
+.tinyfeed-verse-feed-empty { text-align: center; color: var(--tf-text-muted); font-size: 0.82em; padding: 30px 16px; line-height: 1.6; }
+.tinyfeed-verse-del { margin-left: auto; color: var(--tf-text-muted); cursor: pointer; padding: 2px 4px; }
+.tinyfeed-verse-del:hover { color: #ef4444; }
+.tinyfeed-verse-like { cursor: pointer; color: var(--tf-text-muted); }
+.tinyfeed-verse-like.tinyfeed-liked { color: #ef4444; }
+/* ตัวเลือกคนโพสต์ (mirror .tinyfeed-char-pick) */
+.tinyfeed-verse-poster-pick { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; border-radius: 8px; }
+.tinyfeed-verse-poster-pick:hover { background: color-mix(in srgb, var(--tf-accent) 10%, transparent); }
+.tinyfeed-verse-poster-pick .tinyfeed-avatar { width: 40px; height: 40px; flex-shrink: 0; }
+.tinyfeed-verse-poster-pick .tinyfeed-char-pick-name { font-size: 0.9em; color: var(--tf-text-strong); }
 .tinyfeed-verse-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .tinyfeed-verse-count { font-size: 0.85em; color: var(--tf-text-muted); }
 .tinyfeed-verse-count::before { content: "🌐 "; }

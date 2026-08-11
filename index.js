@@ -186,6 +186,7 @@ const defaultSettings = {
     ],
     // TinyVerse
     verseBioLimit: 1000,          // จำกัดจำนวนตัวอักษร bio ที่ดึงจากการ์ด (0 = ไม่จำกัด)
+    verseTokens: 120,             // ความยาวโพสต์ฟีดโกลบอล (โทเคน)
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -288,6 +289,7 @@ function openApp(app) {
     closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
     closeCharProfile();     // กันหน้าโปรไฟล์ค้างข้ามแอป
     closeVerseImport();     // กันตัวเลือก import ค้างข้ามแอป
+    closeVersePosterPicker(); // กันตัวเลือกคนโพสต์ค้างข้ามแอป
     closeSlipModal();       // กัน modal โอนเงินค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
@@ -2197,6 +2199,7 @@ const APP_META = {
     memo: { label: "TinyMemo", icon: "fa-calendar-check", color: "#14b8a6" },
     forum: { label: "TinyForum", icon: "fa-comments", color: "#ef4444" },
     gallery: { label: "คลังสื่อ", icon: "fa-images", color: "#ec4899" },
+    verse: { label: "TinyVerse", icon: "fa-globe", color: "#6366f1" },
 };
 
 // ── สถิติโทเคน "จริง" ณ จุดส่ง (อัปเดตตอน inject/generate เกิดขึ้นจริง) ──
@@ -2559,10 +2562,23 @@ function charCardForAuthor(author) {
     return { name, avatar: "", bio: "" };
 }
 
-// ── หน้า roster (TinyVerse app) ──
+// ── TinyVerse app: แท็บ ฟีดโกลบอล / ตัวละคร ──
+let verseTab = "feed";
 function openVerse() { renderVerse(); }
 function renderVerse() {
     const body = $("#tinyfeed-verse-body");
+    if (!body.length) return;
+    body.html(`
+        <div class="tinyfeed-verse-tabs">
+            <div class="tinyfeed-verse-tab${verseTab === "feed" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="feed"><i class="fa-solid fa-hashtag"></i> ฟีด</div>
+            <div class="tinyfeed-verse-tab${verseTab === "roster" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="roster"><i class="fa-solid fa-users"></i> ตัวละคร</div>
+        </div>
+        <div id="tinyfeed-verse-tabbody" class="tinyfeed-verse-tabbody"></div>
+    `);
+    if (verseTab === "feed") renderVerseFeed(); else renderVerseRoster();
+}
+function renderVerseRoster() {
+    const body = $("#tinyfeed-verse-tabbody");
     if (!body.length) return;
     const v = getVerse();
     const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
@@ -2584,9 +2600,166 @@ function renderVerse() {
         </div>
         ${keys.length
             ? `<div class="tinyfeed-verse-grid">${cards}</div>`
-            : `<div class="tinyfeed-verse-empty"><i class="fa-solid fa-user-astronaut"></i><p>ยังไม่มีตัวละคร<br>กด <b>Import จาก ST</b> เพื่อดึงการ์ด + NPC เข้ามารวมกัน</p></div>`}
+            : `<div class="tinyfeed-verse-empty"><i class="fa-solid fa-user-astronaut"></i><p>ยังไม่มีตัวละคร<br>กด <b>Import</b> เพื่อดึงการ์ด + NPC เข้ามารวมกัน</p></div>`}
     `);
 }
+
+// ── ฟีดโกลบอล: โพสต์จากตัวละครทุกการ์ด (AI แต่งในคาแรกเตอร์) + ผู้ใช้โพสต์เอง (แบบ TinyFeed) ──
+let verseBusy = false;
+const VERSE_POSTER_RANDOM = "__random__";
+let versePoster = POSTER_USER;   // ค่าเริ่มต้น = โพสต์เป็นตัวเราเอง (พิมพ์เอง + แนบรูป/สติกเกอร์)
+function verseTokens() { const n = parseInt(getSetting("verseTokens"), 10); return (Number.isFinite(n) && n > 0) ? n : 120; }
+// avatar ของคนโพสต์ที่เลือก (เรา / สุ่ม / ตัวละครใน roster)
+function versePosterAvatarNode() {
+    if (versePoster === VERSE_POSTER_RANDOM) return `<div class="tinyfeed-avatar tinyfeed-avatar-auto" title="สุ่มตัวละคร"><i class="fa-solid fa-shuffle"></i></div>`;
+    if (versePoster === POSTER_USER) return makeAvatar({ isUser: true, author: getUserName() });
+    const c = getVerse().chars[versePoster];
+    return c ? makeAvatar({ avatar: c.avatar || "", author: c.name }) : makeAvatar({ isUser: true, author: getUserName() });
+}
+// ปรับสภาพช่องเขียน: เราเอง = พิมพ์+แนบรูป/สติกเกอร์ · ตัวละคร/สุ่ม = โหมด AI (guidance + คทา)
+function applyVerseComposeMode() {
+    const aiMode = versePoster !== POSTER_USER;
+    $("#tinyfeed-verse-compose-avatar").html(versePosterAvatarNode());
+    $("#tinyfeed-verse-input")
+        .prop("disabled", aiMode)
+        .toggleClass("tinyfeed-input-disabled", aiMode)
+        .attr("placeholder", aiMode ? "ให้ตัวละครนี้โพสต์ให้ (กดปุ่มโพสต์)" : "คุณกำลังคิดอะไรอยู่?");
+    $("#tinyfeed-verse-guidance").toggleClass("tinyfeed-hidden", !aiMode);
+    $("#tinyfeed-verse-img, #tinyfeed-verse-sticker").prop("disabled", aiMode);
+    $("#tinyfeed-verse-post .tinyfeed-post-wand").toggleClass("tinyfeed-hidden", !aiMode);
+    const emptyUser = String($("#tinyfeed-verse-input").val() || "").trim().length === 0;
+    $("#tinyfeed-verse-post").prop("disabled", aiMode ? false : emptyUser);
+}
+function setVersePostGenerating(on) {
+    $("#tinyfeed-verse-post .tinyfeed-post-wand").toggleClass("tinyfeed-spin", on);
+    $("#tinyfeed-verse-post").prop("disabled", on);
+    $("#tinyfeed-verse-post .tinyfeed-post-label").text(on ? "กำลังสร้าง..." : "โพสต์");
+}
+function renderVerseFeed() {
+    const body = $("#tinyfeed-verse-tabbody");
+    if (!body.length) return;
+    // แสดง compose เสมอ (ผู้ใช้โพสต์เองได้แม้ยังไม่ import ตัวละคร; โหมด AI จะเตือนถ้า roster ว่าง)
+    body.html(`
+        <div class="tinyfeed-compose tinyfeed-verse-compose">
+            <div class="tinyfeed-compose-row">
+                <div class="tinyfeed-compose-avatar" id="tinyfeed-verse-compose-avatar" title="เลือกคนโพสต์"></div>
+                <textarea id="tinyfeed-verse-input" rows="1" placeholder="คุณกำลังคิดอะไรอยู่?"></textarea>
+            </div>
+            <input id="tinyfeed-verse-guidance" class="tinyfeed-gen-guidance tinyfeed-hidden" type="text" placeholder="แนวทางโพสต์นี้ (ไม่บังคับ)" />
+            <div class="tinyfeed-compose-bar">
+                <div class="tinyfeed-compose-bar-left">
+                    <button id="tinyfeed-verse-img" class="tinyfeed-compose-iconbtn" title="แนบรูปจากคลัง"><i class="fa-solid fa-image"></i></button>
+                    <button id="tinyfeed-verse-sticker" class="tinyfeed-compose-iconbtn" title="แนบสติกเกอร์"><i class="fa-regular fa-face-smile"></i></button>
+                </div>
+                <div class="tinyfeed-compose-bar-right">
+                    <button id="tinyfeed-verse-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                    <button id="tinyfeed-verse-post" class="tinyfeed-btn-primary" disabled>
+                        <i class="fa-solid fa-wand-magic-sparkles tinyfeed-post-wand tinyfeed-hidden"></i>
+                        <span class="tinyfeed-post-label">โพสต์</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div id="tinyfeed-verse-feed" class="tinyfeed-verse-feed"></div>
+    `);
+    applyVerseComposeMode();
+    renderVerseFeedList();
+}
+// วาดเฉพาะรายการโพสต์ (ไม่แตะช่องเขียน → ไม่รีเซ็ตข้อความที่ผู้ใช้พิมพ์อยู่)
+function renderVerseFeedList() {
+    const list = $("#tinyfeed-verse-feed");
+    if (!list.length) return;
+    const feed = getVerse().feed;
+    list.html(feed.length
+        ? feed.map(renderVersePost).join("")
+        : `<div class="tinyfeed-verse-feed-empty">ยังไม่มีโพสต์ · พิมพ์แล้วกดโพสต์ หรือเลือกตัวละครให้ AI โพสต์ให้</div>`);
+}
+function renderVersePost(post) {
+    return `<div class="tinyfeed-post" data-vpost="${escapeAttr(post.id)}">
+        <div class="tinyfeed-post-head">
+            ${makeAvatar(post)}
+            <div class="tinyfeed-post-meta">
+                <span class="tinyfeed-post-author">${escapeText(post.author)}</span>
+                <span class="tinyfeed-post-time">${displayTime(post)}</span>
+            </div>
+            <span class="tinyfeed-verse-del" data-vpost="${escapeAttr(post.id)}" title="ลบโพสต์"><i class="fa-solid fa-trash"></i></span>
+        </div>
+        <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
+        <div class="tinyfeed-post-actions">
+            <span class="tinyfeed-verse-like ${post.liked ? "tinyfeed-liked" : ""}" data-vpost="${escapeAttr(post.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}</span>
+        </div>
+    </div>`;
+}
+// ผู้ใช้โพสต์เอง (persona) — รองรับ [img:]/[sticker:] เหมือน TinyFeed
+function addVerseUserPost(text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    const v = getVerse();
+    v.feed.unshift({
+        id: "vu" + Date.now(), author: getUserName(), isUser: true, avatar: "",
+        ts: Date.now(), text: escapeHtml(clean), likes: randomInitialLikes(), liked: false, comments: [],
+    });
+    if (v.feed.length > 200) v.feed.length = 200;
+    saveVerse();
+    renderVerseFeedList();
+}
+// ให้ตัวละคร (หรือสุ่ม) โพสต์ด้วย AI
+async function verseGeneratePost() {
+    if (verseBusy) return;
+    const v = getVerse();
+    const keys = Object.keys(v.chars);
+    if (!keys.length) { toastr.info("ยังไม่มีตัวละคร ไปแท็บ 'ตัวละคร' แล้ว Import ก่อนนะ", "TinyVerse"); return; }
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้โพสต์ไม่ได้", "TinyVerse"); return; }
+    const key = (versePoster === VERSE_POSTER_RANDOM || !v.chars[versePoster]) ? keys[Math.floor(Math.random() * keys.length)] : versePoster;
+    const c = v.chars[key];
+    const guidance = String($("#tinyfeed-verse-guidance").val() || "").trim();
+    verseBusy = true;
+    setVersePostGenerating(true);
+    try {
+        const q = buildPrompt("versePost", {
+            charName: c.name,
+            persona: (c.persona || c.bio || "").trim() || "(ไม่มีข้อมูลตัวละครเพิ่มเติม)",
+            guidance: guidance ? `แนวทางของโพสต์นี้: ${guidance}. ` : "",
+        });
+        const raw = await tinyGenerate(q, verseTokens(), "verse");
+        const parsed = parseGeneratedPost(raw, c.name);
+        const text = stripWrapBrackets(parsed.text || "");
+        if (!text) { toastr.info("ยังไม่มีโพสต์ ลองใหม่นะ", "TinyVerse"); return; }
+        v.feed.unshift({
+            id: "v" + Date.now(), author: c.name, authorKey: key, avatar: c.avatar || "",
+            isAI: true, isVerse: true, ts: Date.now(), text: escapeHtml(text),
+            likes: randomInitialLikes(), liked: false, comments: [],
+        });
+        if (v.feed.length > 200) v.feed.length = 200;
+        saveVerse();
+        if (currentApp === "verse" && verseTab === "feed") { $("#tinyfeed-verse-guidance").val(""); renderVerseFeedList(); }
+    } catch (e) {
+        console.error(`[${extensionName}] verseGeneratePost failed:`, e);
+        toastr.error("โพสต์ไม่สำเร็จ", "TinyVerse");
+    } finally {
+        verseBusy = false;
+        setVersePostGenerating(false);
+        applyVerseComposeMode();
+    }
+}
+function verseFeedPost(id) { return getVerse().feed.find((p) => p.id === id) || null; }
+
+// ── ตัวเลือกคนโพสต์ (เรา / สุ่ม / ตัวละครใน roster) — แตะรูปโปรไฟล์ในช่องเขียน ──
+function openVersePosterPicker() {
+    const v = getVerse();
+    const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
+    const rows = [];
+    rows.push(`<div class="tinyfeed-verse-poster-pick" data-vposter="${POSTER_USER}">${makeAvatar({ isUser: true, author: getUserName() })}<span class="tinyfeed-char-pick-name">${escapeText(getUserName())} (คุณ)</span></div>`);
+    if (keys.length) rows.push(`<div class="tinyfeed-verse-poster-pick" data-vposter="${VERSE_POSTER_RANDOM}"><div class="tinyfeed-avatar tinyfeed-avatar-auto"><i class="fa-solid fa-shuffle"></i></div><span class="tinyfeed-char-pick-name">🎲 สุ่มตัวละคร (AI)</span></div>`);
+    keys.forEach((k) => {
+        const c = v.chars[k];
+        rows.push(`<div class="tinyfeed-verse-poster-pick" data-vposter="${escapeAttr(k)}">${makeAvatar({ avatar: c.avatar || "", author: c.name })}<span class="tinyfeed-char-pick-name">${escapeText(c.name)} (AI)</span></div>`);
+    });
+    $("#tinyfeed-verse-poster-list").html(rows.join(""));
+    $("#tinyfeed-verse-poster-modal").removeClass("tinyfeed-hidden");
+}
+function closeVersePosterPicker() { $("#tinyfeed-verse-poster-modal").addClass("tinyfeed-hidden"); }
 
 // ── หน้าโปรไฟล์ตัวละคร (component ใช้ร่วม: TinyVerse + TinyFeed) ──
 let charProfileCtx = null;
@@ -4727,6 +4900,13 @@ const PROMPT_DEFS = {
             `เขียนโพสต์สั้นๆ 1 โพสต์ (1-2 ประโยค) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
             `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
     },
+    versePost: {
+        label: "โพสต์ฟีดโกลบอล (TinyVerse)", marker: "POST:", tokens: ["charName", "persona", "guidance"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{charName}} กำลังจะโพสต์ลงฟีดโซเชียลส่วนตัวในมุมมองของตัวเอง. ข้อมูลตัวละคร (ใช้กำหนดนิสัย/น้ำเสียง): {{persona}}. ` +
+            `เขียนโพสต์สั้นๆ 1 โพสต์ (1-3 ประโยค) ในน้ำเสียงและมุมมองของ {{charName}} ให้สมคาแรกเตอร์ เป็นธรรมชาติเหมือนโพสต์โซเชียลจริง. {{guidance}}ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
+            `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
+    },
     shopItems: {
         label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "extra", "context"],
         default:
@@ -6812,7 +6992,7 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-char-profile", "#tinyfeed-verse-import-modal", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-char-profile", "#tinyfeed-verse-import-modal", "#tinyfeed-verse-poster-modal", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
@@ -7237,6 +7417,61 @@ jQuery(async () => {
             toastr.success("เคลียร์ตัวละครทั้งหมดแล้ว", "TinyVerse");
         });
         $(document).on("click", ".tinyfeed-verse-card", function () { openCharProfile(String($(this).data("key"))); });
+        $(document).on("click", ".tinyfeed-verse-tab", function () {
+            const t = String($(this).data("vtab"));
+            if (t && t !== verseTab) { verseTab = t; renderVerse(); }
+        });
+        // ช่องเขียนแบบ TinyFeed: เลือกคนโพสต์ (แตะรูป) · พิมพ์เอง+แนบรูป/สติกเกอร์ · ตัวละคร=AI
+        $(document).on("input", "#tinyfeed-verse-input", function () {
+            autoGrowCompose(this);
+            if (versePoster === POSTER_USER) $("#tinyfeed-verse-post").prop("disabled", $(this).val().trim().length === 0);
+        });
+        $(document).on("click", "#tinyfeed-verse-compose-avatar", openVersePosterPicker);
+        $(document).on("click", ".tinyfeed-verse-poster-pick", function () {
+            versePoster = String($(this).data("vposter"));
+            closeVersePosterPicker();
+            applyVerseComposeMode();
+        });
+        $(document).on("click", "#tinyfeed-verse-poster-close", closeVersePosterPicker);
+        $(document).on("click", "#tinyfeed-verse-poster-modal", function (e) { if (e.target === this) closeVersePosterPicker(); });
+        $(document).on("click", "#tinyfeed-verse-img", function () {
+            openGalleryPicker("image", (token) => insertIntoInput("#tinyfeed-verse-input", token));
+        });
+        $(document).on("click", "#tinyfeed-verse-sticker", function () {
+            openGalleryPicker("sticker", (token) => insertIntoInput("#tinyfeed-verse-input", token));
+        });
+        $(document).on("click", "#tinyfeed-verse-post", function () {
+            if (verseBusy) return;
+            if (versePoster === POSTER_USER) {
+                addVerseUserPost($("#tinyfeed-verse-input").val());
+                $("#tinyfeed-verse-input").val("").css("height", "");
+                applyVerseComposeMode();
+            } else {
+                verseGeneratePost();
+            }
+        });
+        $(document).on("click", "#tinyfeed-verse-cancel", function () {
+            if (verseBusy) return;
+            $("#tinyfeed-verse-input").val("").css("height", "");
+            $("#tinyfeed-verse-guidance").val("");
+            versePoster = POSTER_USER;
+            applyVerseComposeMode();
+        });
+        $(document).on("keydown", "#tinyfeed-verse-guidance", function (e) { if (e.key === "Enter") { e.preventDefault(); verseGeneratePost(); } });
+        $(document).on("click", ".tinyfeed-verse-like", function () {
+            const p = verseFeedPost(String($(this).data("vpost")));
+            if (!p) return;
+            p.liked = !p.liked;
+            p.likes = Math.max(0, (p.likes || 0) + (p.liked ? 1 : -1));
+            saveVerse();
+            renderVerseFeedList();
+        });
+        $(document).on("click", ".tinyfeed-verse-del", function () {
+            const id = String($(this).data("vpost"));
+            const v = getVerse();
+            const i = v.feed.findIndex((p) => p.id === id);
+            if (i >= 0) { v.feed.splice(i, 1); saveVerse(); renderVerseFeedList(); }
+        });
         $(document).on("click", "#tinyfeed-char-profile-close", closeCharProfile);
         $(document).on("click", "#tinyfeed-char-profile", function (e) { if (e.target === this) closeCharProfile(); });
         $(document).on("click", "#tinyfeed-vprofile-save", function () {
