@@ -275,7 +275,7 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "pet"].includes(app)) {
+    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "pet", "verse"].includes(app)) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
@@ -284,6 +284,7 @@ function openApp(app) {
     clearPetLiveTick();   // ออกจาก TinyPet = หยุด live tick (พื้นหลัง petTimer ยังเดินต่อ)
     closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
     closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
+    closeCharProfile();     // กันหน้าโปรไฟล์ค้างข้ามแอป
     closeSlipModal();       // กัน modal โอนเงินค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
@@ -333,6 +334,11 @@ function openApp(app) {
         petActionSprite = ""; petBubble = "";
         renderPet();          // sync decay + วาดหน้าจอตามสถานะ (create/dead/active)
         startPetLiveTick();   // อัปเดตบาร์สดๆ ระหว่างเปิดแอป
+    } else if (app === "verse") {
+        currentApp = "verse";
+        $("#tinyfeed-app-verse").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyVerse");
+        openVerse();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -2128,6 +2134,7 @@ const HOME_APPS = [
     { app: "bank", icon: "fa-wallet", name: "TinyBank", a: "#10b981", b: "#047857" },
     { app: "shop", icon: "fa-bag-shopping", name: "TinyShop", a: "#f97316", b: "#c2410c" },
     { app: "pet", icon: "fa-paw", name: "TinyPet", a: "#8b5cf6", b: "#6d28d9" },
+    { app: "verse", icon: "fa-globe", name: "TinyVerse", a: "#6366f1", b: "#4338ca" },
 ];
 const HOME_APPS_PER_PAGE = 9;   // 3 คอลัมน์ × 3 แถวต่อหน้า
 
@@ -2423,6 +2430,155 @@ function getNpcs() {
     return store[key];
 }
 function saveNpcs() { saveSettingsDebounced(); }
+
+// ===== TinyVerse (แอปที่ 10): ฮับตัวละครโกลบอล — import การ์ด+NPC มารวมกัน + หน้าโปรไฟล์ใช้ร่วม =====
+// data model: extension_settings[extensionName].verse = { chars: { <charFile>: {...} }, feed: [] }
+function getVerse() {
+    const store = extension_settings[extensionName] = extension_settings[extensionName] || {};
+    if (!store.verse || typeof store.verse !== "object") store.verse = { chars: {}, feed: [] };
+    if (!store.verse.chars || typeof store.verse.chars !== "object") store.verse.chars = {};
+    if (!Array.isArray(store.verse.feed)) store.verse.feed = [];
+    return store.verse;
+}
+function saveVerse() { saveSettingsDebounced(); }
+// bio จากการ์ด (v1 field หรือ v2 card.data) ตัดความยาวกันบวม
+function cardBio(card) {
+    if (!card) return "";
+    const d = card.description || (card.data && card.data.description) || "";
+    const per = card.personality || (card.data && card.data.personality) || "";
+    let bio = String(d || "").trim();
+    if (!bio && per) bio = String(per).trim();
+    return bio.slice(0, 600);
+}
+// เพิ่ม/รีเฟรชตัวละครหนึ่งตัวเข้า roster (refresh ชื่อ/รูป/NPC/bio, คง persona ที่ผู้ใช้แก้) — คืน true ถ้าเป็นตัวใหม่
+function verseAddChar(card) {
+    if (!card || !card.avatar) return false;
+    const v = getVerse();
+    const key = String(card.avatar);
+    const existed = !!v.chars[key];
+    const prof = getProfileStore("char")[key] || {};
+    const avatar = (prof.avatarUrl && String(prof.avatarUrl)) || `/thumbnail?type=avatar&file=${encodeURIComponent(key)}`;
+    const store = getNpcsStore();
+    const npcs = Array.isArray(store[key]) ? store[key].map((n) => ({ name: n.name, avatar: n.avatar || "" })) : [];
+    const prev = v.chars[key] || {};
+    v.chars[key] = {
+        key,
+        name: card.name || prev.name || "ตัวละคร",
+        avatar,
+        bio: cardBio(card) || prev.bio || "",           // รีเฟรชจากการ์ด
+        persona: prev.persona || cardBio(card) || "",   // ผู้ใช้แก้ได้ → คงไว้
+        npcs: npcs.length ? npcs : (prev.npcs || []),
+        addedTs: prev.addedTs || Date.now(),
+    };
+    return !existed;
+}
+// import ทุก charcard ที่โหลดอยู่ใน ST (getContext().characters) — คืน {added,total}
+function verseImportAll() {
+    let cards = [];
+    try { const ctx = getContext(); if (ctx && Array.isArray(ctx.characters)) cards = ctx.characters; } catch (e) { /* ไม่มี context */ }
+    let added = 0, total = 0;
+    for (const c of cards) { if (c && c.avatar) { total++; if (verseAddChar(c)) added++; } }
+    saveVerse();
+    return { added, total };
+}
+function verseRemoveChar(key) { const v = getVerse(); if (v.chars[key]) { delete v.chars[key]; saveVerse(); } }
+// หา verse char ตามชื่อ (case-insensitive)
+function verseCardByName(name) {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) return null;
+    const v = getVerse();
+    for (const k in v.chars) if (String(v.chars[k].name || "").trim().toLowerCase() === n) return v.chars[k];
+    return null;
+}
+// normalize ผู้เขียน (ชื่อจากฟีด/คอมเมนต์) → การ์ดโปรไฟล์ (ผู้ใช้/ตัวหลัก/verse/NPC/anon) เพื่อใช้กับ openCharProfile ร่วมกัน
+function charCardForAuthor(author) {
+    const name = String(author || "").trim();
+    if (!name) return null;
+    if (nameMatchesUser(name)) return { name: getUserName(), avatar: getUserAvatar(), bio: "", isUser: true };
+    if (nameMatchesChar(name)) {
+        const key = getCharKey();
+        return getVerse().chars[key] || { key, name: getCharName(), avatar: getCharacterAvatar(), bio: "", persona: "", npcs: getNpcs().map((n) => ({ name: n.name, avatar: n.avatar || "" })) };
+    }
+    const vc = verseCardByName(name);
+    if (vc) return vc;
+    const npc = getNpcs().find((x) => String(x.name || "").trim().toLowerCase() === name.toLowerCase());
+    if (npc) return { name: npc.name, avatar: npc.avatar || "", bio: "", isNpc: true };
+    return { name, avatar: "", bio: "" };
+}
+
+// ── หน้า roster (TinyVerse app) ──
+function openVerse() { renderVerse(); }
+function renderVerse() {
+    const body = $("#tinyfeed-verse-body");
+    if (!body.length) return;
+    const v = getVerse();
+    const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
+    const cards = keys.map((k) => {
+        const c = v.chars[k];
+        return `<div class="tinyfeed-verse-card" data-key="${escapeAttr(k)}">
+            ${makeAvatar({ avatar: c.avatar || "", author: c.name })}
+            <span class="tinyfeed-verse-cardname">${escapeText(c.name)}</span>
+            ${(c.npcs && c.npcs.length) ? `<span class="tinyfeed-verse-cardnpc">${c.npcs.length} NPC</span>` : ""}
+        </div>`;
+    }).join("");
+    body.html(`
+        <div class="tinyfeed-verse-bar">
+            <span class="tinyfeed-verse-count">ตัวละคร ${keys.length}</span>
+            <button id="tinyfeed-verse-import" class="tinyfeed-btn-primary"><i class="fa-solid fa-download"></i> Import จาก ST</button>
+        </div>
+        ${keys.length
+            ? `<div class="tinyfeed-verse-grid">${cards}</div>`
+            : `<div class="tinyfeed-verse-empty"><i class="fa-solid fa-user-astronaut"></i><p>ยังไม่มีตัวละคร<br>กด <b>Import จาก ST</b> เพื่อดึงการ์ด + NPC เข้ามารวมกัน</p></div>`}
+    `);
+}
+
+// ── หน้าโปรไฟล์ตัวละคร (component ใช้ร่วม: TinyVerse + TinyFeed) ──
+let charProfileCtx = null;
+// ref = charKey (string) | ชื่อผู้เขียน (string) | การ์ด normalize แล้ว (object)
+function openCharProfile(ref) {
+    let card = null;
+    if (ref && typeof ref === "object") card = ref;
+    else if (getVerse().chars[ref]) card = getVerse().chars[ref];
+    else card = charCardForAuthor(ref);
+    if (!card) return;
+    charProfileCtx = card;
+    renderCharProfile(card);
+    $("#tinyfeed-char-profile").removeClass("tinyfeed-hidden");
+}
+function closeCharProfile() { $("#tinyfeed-char-profile").addClass("tinyfeed-hidden"); charProfileCtx = null; }
+function renderCharProfile(card) {
+    const body = $("#tinyfeed-char-profile-body");
+    if (!body.length) return;
+    const inRoster = !!(card.key && getVerse().chars[card.key]);
+    const av = makeAvatar({ avatar: card.avatar || "", author: card.name, isUser: !!card.isUser });
+    const npcs = Array.isArray(card.npcs) ? card.npcs : [];
+    const bio = String(card.bio || "").trim();
+    const roleTag = card.isUser ? "คุณ" : card.isNpc ? "NPC" : "ตัวละคร";
+    const addBtn = (card.key && !inRoster && !card.isUser) ? `<button id="tinyfeed-vprofile-add" class="tinyfeed-btn-ghost tinyfeed-vprofile-addbtn"><i class="fa-solid fa-plus"></i> เพิ่มเข้า TinyVerse</button>` : "";
+    const removeBtn = inRoster ? `<button id="tinyfeed-vprofile-remove" class="tinyfeed-vprofile-remove" title="เอาออกจาก TinyVerse"><i class="fa-solid fa-trash"></i></button>` : "";
+    const personaBox = inRoster ? `
+        <div class="tinyfeed-vprofile-section">
+            <div class="tinyfeed-vprofile-sectitle">persona (ให้ AI ใช้พูดแทนตัวนี้ใน TinyVerse)</div>
+            <textarea id="tinyfeed-vprofile-persona" class="tinyfeed-vprofile-persona" placeholder="อธิบายนิสัย/ภูมิหลัง/วิธีพูด...">${escapeText(card.persona || bio || "")}</textarea>
+            <button id="tinyfeed-vprofile-save" class="tinyfeed-btn-primary tinyfeed-vprofile-savebtn"><i class="fa-solid fa-check"></i> บันทึก persona</button>
+        </div>` : "";
+    const npcHtml = npcs.length ? `
+        <div class="tinyfeed-vprofile-section">
+            <div class="tinyfeed-vprofile-sectitle">NPC ในสังกัด (${npcs.length})</div>
+            <div class="tinyfeed-vprofile-npcs">${npcs.map((n) => `
+                <div class="tinyfeed-vprofile-npc" data-npc="${escapeAttr(n.name)}">${makeAvatar({ avatar: n.avatar || "", author: n.name })}<span>${escapeText(n.name)}</span></div>`).join("")}</div>
+        </div>` : "";
+    body.html(`
+        <div class="tinyfeed-vprofile-head">
+            <div class="tinyfeed-vprofile-ava">${av}</div>
+            <div class="tinyfeed-vprofile-name">${escapeText(card.name)} <span class="tinyfeed-vprofile-role">${roleTag}</span></div>
+            ${bio ? `<div class="tinyfeed-vprofile-bio">${escapeText(bio)}</div>` : ""}
+            ${(addBtn || removeBtn) ? `<div class="tinyfeed-vprofile-actions">${addBtn}${removeBtn}</div>` : ""}
+        </div>
+        ${personaBox}
+        ${npcHtml}
+    `);
+}
 
 // TinyMemo: กำหนดการ + โน้ต/ความจำ (ensure array สำหรับแชทเก่า)
 function getAgenda() {
@@ -6281,7 +6437,7 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop"];
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "verse"];
 function saveLastScreen() {
     try {
         const data = getFeedData();
@@ -6600,7 +6756,7 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-char-profile", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
@@ -7008,6 +7164,47 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-mem-card", function () { memoryFlip(parseInt($(this).data("idx"), 10)); });
         $(document).on("click", ".tinyfeed-spot-tile", function () { spotTap(parseInt($(this).data("idx"), 10)); });
         $(document).on("click", ".tinyfeed-whack-hole", function () { whackHit(parseInt($(this).data("idx"), 10)); });
+
+        // ===== TinyVerse: import / roster / หน้าโปรไฟล์ใช้ร่วม =====
+        $(document).on("click", "#tinyfeed-verse-import", function () {
+            const r = verseImportAll();
+            if (r.total === 0) toastr.info("ไม่พบตัวละครใน SillyTavern (ลองเปิดการ์ดก่อน)", "TinyVerse");
+            else toastr.success(`Import แล้ว ${r.total} ตัว (ใหม่ ${r.added})`, "TinyVerse");
+            renderVerse();
+        });
+        $(document).on("click", ".tinyfeed-verse-card", function () { openCharProfile(String($(this).data("key"))); });
+        $(document).on("click", "#tinyfeed-char-profile-close", closeCharProfile);
+        $(document).on("click", "#tinyfeed-char-profile", function (e) { if (e.target === this) closeCharProfile(); });
+        $(document).on("click", "#tinyfeed-vprofile-save", function () {
+            if (!charProfileCtx || !charProfileCtx.key) return;
+            const c = getVerse().chars[charProfileCtx.key];
+            if (!c) return;
+            c.persona = String($("#tinyfeed-vprofile-persona").val() || "").trim();
+            saveVerse();
+            toastr.success("บันทึก persona แล้ว", "TinyVerse");
+        });
+        $(document).on("click", "#tinyfeed-vprofile-add", function () {
+            if (!charProfileCtx || !charProfileCtx.key) return;
+            const v = getVerse();
+            v.chars[charProfileCtx.key] = {
+                key: charProfileCtx.key, name: charProfileCtx.name, avatar: charProfileCtx.avatar || "",
+                bio: charProfileCtx.bio || "", persona: charProfileCtx.persona || charProfileCtx.bio || "",
+                npcs: charProfileCtx.npcs || [], addedTs: Date.now(),
+            };
+            saveVerse();
+            charProfileCtx = v.chars[charProfileCtx.key];
+            renderCharProfile(charProfileCtx);
+            if (currentApp === "verse") renderVerse();
+            toastr.success("เพิ่มเข้า TinyVerse แล้ว", "TinyVerse");
+        });
+        $(document).on("click", "#tinyfeed-vprofile-remove", function () {
+            if (!charProfileCtx || !charProfileCtx.key) return;
+            verseRemoveChar(charProfileCtx.key);
+            closeCharProfile();
+            if (currentApp === "verse") renderVerse();
+        });
+        // ใช้ซ้ำใน TinyFeed: แตะชื่อผู้โพสต์ → เปิดโปรไฟล์ตัวละคร
+        $(document).on("click", ".tinyfeed-post-author", function () { openCharProfile($(this).text()); });
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
         $(document).on("click", "#tinyfeed-pet-post", function () { petPostToFeed({ notify: false, silent: false }); });
         $(document).on("click", "#tinyfeed-pet-adopt", function () { petAdopt($("#tinyfeed-pet-name-input").val()); });

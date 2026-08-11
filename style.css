@@ -4134,6 +4134,47 @@
 .tinyfeed-whack-up .tinyfeed-whack-mole { transform: translateY(0); opacity: 1; }
 .tinyfeed-whack-wrong { animation: tinyfeed-spot-shake 0.24s ease; }
 .tinyfeed-whack-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
+
+/* ===== TinyVerse: roster + หน้าโปรไฟล์ ===== */
+.tinyfeed-verse-body { height: 100%; overflow-y: auto; padding: 10px; }
+.tinyfeed-verse-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.tinyfeed-verse-count { font-size: 0.85em; color: var(--tf-text-muted); }
+.tinyfeed-verse-count::before { content: "🌐 "; }
+.tinyfeed-verse-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tinyfeed-verse-card {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 6px; border-radius: 12px; cursor: pointer;
+    background: color-mix(in srgb, var(--tf-accent) 8%, var(--tf-topbar));
+    border: 1px solid var(--tf-border); transition: transform 0.1s ease, border-color 0.15s ease;
+}
+.tinyfeed-verse-card:active { transform: scale(0.96); }
+.tinyfeed-verse-card:hover { border-color: var(--tf-accent); }
+.tinyfeed-verse-card .tinyfeed-avatar { width: 54px; height: 54px; }
+.tinyfeed-verse-cardname { font-size: 0.8em; color: var(--tf-text-strong); text-align: center; line-height: 1.2; word-break: break-word; }
+.tinyfeed-verse-cardnpc { font-size: 0.68em; color: var(--tf-text-muted); }
+.tinyfeed-verse-empty { text-align: center; color: var(--tf-text-muted); padding: 40px 16px; }
+.tinyfeed-verse-empty i { font-size: 2.6em; opacity: 0.6; margin-bottom: 12px; display: block; }
+.tinyfeed-verse-empty p { font-size: 0.85em; line-height: 1.6; }
+/* หน้าโปรไฟล์ (ใช้ร่วม feed) */
+.tinyfeed-vprofile-body { max-height: 70vh; overflow-y: auto; }
+.tinyfeed-vprofile-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 6px 4px 12px; }
+.tinyfeed-vprofile-ava .tinyfeed-avatar { width: 84px; height: 84px; font-size: 2em; }
+.tinyfeed-vprofile-name { font-size: 1.1em; font-weight: 700; color: var(--tf-text-strong); }
+.tinyfeed-vprofile-role { font-size: 0.62em; font-weight: 600; color: var(--tf-text-muted); background: color-mix(in srgb, var(--tf-accent) 16%, var(--tf-topbar)); padding: 2px 7px; border-radius: 10px; vertical-align: middle; }
+.tinyfeed-vprofile-bio { font-size: 0.83em; color: var(--tf-text); line-height: 1.5; white-space: pre-wrap; max-width: 92%; }
+.tinyfeed-vprofile-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.tinyfeed-vprofile-remove { background: none; border: 1px solid #ef4444; color: #ef4444; border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 0.85em; }
+.tinyfeed-vprofile-section { border-top: 1px solid var(--tf-border); padding: 12px 4px; }
+.tinyfeed-vprofile-sectitle { font-size: 0.78em; color: var(--tf-text-muted); margin-bottom: 8px; }
+.tinyfeed-vprofile-persona { width: 100%; min-height: 90px; resize: vertical; font-size: 0.85em; box-sizing: border-box; }
+.tinyfeed-vprofile-savebtn { margin-top: 8px; }
+.tinyfeed-vprofile-npcs { display: flex; flex-wrap: wrap; gap: 12px; }
+.tinyfeed-vprofile-npc { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 62px; }
+.tinyfeed-vprofile-npc .tinyfeed-avatar { width: 46px; height: 46px; }
+.tinyfeed-vprofile-npc span { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
+/* แตะชื่อผู้โพสต์ในฟีดได้ (เปิดโปรไฟล์) */
+.tinyfeed-post-author { cursor: pointer; }
+.tinyfeed-post-author:hover { text-decoration: underline; }
 /* ลิงก์ "เติมเหรียญ" ในหัวร้าน */
 .tinyfeed-pet-topup-link {
     background: none;
