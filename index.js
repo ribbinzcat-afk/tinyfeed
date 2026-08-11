@@ -2441,9 +2441,10 @@ function saveNpcs() { saveSettingsDebounced(); }
 // data model: extension_settings[extensionName].verse = { chars: { <charFile>: {...} }, feed: [] }
 function getVerse() {
     const store = extension_settings[extensionName] = extension_settings[extensionName] || {};
-    if (!store.verse || typeof store.verse !== "object") store.verse = { chars: {}, feed: [] };
+    if (!store.verse || typeof store.verse !== "object") store.verse = { chars: {}, feed: [], scenes: [] };
     if (!store.verse.chars || typeof store.verse.chars !== "object") store.verse.chars = {};
     if (!Array.isArray(store.verse.feed)) store.verse.feed = [];
+    if (!Array.isArray(store.verse.scenes)) store.verse.scenes = [];
     return store.verse;
 }
 function saveVerse() { saveSettingsDebounced(); }
@@ -2571,11 +2572,14 @@ function renderVerse() {
     body.html(`
         <div class="tinyfeed-verse-tabs">
             <div class="tinyfeed-verse-tab${verseTab === "feed" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="feed"><i class="fa-solid fa-hashtag"></i> ฟีด</div>
+            <div class="tinyfeed-verse-tab${verseTab === "scene" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="scene"><i class="fa-solid fa-masks-theater"></i> ซีน</div>
             <div class="tinyfeed-verse-tab${verseTab === "roster" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="roster"><i class="fa-solid fa-users"></i> ตัวละคร</div>
         </div>
         <div id="tinyfeed-verse-tabbody" class="tinyfeed-verse-tabbody"></div>
     `);
-    if (verseTab === "feed") renderVerseFeed(); else renderVerseRoster();
+    if (verseTab === "feed") renderVerseFeed();
+    else if (verseTab === "scene") renderVerseScenes();
+    else renderVerseRoster();
 }
 function renderVerseRoster() {
     const body = $("#tinyfeed-verse-tabbody");
@@ -2675,6 +2679,16 @@ function renderVerseFeedList() {
         : `<div class="tinyfeed-verse-feed-empty">ยังไม่มีโพสต์ · พิมพ์แล้วกดโพสต์ หรือเลือกตัวละครให้ AI โพสต์ให้</div>`);
 }
 function renderVersePost(post) {
+    const cs = Array.isArray(post.comments) ? post.comments : [];
+    const comments = cs.length ? `<div class="tinyfeed-comments">${cs.map((c, i) => `
+        <div class="tinyfeed-comment">
+            ${makeAvatar(c)}
+            <div class="tinyfeed-comment-body">
+                <span class="tinyfeed-comment-author">${escapeText(c.author)}</span>
+                <span class="tinyfeed-comment-text">${renderRich(c.text)}</span>
+            </div>
+            <span class="tinyfeed-verse-cdel" data-vpost="${escapeAttr(post.id)}" data-cidx="${i}" title="ลบคอมเมนต์"><i class="fa-solid fa-trash"></i></span>
+        </div>`).join("")}</div>` : "";
     return `<div class="tinyfeed-post" data-vpost="${escapeAttr(post.id)}">
         <div class="tinyfeed-post-head">
             ${makeAvatar(post)}
@@ -2687,6 +2701,13 @@ function renderVersePost(post) {
         <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
         <div class="tinyfeed-post-actions">
             <span class="tinyfeed-verse-like ${post.liked ? "tinyfeed-liked" : ""}" data-vpost="${escapeAttr(post.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}</span>
+            <span class="tinyfeed-verse-ccount"><i class="fa-solid fa-comment"></i> ${formatCount(cs.length)}</span>
+            <span class="tinyfeed-verse-aicomment" data-vpost="${escapeAttr(post.id)}" title="ให้ตัวละครอื่นมาคอมเมนต์"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ตัวละครคอมเมนต์</span>
+        </div>
+        ${comments}
+        <div class="tinyfeed-verse-crow">
+            <input class="tinyfeed-verse-cinput" data-vpost="${escapeAttr(post.id)}" type="text" placeholder="คอมเมนต์..." />
+            <button class="tinyfeed-verse-csend" data-vpost="${escapeAttr(post.id)}" title="ส่ง"><i class="fa-solid fa-paper-plane"></i></button>
         </div>
     </div>`;
 }
@@ -2744,6 +2765,179 @@ async function verseGeneratePost() {
     }
 }
 function verseFeedPost(id) { return getVerse().feed.find((p) => p.id === id) || null; }
+
+// ===== TinyVerse v2: ครอสโอเวอร์ (คอมเมนต์ข้ามการ์ด + ซีนครอสโอเวอร์) =====
+// บล็อกข้อมูลตัวละครสำหรับพรอมป์ (ตัดความยาว persona กันพรอมป์บวม)
+function verseRosterBlock(keys, perCharCap) {
+    const v = getVerse();
+    const cap = perCharCap || 220;
+    return keys.map((k) => {
+        const c = v.chars[k];
+        if (!c) return "";
+        const p = String(c.persona || c.bio || "").trim().replace(/\s+/g, " ").slice(0, cap);
+        return `- ${c.name}${p ? `: ${p}` : ""}`;
+    }).filter(Boolean).join("\n");
+}
+// จับคู่ชื่อที่ AI ตอบกลับ → การ์ดใน roster (เพื่อใส่ avatar ให้ตรงตัว)
+function verseAvatarForName(name) {
+    const c = verseCardByName(name);
+    return c ? (c.avatar || "") : "";
+}
+// ให้ตัวละครอื่น "ข้ามการ์ด" มาคอมเมนต์โพสต์
+async function verseGenerateComments(postId) {
+    if (verseBusy) return;
+    const v = getVerse();
+    const post = verseFeedPost(postId);
+    if (!post) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyVerse"); return; }
+    // ผู้คอมเมนต์ = ตัวละครใน roster ที่ไม่ใช่เจ้าของโพสต์
+    const others = Object.keys(v.chars).filter((k) => k !== post.authorKey && v.chars[k].name !== post.author);
+    if (!others.length) { toastr.info("ต้องมีตัวละครอย่างน้อย 2 ตัวถึงจะคอมเมนต์ข้ามการ์ดได้", "TinyVerse"); return; }
+    verseBusy = true;
+    $(`.tinyfeed-verse-aicomment[data-vpost="${postId}"]`).addClass("tinyfeed-generating");
+    try {
+        const q = buildPrompt("verseComments", {
+            author: post.author,
+            post: htmlToPlain(post.text),
+            roster: verseRosterBlock(others.slice(0, 12)),
+        });
+        const raw = await tinyGenerate(q, Math.max(80, verseTokens()), "verse");
+        const parsed = parseCommentLines(raw, post.author, "COMMENT");
+        // กันคอมเมนต์จากเจ้าของโพสต์เอง + ใส่ avatar ตามตัวจริงใน roster
+        const authorLc = String(post.author).trim().toLowerCase();
+        const list = parsed
+            .filter((c) => String(c.author).trim().toLowerCase() !== authorLc)
+            .map((c) => ({ author: c.author, avatar: verseAvatarForName(c.author), text: c.text }));
+        if (!list.length) { toastr.info("ยังไม่มีคอมเมนต์ ลองใหม่นะ", "TinyVerse"); return; }
+        if (!Array.isArray(post.comments)) post.comments = [];
+        post.comments.push(...list);
+        saveVerse();
+        renderVerseFeedList();
+    } catch (e) {
+        console.error(`[${extensionName}] verseGenerateComments failed:`, e);
+        toastr.error("สร้างคอมเมนต์ไม่สำเร็จ", "TinyVerse");
+    } finally {
+        verseBusy = false;
+        $(".tinyfeed-verse-aicomment").removeClass("tinyfeed-generating");
+    }
+}
+// ผู้ใช้คอมเมนต์เองในฟีดโกลบอล
+function addVerseComment(postId, text) {
+    const clean = String(text || "").trim();
+    if (!clean) return;
+    const post = verseFeedPost(postId);
+    if (!post) return;
+    if (!Array.isArray(post.comments)) post.comments = [];
+    post.comments.push({ author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean) });
+    saveVerse();
+    renderVerseFeedList();
+}
+
+// ── ซีนครอสโอเวอร์: เลือก 2-4 ตัว → AI แต่งบทสนทนา ──
+let verseSceneSel = [];   // charKeys ที่เลือกอยู่ในหน้าสร้างซีน
+let verseSceneView = null;   // id ซีนที่กำลังเปิดดู (null = หน้ารายการ)
+function renderVerseScenes() {
+    const body = $("#tinyfeed-verse-tabbody");
+    if (!body.length) return;
+    if (verseSceneView) { renderVerseSceneDetail(); return; }
+    const v = getVerse();
+    const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
+    if (keys.length < 2) {
+        body.html(`<div class="tinyfeed-verse-empty"><i class="fa-solid fa-masks-theater"></i><p>ต้องมีตัวละครอย่างน้อย 2 ตัว<br>ไปแท็บ <b>ตัวละคร</b> แล้ว Import เพิ่มก่อนนะ</p></div>`);
+        return;
+    }
+    const picks = keys.map((k) => {
+        const c = v.chars[k];
+        const on = verseSceneSel.includes(k);
+        return `<div class="tinyfeed-verse-scenepick${on ? " tinyfeed-verse-scenepick-on" : ""}" data-key="${escapeAttr(k)}">
+            ${makeAvatar({ avatar: c.avatar || "", author: c.name })}
+            <span class="tinyfeed-verse-scenepick-name">${escapeText(c.name)}</span>
+        </div>`;
+    }).join("");
+    const saved = v.scenes.length ? v.scenes.map((s) => `
+        <div class="tinyfeed-verse-scenerow" data-scene="${escapeAttr(s.id)}">
+            <div class="tinyfeed-verse-scenerow-main">
+                <span class="tinyfeed-verse-scenerow-title">${escapeText(s.title || "ซีนครอสโอเวอร์")}</span>
+                <span class="tinyfeed-verse-scenerow-sub">${escapeText((s.charNames || []).join(" · "))} · ${s.lines.length} บรรทัด</span>
+            </div>
+            <span class="tinyfeed-verse-scenedel" data-scene="${escapeAttr(s.id)}" title="ลบซีน"><i class="fa-solid fa-trash"></i></span>
+        </div>`).join("") : `<div class="tinyfeed-verse-feed-empty">ยังไม่มีซีนที่บันทึกไว้</div>`;
+    body.html(`
+        <div class="tinyfeed-verse-scenebox">
+            <div class="tinyfeed-verse-scenetitle">เลือกตัวละคร 2-4 ตัวให้มาเจอกัน <span class="tinyfeed-verse-scenecount">(เลือกแล้ว ${verseSceneSel.length})</span></div>
+            <div class="tinyfeed-verse-scenepicks">${picks}</div>
+            <input id="tinyfeed-verse-setting" class="tinyfeed-gen-guidance tinyfeed-verse-setting" type="text" placeholder="ฉาก/สถานการณ์ (ไม่บังคับ) เช่น เจอกันในร้านกาแฟ" />
+            <button id="tinyfeed-verse-scene-gen" class="tinyfeed-btn-primary tinyfeed-verse-scenegen">
+                <i class="fa-solid fa-wand-magic-sparkles tinyfeed-scene-wand"></i> <span class="tinyfeed-scene-label">สร้างซีน</span>
+            </button>
+        </div>
+        <div class="tinyfeed-verse-scenelist">${saved}</div>
+    `);
+}
+function renderVerseSceneDetail() {
+    const body = $("#tinyfeed-verse-tabbody");
+    const s = getVerse().scenes.find((x) => x.id === verseSceneView);
+    if (!s) { verseSceneView = null; renderVerseScenes(); return; }
+    const lines = s.lines.map((l) => `
+        <div class="tinyfeed-verse-line">
+            ${makeAvatar({ avatar: l.avatar || "", author: l.author })}
+            <div class="tinyfeed-verse-linebody">
+                <span class="tinyfeed-verse-lineauthor">${escapeText(l.author)}</span>
+                <span class="tinyfeed-verse-linetext">${renderRich(l.text)}</span>
+            </div>
+        </div>`).join("");
+    body.html(`
+        <div class="tinyfeed-verse-scenehead">
+            <button id="tinyfeed-verse-scene-back" class="tinyfeed-btn-ghost"><i class="fa-solid fa-arrow-left"></i> ซีนทั้งหมด</button>
+            <div class="tinyfeed-verse-scenehead-title">${escapeText(s.title || "ซีนครอสโอเวอร์")}</div>
+            ${s.setting ? `<div class="tinyfeed-verse-scenehead-sub">${escapeText(s.setting)}</div>` : ""}
+        </div>
+        <div class="tinyfeed-verse-lines">${lines}</div>
+    `);
+}
+async function verseGenerateScene() {
+    if (verseBusy) return;
+    const v = getVerse();
+    if (verseSceneSel.length < 2) { toastr.info("เลือกตัวละครอย่างน้อย 2 ตัวนะ", "TinyVerse"); return; }
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyVerse"); return; }
+    const keys = verseSceneSel.filter((k) => v.chars[k]);
+    const names = keys.map((k) => v.chars[k].name);
+    const setting = String($("#tinyfeed-verse-setting").val() || "").trim();
+    verseBusy = true;
+    $("#tinyfeed-verse-scene-gen").prop("disabled", true);
+    $(".tinyfeed-scene-wand").addClass("tinyfeed-spin");
+    $(".tinyfeed-scene-label").text("กำลังสร้าง...");
+    try {
+        const q = buildPrompt("verseScene", {
+            chars: names.join(", "),
+            roster: verseRosterBlock(keys, 300),
+            setting: setting || "(ไม่ระบุ — คิดฉากที่น่าสนใจให้เข้ากับตัวละครเหล่านี้เอง)",
+        });
+        const raw = await tinyGenerate(q, Math.max(300, verseTokens() * 3), "verse");
+        const parsed = parseCommentLines(raw, names[0], "LINE");
+        const lines = parsed.map((l) => ({ author: l.author, avatar: verseAvatarForName(l.author), text: l.text }));
+        if (!lines.length) { toastr.info("ยังแต่งซีนไม่ได้ ลองใหม่นะ", "TinyVerse"); return; }
+        const scene = {
+            id: "sc" + Date.now(), title: names.join(" × "), charKeys: keys.slice(), charNames: names.slice(),
+            setting, lines, ts: Date.now(),
+        };
+        v.scenes.unshift(scene);
+        if (v.scenes.length > 50) v.scenes.length = 50;
+        saveVerse();
+        verseSceneView = scene.id;
+        renderVerseScenes();
+    } catch (e) {
+        console.error(`[${extensionName}] verseGenerateScene failed:`, e);
+        toastr.error("สร้างซีนไม่สำเร็จ", "TinyVerse");
+    } finally {
+        verseBusy = false;
+        $("#tinyfeed-verse-scene-gen").prop("disabled", false);
+        $(".tinyfeed-scene-wand").removeClass("tinyfeed-spin");
+        $(".tinyfeed-scene-label").text("สร้างซีน");
+    }
+}
 
 // ── ตัวเลือกคนโพสต์ (เรา / สุ่ม / ตัวละครใน roster) — แตะรูปโปรไฟล์ในช่องเขียน ──
 function openVersePosterPicker() {
@@ -4906,6 +5100,22 @@ const PROMPT_DEFS = {
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{charName}} กำลังจะโพสต์ลงฟีดโซเชียลส่วนตัวในมุมมองของตัวเอง. ข้อมูลตัวละคร (ใช้กำหนดนิสัย/น้ำเสียง): {{persona}}. ` +
             `เขียนโพสต์สั้นๆ 1 โพสต์ (1-3 ประโยค) ในน้ำเสียงและมุมมองของ {{charName}} ให้สมคาแรกเตอร์ เป็นธรรมชาติเหมือนโพสต์โซเชียลจริง. {{guidance}}ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
             `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
+    },
+    verseComments: {
+        label: "คอมเมนต์ข้ามการ์ด (TinyVerse)", marker: "COMMENT:", tokens: ["author", "post", "roster"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ในโซเชียลรวมที่ตัวละครจากหลายโลกมาเจอกัน {{author}} เพิ่งโพสต์ว่า: "{{post}}". ` +
+            `ตัวละครอื่นที่เห็นโพสต์นี้ (ใช้ข้อมูลกำหนดนิสัย/น้ำเสียงของแต่ละคน):\n{{roster}}\n` +
+            `แต่งคอมเมนต์ 2-4 อันจากตัวละครในรายชื่อข้างบน (คนละคนกัน ห้ามใช้ {{author}}) ให้สมคาแรกเตอร์แต่ละคน สั้นๆ 1-2 ประโยค เป็นธรรมชาติเหมือนคอมเมนต์โซเชียลจริง ตัวละครต่างโลกกันทักกันได้อย่างสนุก. ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
+            `ตอบบรรทัดละ 1 คอมเมนต์ในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อตัวละคร> | <ข้อความ>`,
+    },
+    verseScene: {
+        label: "ซีนครอสโอเวอร์ (TinyVerse)", marker: "LINE:", tokens: ["chars", "roster", "setting"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งฉากครอสโอเวอร์ที่ตัวละครจากต่างโลกได้มาเจอกัน: {{chars}}. ข้อมูลตัวละครแต่ละคน (ใช้กำหนดนิสัย/น้ำเสียง):\n{{roster}}\n` +
+            `สถานการณ์/ฉาก: {{setting}}\n` +
+            `เขียนบทสนทนา 6-12 บรรทัด ให้ตัวละครทุกคนได้พูด สมคาแรกเตอร์ของแต่ละคน มีการโต้ตอบกันจริงๆ (ไม่ใช่ต่างคนต่างพูด) สนุกและเป็นธรรมชาติ. ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
+            `ตอบบรรทัดละ 1 ประโยคในรูปแบบนี้เท่านั้น:\nLINE: <ชื่อตัวละคร> | <คำพูดหรือการกระทำสั้นๆ>`,
     },
     shopItems: {
         label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "extra", "context"],
@@ -7471,6 +7681,47 @@ jQuery(async () => {
             const v = getVerse();
             const i = v.feed.findIndex((p) => p.id === id);
             if (i >= 0) { v.feed.splice(i, 1); saveVerse(); renderVerseFeedList(); }
+        });
+        // ── ครอสโอเวอร์: คอมเมนต์ข้ามการ์ด ──
+        $(document).on("click", ".tinyfeed-verse-aicomment", function () { verseGenerateComments(String($(this).data("vpost"))); });
+        $(document).on("click", ".tinyfeed-verse-csend", function () {
+            const id = String($(this).data("vpost"));
+            const $inp = $(`.tinyfeed-verse-cinput[data-vpost="${id}"]`);
+            addVerseComment(id, $inp.val());
+        });
+        $(document).on("keydown", ".tinyfeed-verse-cinput", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); addVerseComment(String($(this).data("vpost")), $(this).val()); }
+        });
+        $(document).on("click", ".tinyfeed-verse-cdel", function () {
+            const post = verseFeedPost(String($(this).data("vpost")));
+            const idx = parseInt($(this).data("cidx"), 10);
+            if (!post || !Array.isArray(post.comments) || !(idx >= 0)) return;
+            post.comments.splice(idx, 1);
+            saveVerse();
+            renderVerseFeedList();
+        });
+        // ── ครอสโอเวอร์: ซีน ──
+        $(document).on("click", ".tinyfeed-verse-scenepick", function () {
+            const k = String($(this).data("key"));
+            const i = verseSceneSel.indexOf(k);
+            if (i >= 0) verseSceneSel.splice(i, 1);
+            else { if (verseSceneSel.length >= 4) { toastr.info("เลือกได้สูงสุด 4 ตัว", "TinyVerse"); return; } verseSceneSel.push(k); }
+            const setting = String($("#tinyfeed-verse-setting").val() || "");
+            renderVerseScenes();
+            $("#tinyfeed-verse-setting").val(setting);   // คงข้อความฉากที่พิมพ์ไว้
+        });
+        $(document).on("click", "#tinyfeed-verse-scene-gen", verseGenerateScene);
+        $(document).on("click", ".tinyfeed-verse-scenerow-main", function () {
+            verseSceneView = String($(this).closest(".tinyfeed-verse-scenerow").data("scene"));
+            renderVerseScenes();
+        });
+        $(document).on("click", "#tinyfeed-verse-scene-back", function () { verseSceneView = null; renderVerseScenes(); });
+        $(document).on("click", ".tinyfeed-verse-scenedel", function (e) {
+            e.stopPropagation();
+            const id = String($(this).data("scene"));
+            const v = getVerse();
+            const i = v.scenes.findIndex((s) => s.id === id);
+            if (i >= 0) { v.scenes.splice(i, 1); saveVerse(); if (verseSceneView === id) verseSceneView = null; renderVerseScenes(); }
         });
         $(document).on("click", "#tinyfeed-char-profile-close", closeCharProfile);
         $(document).on("click", "#tinyfeed-char-profile", function (e) { if (e.target === this) closeCharProfile(); });

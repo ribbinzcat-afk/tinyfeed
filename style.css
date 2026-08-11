@@ -3174,10 +3174,12 @@
 /* ===== TinyFeed compose bar (redesign) ===== */
 .tinyfeed-compose-avatar { cursor: pointer; position: relative; }
 /* ช่องแนวทางโพสต์: block เต็มความกว้าง เยื้องให้ยาวเท่าช่อง "คุณกำลังคิดอะไรอยู่" (avatar 40 + gap 10) */
-#tinyfeed-feed-guidance {
+#tinyfeed-feed-guidance,
+#tinyfeed-verse-guidance {
     display: block;
     box-sizing: border-box;
     width: calc(100% - 50px);
+    height: 32px;            /* เตี้ยกว่าช่องโพสต์ (38px) เล็กน้อย */
     margin: 8px 0 0 50px;
 }
 .tinyfeed-compose-bar {
@@ -4152,6 +4154,53 @@
 .tinyfeed-verse-del:hover { color: #ef4444; }
 .tinyfeed-verse-like { cursor: pointer; color: var(--tf-text-muted); }
 .tinyfeed-verse-like.tinyfeed-liked { color: #ef4444; }
+/* คอมเมนต์ข้ามการ์ด */
+.tinyfeed-verse-ccount { color: var(--tf-text-muted); }
+.tinyfeed-verse-aicomment { margin-left: auto; color: var(--tf-accent); cursor: pointer; font-size: 0.92em; }
+.tinyfeed-verse-aicomment:hover { text-decoration: underline; }
+.tinyfeed-verse-aicomment.tinyfeed-generating { opacity: 0.55; pointer-events: none; }
+.tinyfeed-verse-cdel { margin-left: auto; color: var(--tf-text-muted); cursor: pointer; font-size: 0.8em; flex-shrink: 0; opacity: 0; transition: opacity 0.15s ease; }
+.tinyfeed-comment:hover .tinyfeed-verse-cdel { opacity: 1; }
+.tinyfeed-verse-cdel:hover { color: #ef4444; }
+.tinyfeed-verse-crow { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.tinyfeed-verse-cinput {
+    flex: 1; min-width: 0; box-sizing: border-box;
+    background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: 999px;
+    padding: 6px 12px; font: inherit; font-size: 0.82em; outline: none;
+}
+.tinyfeed-verse-cinput:focus { border-color: var(--tf-accent); }
+.tinyfeed-verse-csend { flex-shrink: 0; background: none; border: none; color: var(--tf-accent); cursor: pointer; padding: 4px 6px; font-size: 0.95em; }
+/* ซีนครอสโอเวอร์ */
+.tinyfeed-verse-scenebox { border-bottom: 1px solid var(--tf-border); padding-bottom: 12px; margin-bottom: 10px; }
+.tinyfeed-verse-scenetitle { font-size: 0.85em; color: var(--tf-text); margin-bottom: 8px; }
+.tinyfeed-verse-scenecount { color: var(--tf-text-muted); font-size: 0.9em; }
+.tinyfeed-verse-scenepicks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.tinyfeed-verse-scenepick {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; width: 62px;
+    padding: 6px 2px; border-radius: 10px; cursor: pointer;
+    border: 1px solid transparent; transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-verse-scenepick .tinyfeed-avatar { width: 44px; height: 44px; }
+.tinyfeed-verse-scenepick-name { font-size: 0.7em; color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
+.tinyfeed-verse-scenepick-on { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+.tinyfeed-verse-scenepick-on .tinyfeed-verse-scenepick-name { color: var(--tf-accent); font-weight: 600; }
+.tinyfeed-verse-setting { display: block; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+.tinyfeed-verse-scenegen { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.tinyfeed-verse-scenerow { display: flex; align-items: center; gap: 8px; padding: 10px; border-radius: 10px; border: 1px solid var(--tf-border); margin-bottom: 8px; }
+.tinyfeed-verse-scenerow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.tinyfeed-verse-scenerow-title { font-size: 0.88em; color: var(--tf-text-strong); word-break: break-word; }
+.tinyfeed-verse-scenerow-sub { font-size: 0.72em; color: var(--tf-text-muted); word-break: break-word; }
+.tinyfeed-verse-scenedel { color: var(--tf-text-muted); cursor: pointer; padding: 4px; flex-shrink: 0; }
+.tinyfeed-verse-scenedel:hover { color: #ef4444; }
+.tinyfeed-verse-scenehead { margin-bottom: 12px; }
+.tinyfeed-verse-scenehead-title { font-size: 1em; font-weight: 700; color: var(--tf-text-strong); margin-top: 8px; word-break: break-word; }
+.tinyfeed-verse-scenehead-sub { font-size: 0.78em; color: var(--tf-text-muted); margin-top: 2px; }
+.tinyfeed-verse-line { display: flex; gap: 8px; margin-bottom: 12px; }
+.tinyfeed-verse-line .tinyfeed-avatar { width: 34px; height: 34px; flex-shrink: 0; }
+.tinyfeed-verse-linebody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tinyfeed-verse-lineauthor { font-size: 0.78em; font-weight: 600; color: var(--tf-accent); }
+.tinyfeed-verse-linetext { font-size: 0.86em; color: var(--tf-text); line-height: 1.5; word-break: break-word; }
 /* ตัวเลือกคนโพสต์ (mirror .tinyfeed-char-pick) */
 .tinyfeed-verse-poster-pick { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; border-radius: 8px; }
 .tinyfeed-verse-poster-pick:hover { background: color-mix(in srgb, var(--tf-accent) 10%, transparent); }
