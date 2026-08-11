@@ -4140,6 +4140,22 @@
 .tinyfeed-verse-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .tinyfeed-verse-count { font-size: 0.85em; color: var(--tf-text-muted); }
 .tinyfeed-verse-count::before { content: "🌐 "; }
+.tinyfeed-verse-baractions { display: flex; align-items: center; gap: 8px; }
+.tinyfeed-verse-clearbtn { color: #ef4444; border-color: #ef4444; }
+/* ตัวเลือก import */
+.tinyfeed-verse-import-opts { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--tf-border); }
+.tinyfeed-verse-biolabel { font-size: 0.82em; color: var(--tf-text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tinyfeed-verse-biolabel input { width: 80px; }
+.tinyfeed-verse-biolabel small { color: var(--tf-text-muted); }
+.tinyfeed-verse-selall-row { font-size: 0.82em; color: var(--tf-text-muted); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.tinyfeed-verse-import-list { max-height: 46vh; overflow-y: auto; padding: 6px 4px; }
+.tinyfeed-verse-imp-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.tinyfeed-verse-imp-row:hover { background: color-mix(in srgb, var(--tf-accent) 8%, transparent); }
+.tinyfeed-verse-imp-row .tinyfeed-avatar { width: 38px; height: 38px; }
+.tinyfeed-verse-imp-name { flex: 1; min-width: 0; font-size: 0.88em; color: var(--tf-text-strong); word-break: break-word; }
+.tinyfeed-verse-imp-tag { font-size: 0.68em; color: var(--tf-text-muted); background: color-mix(in srgb, var(--tf-accent) 14%, var(--tf-topbar)); padding: 2px 7px; border-radius: 9px; flex-shrink: 0; }
+.tinyfeed-verse-import-empty { text-align: center; color: var(--tf-text-muted); padding: 30px 16px; font-size: 0.85em; line-height: 1.6; }
+#tinyfeed-verse-import-do { margin: 10px 12px 12px; }
 .tinyfeed-verse-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .tinyfeed-verse-card {
     display: flex; flex-direction: column; align-items: center; gap: 6px;

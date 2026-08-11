@@ -184,6 +184,8 @@ const defaultSettings = {
         { id: "pi_toy1", name: "ลูกบอลนุ่ม", price: 12, emoji: "🎾", image: "", type: "toy", amount: 30, desc: "ของเล่นโปรด" },
         { id: "pi_care1", name: "สบู่หอม", price: 10, emoji: "🧼", image: "", type: "care", amount: 60, desc: "อาบน้ำหอมสะอาด" },
     ],
+    // TinyVerse
+    verseBioLimit: 1000,          // จำกัดจำนวนตัวอักษร bio ที่ดึงจากการ์ด (0 = ไม่จำกัด)
 };
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
@@ -285,6 +287,7 @@ function openApp(app) {
     closeGalleryOverlays(); // กัน overlay คลังค้างข้ามแอป
     closeCharPicker();      // กันตัวเลือกตัวละครค้างข้ามแอป
     closeCharProfile();     // กันหน้าโปรไฟล์ค้างข้ามแอป
+    closeVerseImport();     // กันตัวเลือก import ค้างข้ามแอป
     closeSlipModal();       // กัน modal โอนเงินค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
@@ -2441,14 +2444,20 @@ function getVerse() {
     return store.verse;
 }
 function saveVerse() { saveSettingsDebounced(); }
-// bio จากการ์ด (v1 field หรือ v2 card.data) ตัดความยาวกันบวม
+// จำนวนตัวอักษรสูงสุดของ bio (ตั้งค่าได้; 0 = ไม่จำกัด)
+function verseBioLimit() {
+    const n = parseInt(getSetting("verseBioLimit"), 10);
+    return (Number.isFinite(n) && n >= 0) ? n : 1000;
+}
+// bio จากการ์ด (v1 field หรือ v2 card.data) ตัดตามค่าจำกัด (0 = เต็ม)
 function cardBio(card) {
     if (!card) return "";
     const d = card.description || (card.data && card.data.description) || "";
     const per = card.personality || (card.data && card.data.personality) || "";
     let bio = String(d || "").trim();
     if (!bio && per) bio = String(per).trim();
-    return bio.slice(0, 600);
+    const cap = verseBioLimit();
+    return cap > 0 ? bio.slice(0, cap) : bio;
 }
 // เพิ่ม/รีเฟรชตัวละครหนึ่งตัวเข้า roster (refresh ชื่อ/รูป/NPC/bio, คง persona ที่ผู้ใช้แก้) — คืน true ถ้าเป็นตัวใหม่
 function verseAddChar(card) {
@@ -2472,16 +2481,60 @@ function verseAddChar(card) {
     };
     return !existed;
 }
-// import ทุก charcard ที่โหลดอยู่ใน ST (getContext().characters) — คืน {added,total}
-function verseImportAll() {
+// อ่าน charcard ทั้งหมดที่โหลดใน ST (getContext().characters) → รายการเลือก import
+function verseImportCandidates() {
     let cards = [];
     try { const ctx = getContext(); if (ctx && Array.isArray(ctx.characters)) cards = ctx.characters; } catch (e) { /* ไม่มี context */ }
-    let added = 0, total = 0;
-    for (const c of cards) { if (c && c.avatar) { total++; if (verseAddChar(c)) added++; } }
-    saveVerse();
-    return { added, total };
+    const v = getVerse();
+    return cards.filter((c) => c && c.avatar).map((c) => ({ file: String(c.avatar), name: c.name || "ตัวละคร", inRoster: !!v.chars[String(c.avatar)] }));
 }
 function verseRemoveChar(key) { const v = getVerse(); if (v.chars[key]) { delete v.chars[key]; saveVerse(); } }
+function verseClearAll() { const v = getVerse(); v.chars = {}; saveVerse(); }
+
+// ── ตัวเลือก import (เลือกเฉพาะตัวที่ต้องการ + ตั้งค่าจำกัดตัวอักษร bio) ──
+function openVerseImport() {
+    $("#tinyfeed-verse-biolimit").val(verseBioLimit());
+    $("#tinyfeed-verse-selall").prop("checked", false);
+    renderVerseImportList();
+    $("#tinyfeed-verse-import-modal").removeClass("tinyfeed-hidden");
+}
+function closeVerseImport() { $("#tinyfeed-verse-import-modal").addClass("tinyfeed-hidden"); }
+function renderVerseImportList() {
+    const list = $("#tinyfeed-verse-import-list");
+    if (!list.length) return;
+    const cands = verseImportCandidates();
+    if (!cands.length) {
+        list.html(`<div class="tinyfeed-verse-import-empty">ไม่พบตัวละครใน SillyTavern<br><small>ลองเปิด/โหลดการ์ดก่อน</small></div>`);
+        return;
+    }
+    const prof = getProfileStore("char");
+    list.html(cands.map((c) => {
+        const av = (prof[c.file] && prof[c.file].avatarUrl) || `/thumbnail?type=avatar&file=${encodeURIComponent(c.file)}`;
+        // default: ติ๊กเฉพาะตัวที่ยังไม่อยู่ใน roster (ตัวที่อยู่แล้ว = ติ๊กเพื่อรีเฟรช)
+        return `<label class="tinyfeed-verse-imp-row">
+            <input type="checkbox" class="tinyfeed-verse-imp-check" data-file="${escapeAttr(c.file)}" ${c.inRoster ? "" : "checked"} />
+            ${makeAvatar({ avatar: av, author: c.name })}
+            <span class="tinyfeed-verse-imp-name">${escapeText(c.name)}</span>
+            ${c.inRoster ? `<span class="tinyfeed-verse-imp-tag">อยู่แล้ว</span>` : ""}
+        </label>`;
+    }).join(""));
+}
+function verseDoImport() {
+    const lim = parseInt($("#tinyfeed-verse-biolimit").val(), 10);
+    setSetting("verseBioLimit", (Number.isFinite(lim) && lim >= 0) ? lim : 1000);   // ตั้งค่าก่อน เพื่อให้ cardBio ตัดตามค่าใหม่
+    const files = $(".tinyfeed-verse-imp-check:checked").map(function () { return String($(this).data("file")); }).get();
+    if (!files.length) { toastr.info("ยังไม่ได้เลือกตัวละคร", "TinyVerse"); return; }
+    let cards = [];
+    try { const ctx = getContext(); if (ctx && Array.isArray(ctx.characters)) cards = ctx.characters; } catch (e) { /* ไม่มี context */ }
+    const byFile = {};
+    for (const c of cards) if (c && c.avatar) byFile[String(c.avatar)] = c;
+    let added = 0;
+    for (const f of files) if (byFile[f] && verseAddChar(byFile[f])) added++;
+    saveVerse();
+    closeVerseImport();
+    renderVerse();
+    toastr.success(`Import ${files.length} ตัว (ใหม่ ${added})`, "TinyVerse");
+}
 // หา verse char ตามชื่อ (case-insensitive)
 function verseCardByName(name) {
     const n = String(name || "").trim().toLowerCase();
@@ -2524,7 +2577,10 @@ function renderVerse() {
     body.html(`
         <div class="tinyfeed-verse-bar">
             <span class="tinyfeed-verse-count">ตัวละคร ${keys.length}</span>
-            <button id="tinyfeed-verse-import" class="tinyfeed-btn-primary"><i class="fa-solid fa-download"></i> Import จาก ST</button>
+            <div class="tinyfeed-verse-baractions">
+                ${keys.length ? `<button id="tinyfeed-verse-clear" class="tinyfeed-btn-ghost tinyfeed-verse-clearbtn"><i class="fa-solid fa-trash"></i> เคลียร์</button>` : ""}
+                <button id="tinyfeed-verse-import" class="tinyfeed-btn-primary"><i class="fa-solid fa-download"></i> Import</button>
+            </div>
         </div>
         ${keys.length
             ? `<div class="tinyfeed-verse-grid">${cards}</div>`
@@ -6756,7 +6812,7 @@ function closeSettings() {
 
 // ปุ่มย้อนกลับใช้ร่วมกัน (settings หรือ detail)
 function handleBack() {
-    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-char-profile", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
+    const overlayOpen = ["#tinyfeed-gallery-picker", "#tinyfeed-gallery-view", "#tinyfeed-gallery-edit", "#tinyfeed-char-picker", "#tinyfeed-char-profile", "#tinyfeed-verse-import-modal", "#tinyfeed-slip-modal", "#tinyfeed-donate-modal", "#tinyfeed-shop-edit-modal", "#tinyfeed-pet-shop-modal", "#tinyfeed-pet-item-modal", "#tinyfeed-pet-topup-modal", "#tinyfeed-pet-game-modal"]
         .some((sel) => !$(sel).hasClass("tinyfeed-hidden"));
     if (overlayOpen) {
         closeGalleryOverlays();   // ปิด overlay ที่เปิดอยู่ก่อน
@@ -7166,11 +7222,19 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-whack-hole", function () { whackHit(parseInt($(this).data("idx"), 10)); });
 
         // ===== TinyVerse: import / roster / หน้าโปรไฟล์ใช้ร่วม =====
-        $(document).on("click", "#tinyfeed-verse-import", function () {
-            const r = verseImportAll();
-            if (r.total === 0) toastr.info("ไม่พบตัวละครใน SillyTavern (ลองเปิดการ์ดก่อน)", "TinyVerse");
-            else toastr.success(`Import แล้ว ${r.total} ตัว (ใหม่ ${r.added})`, "TinyVerse");
+        $(document).on("click", "#tinyfeed-verse-import", openVerseImport);
+        $(document).on("click", "#tinyfeed-verse-import-close", closeVerseImport);
+        $(document).on("click", "#tinyfeed-verse-import-modal", function (e) { if (e.target === this) closeVerseImport(); });
+        $(document).on("click", "#tinyfeed-verse-import-do", verseDoImport);
+        $(document).on("change", "#tinyfeed-verse-selall", function () {
+            $(".tinyfeed-verse-imp-check").prop("checked", $(this).prop("checked"));
+        });
+        $(document).on("click", "#tinyfeed-verse-clear", function () {
+            if (!Object.keys(getVerse().chars).length) return;
+            if (!confirm("ลบตัวละครทั้งหมดออกจาก TinyVerse?")) return;
+            verseClearAll();
             renderVerse();
+            toastr.success("เคลียร์ตัวละครทั้งหมดแล้ว", "TinyVerse");
         });
         $(document).on("click", ".tinyfeed-verse-card", function () { openCharProfile(String($(this).data("key"))); });
         $(document).on("click", "#tinyfeed-char-profile-close", closeCharProfile);

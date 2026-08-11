@@ -1103,6 +1103,21 @@
             </div>
         </div>
 
+        <div id="tinyfeed-verse-import-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
+            <div class="tinyfeed-gallery-picker-card">
+                <div class="tinyfeed-gallery-picker-head">
+                    <span>เลือกตัวละครที่จะ Import</span>
+                    <span id="tinyfeed-verse-import-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-verse-import-opts">
+                    <label class="tinyfeed-verse-biolabel">จำกัดตัวอักษร bio <input id="tinyfeed-verse-biolimit" type="number" min="0" step="50" /> <small>(0 = ไม่จำกัด)</small></label>
+                    <label class="tinyfeed-verse-selall-row"><input type="checkbox" id="tinyfeed-verse-selall" /> เลือกทั้งหมด</label>
+                </div>
+                <div id="tinyfeed-verse-import-list" class="tinyfeed-verse-import-list"></div>
+                <button id="tinyfeed-verse-import-do" class="tinyfeed-btn-primary"><i class="fa-solid fa-download"></i> Import ที่เลือก</button>
+            </div>
+        </div>
+
         <div id="tinyfeed-slip-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
             <div class="tinyfeed-gallery-picker-card">
                 <div class="tinyfeed-gallery-picker-head">
