@@ -212,6 +212,7 @@ function loadSettings() {
         extension_settings[extensionName].injectMode = "posts_comments_news";
     }
     migrateLegacyAvatars();   // ย้ายรูป override เก่าเข้าโปรไฟล์ persona/char
+    migrateVerseScenes();     // ย้ายซีนเก่าจาก TinyVerse → TinyTheater (ครั้งเดียว)
     const enabled = extension_settings[extensionName].enabled;
     $("#tinyfeed-enabled").prop("checked", enabled);
     applyMenuVisibility(enabled);
@@ -278,7 +279,7 @@ function goHome() {
 }
 
 function openApp(app) {
-    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "pet", "verse"].includes(app)) {
+    if (!["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "pet", "verse", "theater"].includes(app)) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
@@ -344,6 +345,11 @@ function openApp(app) {
         $("#tinyfeed-app-verse").removeClass("tinyfeed-hidden");
         $(".tinyfeed-title").text("TinyVerse");
         openVerse();
+    } else if (app === "theater") {
+        currentApp = "theater";
+        $("#tinyfeed-app-theater").removeClass("tinyfeed-hidden");
+        $(".tinyfeed-title").text("TinyTheater");
+        openTheater();
     } else {
         currentApp = "stream";
         $("#tinyfeed-app-stream").removeClass("tinyfeed-hidden");
@@ -2140,6 +2146,7 @@ const HOME_APPS = [
     { app: "shop", icon: "fa-bag-shopping", name: "TinyShop", a: "#f97316", b: "#c2410c" },
     { app: "pet", icon: "fa-paw", name: "TinyPet", a: "#8b5cf6", b: "#6d28d9" },
     { app: "verse", icon: "fa-globe", name: "TinyVerse", a: "#6366f1", b: "#4338ca" },
+    { app: "theater", icon: "fa-masks-theater", name: "TinyTheater", a: "#e11d48", b: "#9f1239" },
 ];
 const HOME_APPS_PER_PAGE = 9;   // 3 คอลัมน์ × 3 แถวต่อหน้า
 
@@ -2200,6 +2207,7 @@ const APP_META = {
     forum: { label: "TinyForum", icon: "fa-comments", color: "#ef4444" },
     gallery: { label: "คลังสื่อ", icon: "fa-images", color: "#ec4899" },
     verse: { label: "TinyVerse", icon: "fa-globe", color: "#6366f1" },
+    theater: { label: "TinyTheater", icon: "fa-masks-theater", color: "#e11d48" },
 };
 
 // ── สถิติโทเคน "จริง" ณ จุดส่ง (อัปเดตตอน inject/generate เกิดขึ้นจริง) ──
@@ -2572,13 +2580,11 @@ function renderVerse() {
     body.html(`
         <div class="tinyfeed-verse-tabs">
             <div class="tinyfeed-verse-tab${verseTab === "feed" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="feed"><i class="fa-solid fa-hashtag"></i> ฟีด</div>
-            <div class="tinyfeed-verse-tab${verseTab === "scene" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="scene"><i class="fa-solid fa-masks-theater"></i> ซีน</div>
             <div class="tinyfeed-verse-tab${verseTab === "roster" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="roster"><i class="fa-solid fa-users"></i> ตัวละคร</div>
         </div>
         <div id="tinyfeed-verse-tabbody" class="tinyfeed-verse-tabbody"></div>
     `);
     if (verseTab === "feed") renderVerseFeed();
-    else if (verseTab === "scene") renderVerseScenes();
     else renderVerseRoster();
 }
 function renderVerseRoster() {
@@ -2834,109 +2840,344 @@ function addVerseComment(postId, text) {
     renderVerseFeedList();
 }
 
-// ── ซีนครอสโอเวอร์: เลือก 2-4 ตัว → AI แต่งบทสนทนา ──
-let verseSceneSel = [];   // charKeys ที่เลือกอยู่ในหน้าสร้างซีน
-let verseSceneView = null;   // id ซีนที่กำลังเปิดดู (null = หน้ารายการ)
-function renderVerseScenes() {
-    const body = $("#tinyfeed-verse-tabbody");
+// หมายเหตุ: ฟีเจอร์ "ซีนครอสโอเวอร์" ย้ายไปเป็นแอป TinyTheater แล้ว (โหมด "ตอนเดียวจบ")
+// ซีนเก่าใน verse.scenes จะถูกย้ายอัตโนมัติครั้งเดียวโดย migrateVerseScenes()
+
+// ===== TinyTheater (แอปที่ 11): มินิเธียเตอร์ What if — หน้าตาแบบแอปสตรีมมิ่ง =====
+// data: extension_settings[ext].theater = { shows: [ { id,title,whatIf,genre,cover,castKeys,castNames,oneShot,episodes:[{no,title,blocks:[{type,author,avatar,text}],ts}],ts,updatedTs } ] }
+const THEATER_GENRES = ["โรแมนซ์", "ตลก", "ดราม่า", "สยองขวัญ", "แอ็กชัน", "ลึกลับ", "อบอุ่นหัวใจ", "แฟนตาซี"];
+const THEATER_LENGTHS = {
+    oneshot: { label: "ตอนเดียวจบ", hint: "เรื่องสั้นจบในตอน เน้นบทสนทนา", tokens: 500 },
+    short: { label: "สั้น", hint: "อ่านเร็ว ~1 นาที", tokens: 450 },
+    medium: { label: "กลาง", hint: "กำลังดี", tokens: 800 },
+    long: { label: "ยาว", hint: "จัดเต็ม", tokens: 1200 },
+};
+// คำอธิบาย persona ของผู้ใช้จาก ST (ตั้งในหน้า Persona) — ไม่มีก็คืน ""
+function userPersonaDesc() {
+    try {
+        const ctx = getContext();
+        const d = ctx && ctx.powerUserSettings ? ctx.powerUserSettings.persona_description : "";
+        return String(d || "").trim().replace(/\s+/g, " ").slice(0, 400);
+    } catch (e) { return ""; }
+}
+// roster สำหรับพรอมป์ที่รองรับ "ผู้ใช้" ร่วมแสดง (POSTER_USER ปนใน keys ได้)
+function theaterRosterBlock(keys, cap) {
+    const lines = [];
+    const charKeys = [];
+    for (const k of keys) {
+        if (k === POSTER_USER) {
+            const d = userPersonaDesc();
+            lines.push(`- ${getUserName()} (ตัวละครของผู้เล่น)${d ? `: ${d}` : ""}`);
+        } else charKeys.push(k);
+    }
+    const rest = verseRosterBlock(charKeys, cap);
+    return [lines.join("\n"), rest].filter(Boolean).join("\n");
+}
+function theaterCastName(k) { return k === POSTER_USER ? getUserName() : ((getVerse().chars[k] || {}).name || ""); }
+// ผู้ใช้ร่วมแสดง → อนุญาตให้ AI เขียนบทให้ persona ของเราได้ (ปกติห้าม)
+function theaterUserRule(keys) {
+    return keys.includes(POSTER_USER)
+        ? `หมายเหตุ: ${getUserName()} เป็นตัวละครของผู้เล่นที่ร่วมแสดงในเรื่องนี้ด้วย — เขียนบทพูด/การกระทำให้ ${getUserName()} ได้เลย ให้สมกับข้อมูลตัวละครที่ให้ไว้.`
+        : `ห้ามพูดหรือกระทำแทนผู้ใช้.`;
+}
+function getTheater() {
+    const store = extension_settings[extensionName] = extension_settings[extensionName] || {};
+    if (!store.theater || typeof store.theater !== "object") store.theater = { shows: [] };
+    if (!Array.isArray(store.theater.shows)) store.theater.shows = [];
+    return store.theater;
+}
+function saveTheater() { saveSettingsDebounced(); }
+function theaterShow(id) { return getTheater().shows.find((s) => s.id === id) || null; }
+function theaterLength(key) { return THEATER_LENGTHS[key] || THEATER_LENGTHS.medium; }
+// ย้ายซีนเก่าจาก TinyVerse มาเป็นเรื่อง "ตอนเดียวจบ" (ครั้งเดียว)
+function migrateVerseScenes() {
+    const v = getVerse();
+    if (!Array.isArray(v.scenes) || !v.scenes.length) return;
+    const t = getTheater();
+    for (const s of v.scenes) {
+        t.shows.push({
+            id: "sh" + (s.id || Date.now()), title: s.title || "ซีนครอสโอเวอร์", whatIf: s.setting || "",
+            genre: "", cover: "", castKeys: s.charKeys || [], castNames: s.charNames || [], oneShot: true,
+            episodes: [{ no: 1, title: s.title || "", blocks: (s.lines || []).map((l) => ({ type: "line", author: l.author, avatar: l.avatar || "", text: l.text })), ts: s.ts || Date.now() }],
+            ts: s.ts || Date.now(), updatedTs: s.ts || Date.now(),
+        });
+    }
+    v.scenes = [];
+    saveTheater();
+    console.log(`[${extensionName}] migrated ${t.shows.length} verse scene(s) → TinyTheater`);
+}
+// แยกผลลัพธ์ AI เป็นบล็อก (TITLE / EPTITLE / NARRATION / LINE: ชื่อ | ข้อความ)
+function parseTheaterBlocks(raw, fallbackName) {
+    const s = stripReasoning(raw);
+    const out = { title: "", epTitle: "", blocks: [] };
+    for (const line of String(s).split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t) continue;
+        let m;
+        if ((m = t.match(/^TITLE:\s*(.+)$/i))) { if (!out.title) out.title = stripWrapBrackets(m[1].trim()); continue; }
+        if ((m = t.match(/^EPTITLE:\s*(.+)$/i))) { if (!out.epTitle) out.epTitle = stripWrapBrackets(m[1].trim()); continue; }
+        if ((m = t.match(/^NARRATION:\s*(.+)$/i))) {
+            const txt = m[1].trim();
+            if (txt) out.blocks.push({ type: "narration", text: escapeHtml(stripWrapBrackets(txt)) });
+            continue;
+        }
+        if ((m = t.match(/^LINE:\s*(.+)$/i))) {
+            const parts = m[1].split("|");
+            let author = parts.length >= 2 ? parts[0].trim() : fallbackName;
+            let txt = parts.length >= 2 ? parts.slice(1).join("|").trim() : m[1].trim();
+            author = author.replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || fallbackName;
+            if (txt) out.blocks.push({ type: "line", author, avatar: verseAvatarForName(author), text: escapeHtml(stripWrapBrackets(txt)) });
+            continue;
+        }
+    }
+    return out;
+}
+// สรุปเนื้อเรื่องที่ผ่านมาเป็นข้อความ (ป้อนให้ AI เขียนตอนต่อ) — ตัดท้ายกันพรอมป์บวม
+function theaterStorySoFar(show, cap) {
+    const lines = [];
+    for (const ep of show.episodes) {
+        lines.push(`[ตอนที่ ${ep.no}${ep.title ? ` — ${ep.title}` : ""}]`);
+        for (const b of ep.blocks) {
+            const txt = htmlToPlain(b.text);
+            lines.push(b.type === "line" ? `${b.author}: ${txt}` : txt);
+        }
+    }
+    const all = lines.join("\n");
+    const max = cap || 2500;
+    return all.length > max ? "…\n" + all.slice(all.length - max) : all;   // เก็บส่วนท้าย (ล่าสุด) ไว้
+}
+
+// ── หน้าจอ: browse (กริดปก) / create (What if) / read (อ่าน) ──
+let theaterScreen = "browse";
+let theaterShowId = null;
+let theaterEpIdx = 0;
+let theaterCastSel = [];
+let theaterCover = "";
+let theaterBusy = false;
+function openTheater() { theaterScreen = "browse"; theaterShowId = null; renderTheater(); }
+function renderTheater() {
+    const body = $("#tinyfeed-theater-body");
     if (!body.length) return;
-    if (verseSceneView) { renderVerseSceneDetail(); return; }
+    if (theaterScreen === "create") renderTheaterCreate();
+    else if (theaterScreen === "read") renderTheaterRead();
+    else renderTheaterBrowse();
+}
+// ปกเรื่อง: รูปที่เลือก > avatar นักแสดงคนแรก > ไล่เฉดสี
+function theaterPosterHtml(show) {
+    if (show.cover) return `<div class="tinyfeed-th-poster" style="background-image:url('${escapeAttr(show.cover)}')"></div>`;
+    // ไล่หา avatar ตัวแรกที่ใช้ได้ (รองรับ persona ของผู้ใช้ที่ร่วมแสดง)
+    for (const k of (show.castKeys || [])) {
+        const url = k === POSTER_USER ? getUserAvatar() : ((getVerse().chars[k] || {}).avatar || "");
+        if (url) return `<div class="tinyfeed-th-poster" style="background-image:url('${escapeAttr(url)}')"></div>`;
+    }
+    return `<div class="tinyfeed-th-poster tinyfeed-th-poster-blank"><i class="fa-solid fa-masks-theater"></i></div>`;
+}
+function renderTheaterBrowse() {
+    const shows = getTheater().shows.slice().sort((a, b) => (b.updatedTs || b.ts || 0) - (a.updatedTs || a.ts || 0));
+    const cards = shows.map((s) => `
+        <div class="tinyfeed-th-card" data-show="${escapeAttr(s.id)}">
+            ${theaterPosterHtml(s)}
+            <div class="tinyfeed-th-cardtitle">${escapeText(s.title || "ไม่มีชื่อเรื่อง")}</div>
+            <div class="tinyfeed-th-cardmeta">${s.oneShot ? "จบในตอน" : `${s.episodes.length} ตอน`}${s.genre ? ` · ${escapeText(s.genre)}` : ""}</div>
+        </div>`).join("");
+    $("#tinyfeed-theater-body").html(`
+        <div class="tinyfeed-th-hero">
+            <div class="tinyfeed-th-herotitle">🎬 มินิเธียเตอร์</div>
+            <div class="tinyfeed-th-herosub">เลือกตัวละคร ตั้งโจทย์ “What if…” แล้วให้ AI เขียนเป็นเรื่อง</div>
+            <button id="tinyfeed-th-new" class="tinyfeed-btn-primary tinyfeed-th-newbtn"><i class="fa-solid fa-plus"></i> สร้างเรื่องใหม่</button>
+        </div>
+        ${shows.length
+            ? `<div class="tinyfeed-th-sectitle">คลังเรื่อง</div><div class="tinyfeed-th-grid">${cards}</div>`
+            : `<div class="tinyfeed-verse-empty"><i class="fa-solid fa-clapperboard"></i><p>ยังไม่มีเรื่อง<br>กด <b>สร้างเรื่องใหม่</b> เพื่อเปิดโรงละครแรกของคุณ</p></div>`}
+    `);
+}
+function renderTheaterCreate() {
     const v = getVerse();
     const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
-    if (keys.length < 2) {
-        body.html(`<div class="tinyfeed-verse-empty"><i class="fa-solid fa-masks-theater"></i><p>ต้องมีตัวละครอย่างน้อย 2 ตัว<br>ไปแท็บ <b>ตัวละคร</b> แล้ว Import เพิ่มก่อนนะ</p></div>`);
-        return;
-    }
-    const picks = keys.map((k) => {
+    // ไม่มีตัวละครก็ยังสร้างได้ (แสดงเดี่ยวด้วย persona ของเรา) — แค่ใบ้ให้ไป import
+    // การ์ดแรก = persona ของเรา (ร่วมแสดงได้)
+    const userOn = theaterCastSel.includes(POSTER_USER);
+    const userPick = `<div class="tinyfeed-th-castpick${userOn ? " tinyfeed-th-castpick-on" : ""}" data-key="${POSTER_USER}" title="persona ของคุณ">
+            ${makeAvatar({ isUser: true, author: getUserName() })}
+            <span class="tinyfeed-th-castname">${escapeText(getUserName())}<br><small>(คุณ)</small></span>
+        </div>`;
+    const picks = userPick + keys.map((k) => {
         const c = v.chars[k];
-        const on = verseSceneSel.includes(k);
-        return `<div class="tinyfeed-verse-scenepick${on ? " tinyfeed-verse-scenepick-on" : ""}" data-key="${escapeAttr(k)}">
+        const on = theaterCastSel.includes(k);
+        return `<div class="tinyfeed-th-castpick${on ? " tinyfeed-th-castpick-on" : ""}" data-key="${escapeAttr(k)}">
             ${makeAvatar({ avatar: c.avatar || "", author: c.name })}
-            <span class="tinyfeed-verse-scenepick-name">${escapeText(c.name)}</span>
+            <span class="tinyfeed-th-castname">${escapeText(c.name)}</span>
         </div>`;
     }).join("");
-    const saved = v.scenes.length ? v.scenes.map((s) => `
-        <div class="tinyfeed-verse-scenerow" data-scene="${escapeAttr(s.id)}">
-            <div class="tinyfeed-verse-scenerow-main">
-                <span class="tinyfeed-verse-scenerow-title">${escapeText(s.title || "ซีนครอสโอเวอร์")}</span>
-                <span class="tinyfeed-verse-scenerow-sub">${escapeText((s.charNames || []).join(" · "))} · ${s.lines.length} บรรทัด</span>
-            </div>
-            <span class="tinyfeed-verse-scenedel" data-scene="${escapeAttr(s.id)}" title="ลบซีน"><i class="fa-solid fa-trash"></i></span>
-        </div>`).join("") : `<div class="tinyfeed-verse-feed-empty">ยังไม่มีซีนที่บันทึกไว้</div>`;
-    body.html(`
-        <div class="tinyfeed-verse-scenebox">
-            <div class="tinyfeed-verse-scenetitle">เลือกตัวละคร 2-4 ตัวให้มาเจอกัน <span class="tinyfeed-verse-scenecount">(เลือกแล้ว ${verseSceneSel.length})</span></div>
-            <div class="tinyfeed-verse-scenepicks">${picks}</div>
-            <input id="tinyfeed-verse-setting" class="tinyfeed-gen-guidance tinyfeed-verse-setting" type="text" placeholder="ฉาก/สถานการณ์ (ไม่บังคับ) เช่น เจอกันในร้านกาแฟ" />
-            <button id="tinyfeed-verse-scene-gen" class="tinyfeed-btn-primary tinyfeed-verse-scenegen">
-                <i class="fa-solid fa-wand-magic-sparkles tinyfeed-scene-wand"></i> <span class="tinyfeed-scene-label">สร้างซีน</span>
-            </button>
+    const genres = THEATER_GENRES.map((g) => `<div class="tinyfeed-th-genre" data-genre="${escapeAttr(g)}">${escapeText(g)}</div>`).join("");
+    const lens = Object.keys(THEATER_LENGTHS).map((k) => `<option value="${k}">${THEATER_LENGTHS[k].label} — ${THEATER_LENGTHS[k].hint}</option>`).join("");
+    $("#tinyfeed-theater-body").html(`
+        <div class="tinyfeed-th-head">
+            <button id="tinyfeed-th-back" class="tinyfeed-btn-ghost"><i class="fa-solid fa-arrow-left"></i> กลับ</button>
+            <span class="tinyfeed-th-headtitle">สร้างเรื่องใหม่</span>
         </div>
-        <div class="tinyfeed-verse-scenelist">${saved}</div>
+        <div class="tinyfeed-th-formsec">
+            <div class="tinyfeed-th-label">นักแสดง <small>(เลือก 1-4 ตัว · ครอสโอเวอร์ได้ · ใส่ตัวคุณเองก็ได้)</small> <span class="tinyfeed-th-selcount">เลือกแล้ว ${theaterCastSel.length}</span></div>
+            <div class="tinyfeed-th-casts">${picks}</div>
+            ${keys.length ? "" : `<div class="tinyfeed-th-hint">ยังไม่มีตัวละครอื่น — ไป <b>TinyVerse › ตัวละคร</b> กด Import เพื่อให้มาร่วมแสดงได้</div>`}
+        </div>
+        <div class="tinyfeed-th-formsec">
+            <div class="tinyfeed-th-label">What if… <small>(หัวใจของเรื่อง)</small></div>
+            <textarea id="tinyfeed-th-whatif" class="tinyfeed-th-whatif" rows="3" placeholder="เช่น ถ้าทั้งคู่ตื่นมาแล้วสลับร่างกัน…"></textarea>
+        </div>
+        <div class="tinyfeed-th-formsec">
+            <div class="tinyfeed-th-label">แนวเรื่อง <small>(เลือกหรือพิมพ์เองก็ได้)</small></div>
+            <div class="tinyfeed-th-genres">${genres}</div>
+            <input id="tinyfeed-th-genre" class="tinyfeed-gen-guidance tinyfeed-th-genreinput" type="text" placeholder="แนวเรื่อง" />
+        </div>
+        <div class="tinyfeed-th-formsec">
+            <div class="tinyfeed-th-label">ความยาว</div>
+            <select id="tinyfeed-th-length" class="tinyfeed-th-length">${lens}</select>
+        </div>
+        <div class="tinyfeed-th-formsec">
+            <div class="tinyfeed-th-label">ปกเรื่อง <small>(ไม่บังคับ)</small></div>
+            <div class="tinyfeed-th-coverrow">
+                <div id="tinyfeed-th-coverprev" class="tinyfeed-th-coverprev">${theaterCover ? `<img src="${escapeAttr(theaterCover)}" />` : `<i class="fa-solid fa-image"></i>`}</div>
+                <button id="tinyfeed-th-cover" class="tinyfeed-btn-ghost">เลือกจากคลังรูป</button>
+                ${theaterCover ? `<button id="tinyfeed-th-coverclear" class="tinyfeed-btn-ghost">ล้าง</button>` : ""}
+            </div>
+        </div>
+        <button id="tinyfeed-th-create" class="tinyfeed-btn-primary tinyfeed-th-createbtn">
+            <i class="fa-solid fa-wand-magic-sparkles tinyfeed-th-wand"></i> <span class="tinyfeed-th-createlabel">เปิดม่าน! สร้างเรื่อง</span>
+        </button>
+    `);
+    $("#tinyfeed-th-length").val("medium");
+}
+function renderTheaterRead() {
+    const show = theaterShow(theaterShowId);
+    if (!show) { theaterScreen = "browse"; renderTheater(); return; }
+    const idx = Math.max(0, Math.min(theaterEpIdx, show.episodes.length - 1));
+    theaterEpIdx = idx;
+    const ep = show.episodes[idx];
+    const cast = (show.castNames || []).join(" × ");
+    const eps = show.episodes.map((e, i) => `<div class="tinyfeed-th-epchip${i === idx ? " tinyfeed-th-epchip-on" : ""}" data-ep="${i}">EP${e.no}</div>`).join("");
+    const blocks = ep.blocks.map((b) => b.type === "line"
+        ? `<div class="tinyfeed-th-line">
+                ${makeAvatar({ avatar: b.avatar || "", author: b.author })}
+                <div class="tinyfeed-th-linebody"><span class="tinyfeed-th-lineauthor">${escapeText(b.author)}</span><span class="tinyfeed-th-linetext">${renderRich(b.text)}</span></div>
+           </div>`
+        : `<div class="tinyfeed-th-narration">${renderRich(b.text)}</div>`).join("");
+    $("#tinyfeed-theater-body").html(`
+        <div class="tinyfeed-th-readhero">
+            ${theaterPosterHtml(show)}
+            <div class="tinyfeed-th-readovl">
+                <button id="tinyfeed-th-back" class="tinyfeed-th-backbtn"><i class="fa-solid fa-arrow-left"></i></button>
+                <span class="tinyfeed-th-deleteshow" data-show="${escapeAttr(show.id)}" title="ลบเรื่องนี้"><i class="fa-solid fa-trash"></i></span>
+            </div>
+        </div>
+        <div class="tinyfeed-th-readbody">
+            <div class="tinyfeed-th-readtitle">${escapeText(show.title || "ไม่มีชื่อเรื่อง")}</div>
+            <div class="tinyfeed-th-readmeta">${escapeText(cast)}${show.genre ? ` · ${escapeText(show.genre)}` : ""} · ${show.oneShot ? "จบในตอน" : `${show.episodes.length} ตอน`}</div>
+            ${show.whatIf ? `<div class="tinyfeed-th-whatifbox"><b>What if…</b> ${escapeText(show.whatIf)}</div>` : ""}
+            ${show.episodes.length > 1 ? `<div class="tinyfeed-th-eps">${eps}</div>` : ""}
+            ${ep.title ? `<div class="tinyfeed-th-eptitle">EP${ep.no} · ${escapeText(ep.title)}</div>` : ""}
+            <div class="tinyfeed-th-story">${blocks}</div>
+            ${show.oneShot ? "" : `<button id="tinyfeed-th-next" class="tinyfeed-btn-primary tinyfeed-th-nextbtn">
+                <i class="fa-solid fa-wand-magic-sparkles tinyfeed-th-wand"></i> <span class="tinyfeed-th-nextlabel">เขียนตอนต่อไป</span>
+            </button>`}
+        </div>
     `);
 }
-function renderVerseSceneDetail() {
-    const body = $("#tinyfeed-verse-tabbody");
-    const s = getVerse().scenes.find((x) => x.id === verseSceneView);
-    if (!s) { verseSceneView = null; renderVerseScenes(); return; }
-    const lines = s.lines.map((l) => `
-        <div class="tinyfeed-verse-line">
-            ${makeAvatar({ avatar: l.avatar || "", author: l.author })}
-            <div class="tinyfeed-verse-linebody">
-                <span class="tinyfeed-verse-lineauthor">${escapeText(l.author)}</span>
-                <span class="tinyfeed-verse-linetext">${renderRich(l.text)}</span>
-            </div>
-        </div>`).join("");
-    body.html(`
-        <div class="tinyfeed-verse-scenehead">
-            <button id="tinyfeed-verse-scene-back" class="tinyfeed-btn-ghost"><i class="fa-solid fa-arrow-left"></i> ซีนทั้งหมด</button>
-            <div class="tinyfeed-verse-scenehead-title">${escapeText(s.title || "ซีนครอสโอเวอร์")}</div>
-            ${s.setting ? `<div class="tinyfeed-verse-scenehead-sub">${escapeText(s.setting)}</div>` : ""}
-        </div>
-        <div class="tinyfeed-verse-lines">${lines}</div>
-    `);
+function setTheaterGenerating(on, labelSel, busyText, idleText) {
+    $(".tinyfeed-th-wand").toggleClass("tinyfeed-spin", on);
+    $("#tinyfeed-th-create, #tinyfeed-th-next").prop("disabled", on);
+    $(labelSel).text(on ? busyText : idleText);
 }
-async function verseGenerateScene() {
-    if (verseBusy) return;
+// สร้างเรื่องใหม่ (ตอนที่ 1 + ตั้งชื่อเรื่อง)
+async function theaterCreateShow() {
+    if (theaterBusy) return;
     const v = getVerse();
-    if (verseSceneSel.length < 2) { toastr.info("เลือกตัวละครอย่างน้อย 2 ตัวนะ", "TinyVerse"); return; }
+    const keys = theaterCastSel.filter((k) => k === POSTER_USER || v.chars[k]);   // POSTER_USER = persona ของเรา
+    if (!keys.length) { toastr.info("เลือกนักแสดงอย่างน้อย 1 ตัวนะ", "TinyTheater"); return; }
+    const whatIf = String($("#tinyfeed-th-whatif").val() || "").trim();
+    if (!whatIf) { toastr.info("ใส่โจทย์ What if… ก่อนนะ", "TinyTheater"); return; }
     const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyVerse"); return; }
-    const keys = verseSceneSel.filter((k) => v.chars[k]);
-    const names = keys.map((k) => v.chars[k].name);
-    const setting = String($("#tinyfeed-verse-setting").val() || "").trim();
-    verseBusy = true;
-    $("#tinyfeed-verse-scene-gen").prop("disabled", true);
-    $(".tinyfeed-scene-wand").addClass("tinyfeed-spin");
-    $(".tinyfeed-scene-label").text("กำลังสร้าง...");
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyTheater"); return; }
+    const genre = String($("#tinyfeed-th-genre").val() || "").trim();
+    const lenKey = String($("#tinyfeed-th-length").val() || "medium");
+    const len = theaterLength(lenKey);
+    const names = keys.map(theaterCastName).filter(Boolean);
+    theaterBusy = true;
+    setTheaterGenerating(true, ".tinyfeed-th-createlabel", "กำลังเปิดม่าน...", "เปิดม่าน! สร้างเรื่อง");
     try {
-        const q = buildPrompt("verseScene", {
-            chars: names.join(", "),
-            roster: verseRosterBlock(keys, 300),
-            setting: setting || "(ไม่ระบุ — คิดฉากที่น่าสนใจให้เข้ากับตัวละครเหล่านี้เอง)",
+        const q = buildPrompt("theaterEpisode", {
+            chars: names.join(", "), roster: theaterRosterBlock(keys, 300), whatIf,
+            genre: genre || "(อิสระ)", length: `${len.label} — ${len.hint}`,
+            userRule: theaterUserRule(keys),
         });
-        const raw = await tinyGenerate(q, Math.max(300, verseTokens() * 3), "verse");
-        const parsed = parseCommentLines(raw, names[0], "LINE");
-        const lines = parsed.map((l) => ({ author: l.author, avatar: verseAvatarForName(l.author), text: l.text }));
-        if (!lines.length) { toastr.info("ยังแต่งซีนไม่ได้ ลองใหม่นะ", "TinyVerse"); return; }
-        const scene = {
-            id: "sc" + Date.now(), title: names.join(" × "), charKeys: keys.slice(), charNames: names.slice(),
-            setting, lines, ts: Date.now(),
+        const raw = await tinyGenerate(q, len.tokens, "theater");
+        const parsed = parseTheaterBlocks(raw, names[0]);
+        if (!parsed.blocks.length) { toastr.info("ยังเขียนไม่ออก ลองใหม่หรือปรับโจทย์นะ", "TinyTheater"); return; }
+        const show = {
+            id: "sh" + Date.now(), title: parsed.title || names.join(" × "), whatIf, genre,
+            cover: theaterCover || "", castKeys: keys.slice(), castNames: names.slice(),
+            oneShot: lenKey === "oneshot", lengthKey: lenKey,   // เก็บไว้ให้ตอนต่อไปใช้ความยาวเดิม
+            episodes: [{ no: 1, title: parsed.epTitle || "", blocks: parsed.blocks, ts: Date.now() }],
+            ts: Date.now(), updatedTs: Date.now(),
         };
-        v.scenes.unshift(scene);
-        if (v.scenes.length > 50) v.scenes.length = 50;
-        saveVerse();
-        verseSceneView = scene.id;
-        renderVerseScenes();
+        getTheater().shows.unshift(show);
+        saveTheater();
+        theaterCastSel = []; theaterCover = "";
+        theaterShowId = show.id; theaterEpIdx = 0; theaterScreen = "read";
+        renderTheater();
     } catch (e) {
-        console.error(`[${extensionName}] verseGenerateScene failed:`, e);
-        toastr.error("สร้างซีนไม่สำเร็จ", "TinyVerse");
+        console.error(`[${extensionName}] theaterCreateShow failed:`, e);
+        toastr.error("สร้างเรื่องไม่สำเร็จ", "TinyTheater");
     } finally {
-        verseBusy = false;
-        $("#tinyfeed-verse-scene-gen").prop("disabled", false);
-        $(".tinyfeed-scene-wand").removeClass("tinyfeed-spin");
-        $(".tinyfeed-scene-label").text("สร้างซีน");
+        theaterBusy = false;
+        setTheaterGenerating(false, ".tinyfeed-th-createlabel", "กำลังเปิดม่าน...", "เปิดม่าน! สร้างเรื่อง");
     }
+}
+// เขียนตอนต่อไป (ต่อเนื้อเรื่องเดิม)
+async function theaterNextEpisode() {
+    if (theaterBusy) return;
+    const show = theaterShow(theaterShowId);
+    if (!show) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyTheater"); return; }
+    const v = getVerse();
+    const keys = (show.castKeys || []).filter((k) => k === POSTER_USER || v.chars[k]);
+    const len = theaterLength(show.lengthKey || "medium");
+    const epNo = show.episodes.length + 1;
+    theaterBusy = true;
+    setTheaterGenerating(true, ".tinyfeed-th-nextlabel", "กำลังเขียน...", "เขียนตอนต่อไป");
+    try {
+        const q = buildPrompt("theaterNext", {
+            chars: (show.castNames || []).join(", "),
+            roster: keys.length ? theaterRosterBlock(keys, 300) : (show.castNames || []).map((n) => `- ${n}`).join("\n"),
+            whatIf: show.whatIf || "(ไม่ระบุ)", genre: show.genre || "(อิสระ)",
+            length: `${len.label} — ${len.hint}`, epNo: String(epNo), story: theaterStorySoFar(show),
+            userRule: theaterUserRule(keys),
+        });
+        const raw = await tinyGenerate(q, len.tokens, "theater");
+        const parsed = parseTheaterBlocks(raw, (show.castNames || [])[0] || "");
+        if (!parsed.blocks.length) { toastr.info("ยังเขียนต่อไม่ออก ลองใหม่นะ", "TinyTheater"); return; }
+        show.episodes.push({ no: epNo, title: parsed.epTitle || "", blocks: parsed.blocks, ts: Date.now() });
+        show.updatedTs = Date.now();
+        saveTheater();
+        theaterEpIdx = show.episodes.length - 1;
+        renderTheater();
+    } catch (e) {
+        console.error(`[${extensionName}] theaterNextEpisode failed:`, e);
+        toastr.error("เขียนตอนต่อไม่สำเร็จ", "TinyTheater");
+    } finally {
+        theaterBusy = false;
+        setTheaterGenerating(false, ".tinyfeed-th-nextlabel", "กำลังเขียน...", "เขียนตอนต่อไป");
+    }
+}
+function theaterDeleteShow(id) {
+    const t = getTheater();
+    const i = t.shows.findIndex((s) => s.id === id);
+    if (i < 0) return;
+    t.shows.splice(i, 1);
+    saveTheater();
+    theaterScreen = "browse"; theaterShowId = null;
+    renderTheater();
 }
 
 // ── ตัวเลือกคนโพสต์ (เรา / สุ่ม / ตัวละครใน roster) — แตะรูปโปรไฟล์ในช่องเขียน ──
@@ -5109,13 +5350,22 @@ const PROMPT_DEFS = {
             `แต่งคอมเมนต์ 2-4 อันจากตัวละครในรายชื่อข้างบน (คนละคนกัน ห้ามใช้ {{author}}) ให้สมคาแรกเตอร์แต่ละคน สั้นๆ 1-2 ประโยค เป็นธรรมชาติเหมือนคอมเมนต์โซเชียลจริง ตัวละครต่างโลกกันทักกันได้อย่างสนุก. ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
             `ตอบบรรทัดละ 1 คอมเมนต์ในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อตัวละคร> | <ข้อความ>`,
     },
-    verseScene: {
-        label: "ซีนครอสโอเวอร์ (TinyVerse)", marker: "LINE:", tokens: ["chars", "roster", "setting"],
+    theaterEpisode: {
+        label: "ตอนแรก (TinyTheater)", marker: "NARRATION:", tokens: ["chars", "roster", "whatIf", "genre", "length", "userRule"],
         default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งฉากครอสโอเวอร์ที่ตัวละครจากต่างโลกได้มาเจอกัน: {{chars}}. ข้อมูลตัวละครแต่ละคน (ใช้กำหนดนิสัย/น้ำเสียง):\n{{roster}}\n` +
-            `สถานการณ์/ฉาก: {{setting}}\n` +
-            `เขียนบทสนทนา 6-12 บรรทัด ให้ตัวละครทุกคนได้พูด สมคาแรกเตอร์ของแต่ละคน มีการโต้ตอบกันจริงๆ (ไม่ใช่ต่างคนต่างพูด) สนุกและเป็นธรรมชาติ. ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
-            `ตอบบรรทัดละ 1 ประโยคในรูปแบบนี้เท่านั้น:\nLINE: <ชื่อตัวละคร> | <คำพูดหรือการกระทำสั้นๆ>`,
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียน "มินิเธียเตอร์" (小劇場) — เรื่องสั้นแนว What if ที่ตัวละครจากต่างโลกมาเจอกัน. นักแสดง: {{chars}}. ข้อมูลตัวละครแต่ละคน (ใช้กำหนดนิสัย/น้ำเสียง):\n{{roster}}\n` +
+            `โจทย์ What if: {{whatIf}}\nแนวเรื่อง: {{genre}}\nความยาว: {{length}}\n` +
+            `ตั้งชื่อเรื่องให้น่าสนใจ + ชื่อตอนแรก แล้วเขียนเนื้อเรื่องสลับระหว่างคำบรรยายกับบทพูด ให้ตัวละครทุกคนมีบทบาท สมคาแรกเตอร์ มีจังหวะเปิดเรื่องที่ชวนติดตาม. ใช้ภาษาเดียวกับข้อมูลตัวละคร. {{userRule}}\n` +
+            `ตอบตามรูปแบบนี้เท่านั้น (บรรทัดละ 1 รายการ):\nTITLE: <ชื่อเรื่อง>\nEPTITLE: <ชื่อตอน>\nNARRATION: <คำบรรยาย>\nLINE: <ชื่อตัวละคร> | <บทพูด>`,
+    },
+    theaterNext: {
+        label: "ตอนต่อไป (TinyTheater)", marker: "NARRATION:", tokens: ["chars", "roster", "whatIf", "genre", "length", "epNo", "story", "userRule"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนตอนที่ {{epNo}} ของมินิเธียเตอร์เรื่องนี้ต่อจากเดิม. นักแสดง: {{chars}}. ข้อมูลตัวละคร:\n{{roster}}\n` +
+            `โจทย์ What if: {{whatIf}}\nแนวเรื่อง: {{genre}}\nความยาว: {{length}}\n` +
+            `เนื้อเรื่องที่ผ่านมา:\n{{story}}\n` +
+            `เขียนตอนต่อไปให้ต่อเนื่องกับของเดิม (อ้างถึงสิ่งที่เกิดขึ้นแล้วได้) พัฒนาเรื่องให้คืบหน้า อย่าเล่าซ้ำ ตั้งชื่อตอนใหม่. ใช้ภาษาเดียวกับข้อมูลตัวละคร. {{userRule}}\n` +
+            `ตอบตามรูปแบบนี้เท่านั้น (บรรทัดละ 1 รายการ):\nEPTITLE: <ชื่อตอน>\nNARRATION: <คำบรรยาย>\nLINE: <ชื่อตัวละคร> | <บทพูด>`,
     },
     shopItems: {
         label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "extra", "context"],
@@ -6883,7 +7133,7 @@ async function groupSelfChat(threadKey, opts) {
 }
 
 // ===== จำ/คืนหน้าจอล่าสุด =====
-const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "verse"];
+const MEMO_APPS = ["feed", "connect", "stream", "memo", "forum", "gallery", "bank", "shop", "verse", "theater"];
 function saveLastScreen() {
     try {
         const data = getFeedData();
@@ -7692,6 +7942,54 @@ jQuery(async () => {
         $(document).on("keydown", ".tinyfeed-verse-cinput", function (e) {
             if (e.key === "Enter") { e.preventDefault(); addVerseComment(String($(this).data("vpost")), $(this).val()); }
         });
+        // ===== TinyTheater: มินิเธียเตอร์ What if =====
+        $(document).on("click", "#tinyfeed-th-new", function () {
+            theaterCastSel = []; theaterCover = ""; theaterScreen = "create"; renderTheater();
+        });
+        $(document).on("click", "#tinyfeed-th-back", function () {
+            if (theaterScreen === "read") { theaterScreen = "browse"; theaterShowId = null; }
+            else theaterScreen = "browse";
+            renderTheater();
+        });
+        $(document).on("click", ".tinyfeed-th-card", function () {
+            theaterShowId = String($(this).data("show")); theaterEpIdx = 0; theaterScreen = "read"; renderTheater();
+        });
+        $(document).on("click", ".tinyfeed-th-castpick", function () {
+            const k = String($(this).data("key"));
+            const i = theaterCastSel.indexOf(k);
+            if (i >= 0) theaterCastSel.splice(i, 1);
+            else { if (theaterCastSel.length >= 4) { toastr.info("เลือกได้สูงสุด 4 ตัว", "TinyTheater"); return; } theaterCastSel.push(k); }
+            // คงค่าที่กรอกไว้ระหว่าง re-render
+            const w = String($("#tinyfeed-th-whatif").val() || ""), g = String($("#tinyfeed-th-genre").val() || ""), l = String($("#tinyfeed-th-length").val() || "medium");
+            renderTheaterCreate();
+            $("#tinyfeed-th-whatif").val(w); $("#tinyfeed-th-genre").val(g); $("#tinyfeed-th-length").val(l);
+        });
+        $(document).on("click", ".tinyfeed-th-genre", function () { $("#tinyfeed-th-genre").val(String($(this).data("genre"))); });
+        $(document).on("click", "#tinyfeed-th-cover", function () {
+            openGalleryPicker("image", (token) => {
+                const m = String(token).match(/\[img:([^\]]+)\]/i);
+                const img = m ? findGalleryImage(m[1]) : null;
+                if (!img) { toastr.info("เลือกรูปไม่สำเร็จ", "TinyTheater"); return; }
+                theaterCover = img.url || "";
+                const w = String($("#tinyfeed-th-whatif").val() || ""), g = String($("#tinyfeed-th-genre").val() || ""), l = String($("#tinyfeed-th-length").val() || "medium");
+                renderTheaterCreate();
+                $("#tinyfeed-th-whatif").val(w); $("#tinyfeed-th-genre").val(g); $("#tinyfeed-th-length").val(l);
+            });
+        });
+        $(document).on("click", "#tinyfeed-th-coverclear", function () {
+            theaterCover = "";
+            const w = String($("#tinyfeed-th-whatif").val() || ""), g = String($("#tinyfeed-th-genre").val() || ""), l = String($("#tinyfeed-th-length").val() || "medium");
+            renderTheaterCreate();
+            $("#tinyfeed-th-whatif").val(w); $("#tinyfeed-th-genre").val(g); $("#tinyfeed-th-length").val(l);
+        });
+        $(document).on("click", "#tinyfeed-th-create", theaterCreateShow);
+        $(document).on("click", "#tinyfeed-th-next", theaterNextEpisode);
+        $(document).on("click", ".tinyfeed-th-epchip", function () { theaterEpIdx = parseInt($(this).data("ep"), 10) || 0; renderTheater(); });
+        $(document).on("click", ".tinyfeed-th-deleteshow", function () {
+            if (!confirm("ลบเรื่องนี้ทั้งหมด?")) return;
+            theaterDeleteShow(String($(this).data("show")));
+        });
+
         $(document).on("click", ".tinyfeed-verse-cdel", function () {
             const post = verseFeedPost(String($(this).data("vpost")));
             const idx = parseInt($(this).data("cidx"), 10);
@@ -7699,29 +7997,6 @@ jQuery(async () => {
             post.comments.splice(idx, 1);
             saveVerse();
             renderVerseFeedList();
-        });
-        // ── ครอสโอเวอร์: ซีน ──
-        $(document).on("click", ".tinyfeed-verse-scenepick", function () {
-            const k = String($(this).data("key"));
-            const i = verseSceneSel.indexOf(k);
-            if (i >= 0) verseSceneSel.splice(i, 1);
-            else { if (verseSceneSel.length >= 4) { toastr.info("เลือกได้สูงสุด 4 ตัว", "TinyVerse"); return; } verseSceneSel.push(k); }
-            const setting = String($("#tinyfeed-verse-setting").val() || "");
-            renderVerseScenes();
-            $("#tinyfeed-verse-setting").val(setting);   // คงข้อความฉากที่พิมพ์ไว้
-        });
-        $(document).on("click", "#tinyfeed-verse-scene-gen", verseGenerateScene);
-        $(document).on("click", ".tinyfeed-verse-scenerow-main", function () {
-            verseSceneView = String($(this).closest(".tinyfeed-verse-scenerow").data("scene"));
-            renderVerseScenes();
-        });
-        $(document).on("click", "#tinyfeed-verse-scene-back", function () { verseSceneView = null; renderVerseScenes(); });
-        $(document).on("click", ".tinyfeed-verse-scenedel", function (e) {
-            e.stopPropagation();
-            const id = String($(this).data("scene"));
-            const v = getVerse();
-            const i = v.scenes.findIndex((s) => s.id === id);
-            if (i >= 0) { v.scenes.splice(i, 1); saveVerse(); if (verseSceneView === id) verseSceneView = null; renderVerseScenes(); }
         });
         $(document).on("click", "#tinyfeed-char-profile-close", closeCharProfile);
         $(document).on("click", "#tinyfeed-char-profile", function (e) { if (e.target === this) closeCharProfile(); });

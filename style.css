@@ -4171,36 +4171,6 @@
 }
 .tinyfeed-verse-cinput:focus { border-color: var(--tf-accent); }
 .tinyfeed-verse-csend { flex-shrink: 0; background: none; border: none; color: var(--tf-accent); cursor: pointer; padding: 4px 6px; font-size: 0.95em; }
-/* ซีนครอสโอเวอร์ */
-.tinyfeed-verse-scenebox { border-bottom: 1px solid var(--tf-border); padding-bottom: 12px; margin-bottom: 10px; }
-.tinyfeed-verse-scenetitle { font-size: 0.85em; color: var(--tf-text); margin-bottom: 8px; }
-.tinyfeed-verse-scenecount { color: var(--tf-text-muted); font-size: 0.9em; }
-.tinyfeed-verse-scenepicks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
-.tinyfeed-verse-scenepick {
-    display: flex; flex-direction: column; align-items: center; gap: 4px; width: 62px;
-    padding: 6px 2px; border-radius: 10px; cursor: pointer;
-    border: 1px solid transparent; transition: border-color 0.15s ease, background 0.15s ease;
-}
-.tinyfeed-verse-scenepick .tinyfeed-avatar { width: 44px; height: 44px; }
-.tinyfeed-verse-scenepick-name { font-size: 0.7em; color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
-.tinyfeed-verse-scenepick-on { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
-.tinyfeed-verse-scenepick-on .tinyfeed-verse-scenepick-name { color: var(--tf-accent); font-weight: 600; }
-.tinyfeed-verse-setting { display: block; width: 100%; box-sizing: border-box; margin-bottom: 10px; }
-.tinyfeed-verse-scenegen { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
-.tinyfeed-verse-scenerow { display: flex; align-items: center; gap: 8px; padding: 10px; border-radius: 10px; border: 1px solid var(--tf-border); margin-bottom: 8px; }
-.tinyfeed-verse-scenerow-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
-.tinyfeed-verse-scenerow-title { font-size: 0.88em; color: var(--tf-text-strong); word-break: break-word; }
-.tinyfeed-verse-scenerow-sub { font-size: 0.72em; color: var(--tf-text-muted); word-break: break-word; }
-.tinyfeed-verse-scenedel { color: var(--tf-text-muted); cursor: pointer; padding: 4px; flex-shrink: 0; }
-.tinyfeed-verse-scenedel:hover { color: #ef4444; }
-.tinyfeed-verse-scenehead { margin-bottom: 12px; }
-.tinyfeed-verse-scenehead-title { font-size: 1em; font-weight: 700; color: var(--tf-text-strong); margin-top: 8px; word-break: break-word; }
-.tinyfeed-verse-scenehead-sub { font-size: 0.78em; color: var(--tf-text-muted); margin-top: 2px; }
-.tinyfeed-verse-line { display: flex; gap: 8px; margin-bottom: 12px; }
-.tinyfeed-verse-line .tinyfeed-avatar { width: 34px; height: 34px; flex-shrink: 0; }
-.tinyfeed-verse-linebody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.tinyfeed-verse-lineauthor { font-size: 0.78em; font-weight: 600; color: var(--tf-accent); }
-.tinyfeed-verse-linetext { font-size: 0.86em; color: var(--tf-text); line-height: 1.5; word-break: break-word; }
 /* ตัวเลือกคนโพสต์ (mirror .tinyfeed-char-pick) */
 .tinyfeed-verse-poster-pick { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; border-radius: 8px; }
 .tinyfeed-verse-poster-pick:hover { background: color-mix(in srgb, var(--tf-accent) 10%, transparent); }
@@ -4304,3 +4274,101 @@
 .tinyfeed-pet-sprite-emoji { flex-shrink: 0; font-size: 1.2em; width: 22px; text-align: center; }
 .tinyfeed-pet-sprite-label { flex-shrink: 0; width: 66px; font-size: 0.82em; color: var(--tf-text-muted); }
 #tinyfeed-settings-screen .tinyfeed-pet-sprite-url { flex: 1; min-width: 0; font-size: 0.82em; }
+
+/* ===== TinyTheater: มินิเธียเตอร์ What if (ฟีลแอปสตรีมมิ่ง) ===== */
+.tinyfeed-theater-body { height: 100%; overflow-y: auto; padding: 0 0 16px; }
+/* หน้าแรก: hero + กริดปก */
+.tinyfeed-th-hero {
+    padding: 18px 14px 16px;
+    background: linear-gradient(150deg, color-mix(in srgb, #e11d48 45%, var(--tf-topbar)), var(--tf-topbar) 75%);
+    border-bottom: 1px solid var(--tf-border);
+    margin-bottom: 14px;
+}
+.tinyfeed-th-herotitle { font-size: 1.15em; font-weight: 700; color: var(--tf-text-strong); }
+.tinyfeed-th-herosub { font-size: 0.78em; color: var(--tf-text-muted); margin: 4px 0 12px; line-height: 1.5; }
+.tinyfeed-th-newbtn { width: 100%; }
+.tinyfeed-th-sectitle { font-size: 0.85em; font-weight: 600; color: var(--tf-text-strong); padding: 0 12px; margin-bottom: 8px; }
+.tinyfeed-th-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 0 12px; }
+.tinyfeed-th-card { cursor: pointer; transition: transform 0.1s ease; }
+.tinyfeed-th-card:active { transform: scale(0.97); }
+.tinyfeed-th-poster {
+    width: 100%; aspect-ratio: 2 / 3; border-radius: 10px;
+    background-size: cover; background-position: center top;
+    background-color: color-mix(in srgb, var(--tf-accent) 20%, var(--tf-topbar));
+    border: 1px solid var(--tf-border);
+}
+.tinyfeed-th-poster-blank { display: flex; align-items: center; justify-content: center; font-size: 2em; color: var(--tf-text-muted); }
+.tinyfeed-th-cardtitle { font-size: 0.82em; color: var(--tf-text-strong); margin-top: 6px; line-height: 1.3; word-break: break-word; }
+.tinyfeed-th-cardmeta { font-size: 0.7em; color: var(--tf-text-muted); margin-top: 2px; }
+/* หัวหน้าจอย่อย */
+.tinyfeed-th-head { display: flex; align-items: center; gap: 10px; padding: 12px; }
+.tinyfeed-th-headtitle { font-size: 0.92em; font-weight: 600; color: var(--tf-text-strong); }
+/* ฟอร์มสร้างเรื่อง */
+.tinyfeed-th-formsec { padding: 0 12px; margin-bottom: 16px; }
+.tinyfeed-th-label { font-size: 0.82em; color: var(--tf-text); margin-bottom: 8px; }
+.tinyfeed-th-label small { color: var(--tf-text-muted); font-size: 0.88em; }
+.tinyfeed-th-selcount { float: right; font-size: 0.88em; color: var(--tf-accent); }
+.tinyfeed-th-casts { display: flex; flex-wrap: wrap; gap: 8px; }
+.tinyfeed-th-castpick {
+    display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px;
+    padding: 6px 2px; border-radius: 10px; cursor: pointer;
+    border: 1px solid transparent; transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-th-castpick .tinyfeed-avatar { width: 46px; height: 46px; }
+.tinyfeed-th-castname { font-size: 0.7em; color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
+.tinyfeed-th-castpick-on { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+.tinyfeed-th-castpick-on .tinyfeed-th-castname { color: var(--tf-accent); font-weight: 600; }
+.tinyfeed-th-whatif {
+    width: 100%; box-sizing: border-box; min-height: 74px; resize: vertical;
+    background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: 12px;
+    padding: 10px 12px; font: inherit; font-size: 0.88em; line-height: 1.5; outline: none;
+}
+.tinyfeed-th-whatif:focus { border-color: var(--tf-accent); }
+.tinyfeed-th-genres { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.tinyfeed-th-genre {
+    font-size: 0.75em; padding: 4px 11px; border-radius: 999px; cursor: pointer;
+    background: color-mix(in srgb, var(--tf-accent) 12%, var(--tf-topbar));
+    border: 1px solid var(--tf-border); color: var(--tf-text);
+}
+.tinyfeed-th-genre:hover { border-color: var(--tf-accent); color: var(--tf-accent); }
+.tinyfeed-th-genreinput, .tinyfeed-th-length { display: block; width: 100%; box-sizing: border-box; }
+.tinyfeed-th-coverrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tinyfeed-th-coverprev {
+    width: 46px; height: 66px; border-radius: 8px; flex-shrink: 0; overflow: hidden;
+    background: var(--tf-topbar); border: 1px solid var(--tf-border);
+    display: flex; align-items: center; justify-content: center; color: var(--tf-text-muted);
+}
+.tinyfeed-th-coverprev img { width: 100%; height: 100%; object-fit: cover; }
+.tinyfeed-th-createbtn { width: calc(100% - 24px); margin: 4px 12px 0; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+/* หน้าอ่าน */
+.tinyfeed-th-readhero { position: relative; height: 190px; overflow: hidden; }
+.tinyfeed-th-readhero .tinyfeed-th-poster { height: 100%; aspect-ratio: auto; border-radius: 0; border: none; }
+.tinyfeed-th-readovl { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: space-between; padding: 10px; background: linear-gradient(180deg, rgba(0,0,0,.45), transparent 45%, var(--tf-bg)); }
+.tinyfeed-th-backbtn { background: rgba(0,0,0,.45); color: #fff; border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; }
+.tinyfeed-th-deleteshow { background: rgba(0,0,0,.45); color: #fff; border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 0.85em; }
+.tinyfeed-th-deleteshow:hover { color: #ef4444; }
+.tinyfeed-th-readbody { padding: 0 14px; margin-top: -14px; position: relative; }
+.tinyfeed-th-readtitle { font-size: 1.15em; font-weight: 700; color: var(--tf-text-strong); line-height: 1.3; word-break: break-word; }
+.tinyfeed-th-readmeta { font-size: 0.75em; color: var(--tf-text-muted); margin-top: 4px; word-break: break-word; }
+.tinyfeed-th-whatifbox {
+    font-size: 0.8em; color: var(--tf-text); line-height: 1.5; margin: 12px 0;
+    padding: 10px 12px; border-radius: 10px;
+    background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar));
+    border-left: 3px solid var(--tf-accent);
+}
+.tinyfeed-th-whatifbox b { color: var(--tf-accent); }
+.tinyfeed-th-eps { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
+.tinyfeed-th-epchip { font-size: 0.75em; padding: 4px 12px; border-radius: 999px; cursor: pointer; background: var(--tf-topbar); border: 1px solid var(--tf-border); color: var(--tf-text-muted); }
+.tinyfeed-th-epchip-on { background: var(--tf-accent); border-color: var(--tf-accent); color: #fff; font-weight: 600; }
+.tinyfeed-th-eptitle { font-size: 0.88em; font-weight: 600; color: var(--tf-text-strong); margin: 12px 0 10px; word-break: break-word; }
+.tinyfeed-th-story { margin-bottom: 16px; }
+.tinyfeed-th-narration { font-size: 0.86em; color: var(--tf-text-muted); line-height: 1.7; margin-bottom: 12px; word-break: break-word; }
+.tinyfeed-th-line { display: flex; gap: 8px; margin-bottom: 12px; }
+.tinyfeed-th-line .tinyfeed-avatar { width: 34px; height: 34px; flex-shrink: 0; }
+.tinyfeed-th-linebody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tinyfeed-th-lineauthor { font-size: 0.76em; font-weight: 600; color: var(--tf-accent); }
+.tinyfeed-th-linetext { font-size: 0.88em; color: var(--tf-text); line-height: 1.6; word-break: break-word; }
+.tinyfeed-th-nextbtn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.tinyfeed-th-hint { font-size: 0.72em; color: var(--tf-text-muted); line-height: 1.5; margin-top: 8px; }
+.tinyfeed-th-castname small { font-size: 0.85em; opacity: 0.75; }
