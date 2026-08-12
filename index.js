@@ -2592,7 +2592,7 @@ function renderVersePost(post, detail = false) {
         inputCls: "tinyfeed-verse-cinput", stickerCls: "tinyfeed-verse-csticker", sendCls: "tinyfeed-verse-csend",
     }) : "";
     const aiBtn = detail
-        ? `<span class="tinyfeed-verse-aicomment" data-vpost="${id}" title="ให้ตัวละครอื่นมาคอมเมนต์"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ตัวละครคอมเมนต์</span>`
+        ? `<span class="tinyfeed-ai-link tinyfeed-verse-aicomment" data-vpost="${id}" title="ให้ตัวละครอื่นมาคอมเมนต์"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ตัวละครคอมเมนต์</span>`
         : "";
     return `<div class="tinyfeed-post${detail ? " tinyfeed-post-detail" : ""}" data-vpost="${id}">
         <div class="tinyfeed-post-head">
@@ -5413,7 +5413,7 @@ function renderFeed() {
             ${renderComments(post.comments, 2, post.id)}
             ${post.comments.length === 0 ? `
             <div class="tinyfeed-post-comment-tools">
-                <button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}">
+                <button class="tinyfeed-ai-link tinyfeed-gen-comments" data-post="${post.id}">
                     <i class="fa-solid fa-comment-medical"></i>
                     <span>ให้ NPC คอมเมนต์</span>
                 </button>
@@ -5537,9 +5537,9 @@ function openPostDetail(postId) {
         <div class="tinyfeed-post-comment-tools">
             <input id="tinyfeed-comment-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางคอมเมนต์ AI (ไม่บังคับ)" />
             ${post.comments.length === 0
-            ? `<button class="tinyfeed-btn-generate tinyfeed-gen-comments" data-post="${post.id}"><i class="fa-solid fa-comment-medical"></i> <span>ให้ NPC คอมเมนต์</span></button>`
+            ? `<button class="tinyfeed-ai-link tinyfeed-gen-comments" data-post="${post.id}"><i class="fa-solid fa-comment-medical"></i> <span>ให้ NPC คอมเมนต์</span></button>`
             : (getSetting("commentReplyMode") === "manual"
-                ? `<button class="tinyfeed-ai-reply tinyfeed-btn-generate" data-post="${post.id}"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตอบ</span></button>`
+                ? `<button class="tinyfeed-ai-link tinyfeed-ai-reply" data-post="${post.id}"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตอบ</span></button>`
                 : "")}
         </div>
         ${commentComposeHtml({

@@ -461,8 +461,34 @@
     opacity: 0.7;
 }
 
+/* ลิงก์สั่ง AI แบบเบา — ใช้ในแถวใต้โพสต์ที่ไม่อยากให้ปุ่มเด่นแย่งเนื้อหา
+   ใช้ร่วม TinyFeed (ให้ NPC คอมเมนต์ / ให้ AI ตอบ) + TinyVerse (ให้ตัวละครคอมเมนต์) */
+.tinyfeed-ai-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--tf-sp-2);
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: 0.92em;
+    color: var(--tf-accent);
+    cursor: pointer;
+}
+
+.tinyfeed-ai-link:hover {
+    text-decoration: underline;
+}
+
+.tinyfeed-ai-link.tinyfeed-generating {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
 /* ไอคอนหมุนตอนกำลังสร้าง */
-.tinyfeed-btn-generate.tinyfeed-generating i {
+.tinyfeed-btn-generate.tinyfeed-generating i,
+.tinyfeed-ai-link.tinyfeed-generating i {
     animation: tinyfeed-spin 0.9s linear infinite;
 }
 
@@ -644,9 +670,44 @@
     font-size: 0.85em;
 }
 
+/* ช่องเขียนคอมเมนต์ — ใช้ร่วม TinyFeed + TinyVerse (อยู่ใน .tinyfeed-inputwrap มีปุ่มสติกเกอร์ในช่อง) */
 .tinyfeed-comment-input,
+.tinyfeed-verse-cinput {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-pill);
+    padding: 9px 42px 9px 15px;   /* เว้นขวาให้ปุ่มสติกเกอร์ในช่อง */
+    font: inherit;
+    font-size: var(--tf-fs-md);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
 .tinyfeed-comment-input:focus,
+.tinyfeed-verse-cinput:focus {
+    border-color: var(--tf-accent);
+}
+
 .tinyfeed-comment-send,
+.tinyfeed-verse-csend {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: none;
+    border-radius: 50%;
+    color: var(--tf-accent);
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
 .tinyfeed-comment-send:hover,
 .tinyfeed-verse-csend:hover {
     background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
@@ -4258,20 +4319,12 @@
 .tinyfeed-verse-like.tinyfeed-liked { color: var(--tf-danger); }
 /* คอมเมนต์ข้ามการ์ด */
 .tinyfeed-verse-ccount { color: var(--tf-text-muted); }
-.tinyfeed-verse-aicomment { margin-left: auto; color: var(--tf-accent); cursor: pointer; font-size: 0.92em; }
-.tinyfeed-verse-aicomment:hover { text-decoration: underline; }
-.tinyfeed-verse-aicomment.tinyfeed-generating { opacity: 0.55; pointer-events: none; }
+/* หน้าตาใช้ .tinyfeed-ai-link ร่วมกับ TinyFeed แล้ว เหลือเฉพาะการจัดตำแหน่งของ TinyVerse */
+.tinyfeed-verse-aicomment { margin-left: auto; }
 .tinyfeed-verse-cdel { margin-left: auto; color: var(--tf-text-muted); cursor: pointer; font-size: 0.8em; flex-shrink: 0; opacity: 0; transition: opacity 0.15s ease; }
 .tinyfeed-comment:hover .tinyfeed-verse-cdel { opacity: 1; }
 .tinyfeed-verse-cdel:hover { color: var(--tf-danger); }
-.tinyfeed-verse-cinput {
-    flex: 1; min-width: 0; box-sizing: border-box;
-    background: var(--tf-topbar); color: var(--tf-text);
-    border: 1px solid var(--tf-border); border-radius: 999px;
-    padding: 6px 12px; font: inherit; font-size: 0.82em; outline: none;
-}
-.tinyfeed-verse-cinput:focus { border-color: var(--tf-accent); }
-.tinyfeed-verse-csend { flex-shrink: 0; background: none; border: none; color: var(--tf-accent); cursor: pointer; padding: 4px 6px; font-size: 0.95em; }
+/* ช่องคอมเมนต์ TinyVerse ใช้กฎร่วมกับ TinyFeed แล้ว (ดู .tinyfeed-comment-input ด้านบน) */
 /* ตัวเลือกคนโพสต์ (mirror .tinyfeed-char-pick) */
 .tinyfeed-verse-poster-pick { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; border-radius: 8px; }
 .tinyfeed-verse-poster-pick:hover { background: color-mix(in srgb, var(--tf-accent) 10%, transparent); }
@@ -4285,7 +4338,20 @@
 /* ตัวเลือก import */
 .tinyfeed-verse-import-opts { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--tf-border); }
 .tinyfeed-verse-biolabel { font-size: 0.82em; color: var(--tf-text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.tinyfeed-verse-biolabel input { width: 80px; }
+/* input ใน modal (นอกหน้าตั้งค่า) ไม่ได้กฎของ #tinyfeed-settings-screen → ต้องตั้งเอง */
+.tinyfeed-verse-biolabel input {
+    width: 80px;
+    box-sizing: border-box;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-2) var(--tf-sp-3);
+    font: inherit;   /* ห้ามใส่ font-size ซ้ำ — label เป็น 0.82em อยู่แล้ว em จะซ้อนกันจนเล็กเกิน */
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.tinyfeed-verse-biolabel input:focus { border-color: var(--tf-accent); }
 .tinyfeed-verse-biolabel small { color: var(--tf-text-muted); }
 .tinyfeed-verse-selall-row { font-size: 0.82em; color: var(--tf-text-muted); display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .tinyfeed-verse-import-list { max-height: 46vh; overflow-y: auto; padding: 6px 4px; }
