@@ -177,6 +177,9 @@ export const defaultSettings = {
     petAiReactions: true,         // ให้ AI แต่งบทพูดเพ็ทหลังกดปุ่ม
     petTokens: 60,                // ความยาวบทพูดเพ็ท
     petExtraPrompt: "",           // คำสั่งเสริมบทพูดเพ็ท (นิสัย/สายพันธุ์/โทน)
+    // TinyNovel (แอปอ่านนิยาย — global ไม่ผูกแชท)
+    novelTokens: 850,             // ความยาวตอนเริ่มต้น (ตัวเลือกในแอปทับค่านี้ได้)
+    novelExtraPrompt: "",         // คำสั่งเสริมเวลาแต่งนิยาย
     petAutoPost: false,           // ให้เพ็ทโพสต์ลงฟีดเองเป็นระยะ (ตอนอารมณ์ดี)
     // ร้านสัตว์เลี้ยง (แยกจาก TinyShop) — ซื้อด้วย "เหรียญเพ็ท" (เติมจาก TinyBank / รับจากมินิเกม)
     petCoinRate: 1,               // เหรียญที่ได้ต่อ 1 บาท TinyBank ตอนเติม

@@ -800,6 +800,19 @@
                     <small class="tinyfeed-field-hint">รองรับลิงก์ PNG/GIF/รูปเคลื่อนไหว · วางไฟล์เองในโฟลเดอร์ <code>assets/pet-sprites/&lt;สถานะ&gt;.png</code> ก็ได้ (ไม่ต้องใส่ลิงก์)</small>
                 </div>
 
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="novel">
+                    <div class="tinyfeed-settings-title">TinyNovel (อ่านนิยาย)</div>
+                    <small class="tinyfeed-field-hint">นิยายเก็บแบบ <b>global</b> (อ่านต่อได้ทุกแชท) · ไม่ดึงข้อมูลตัวละคร/เนื้อเรื่องจากแชทปัจจุบันเลย</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ความยาวตอนเริ่มต้น (token)</span>
+                        <input id="tinyfeed-cfg-novel-tokens" type="number" min="200" max="4000" step="50" />
+                    </label>
+                    <label class="tinyfeed-field-col">
+                        <span>คำสั่งเสริมเวลาแต่งนิยาย (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-novel-extra" rows="2" placeholder="เช่น เขียนให้ภาษาสวย เน้นบรรยายความรู้สึก"></textarea>
+                    </label>
+                </div>
+
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="prompts">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
@@ -835,16 +848,8 @@
                         <i class="fa-solid fa-comments"></i> <span>ให้กลุ่มคุยกันต่อ</span>
                     </button>
                 </div>
-                <div class="tinyfeed-connect-compose">
-                    <span id="tinyfeed-connect-plus" class="tinyfeed-compose-sticker tinyfeed-compose-plus" title="เพิ่มเติม"><i class="fa-solid fa-plus"></i></span>
-                    <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
-                    <div class="tinyfeed-inputwrap">
-                        <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
-                        <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                    </div>
-                    <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
-                    <div id="tinyfeed-connect-plusmenu" class="tinyfeed-plusmenu tinyfeed-hidden"></div>
-                </div>
+                <!-- แถบพิมพ์สร้างจาก composeBarHtml() ตอน init — ดู mountComposeBars() -->
+                <div id="tinyfeed-connect-compose" class="tinyfeed-connect-compose"></div>
             </div>
         </div>
 
@@ -881,21 +886,8 @@
                     <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
                 </button>
             </div>
-            <div class="tinyfeed-stream-streamer-compose tinyfeed-hidden">
-                <div class="tinyfeed-inputwrap">
-                    <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
-                    <span id="tinyfeed-stream-streamer-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                </div>
-                <span id="tinyfeed-stream-streamer-send"><i class="fa-solid fa-microphone"></i></span>
-            </div>
-            <div class="tinyfeed-stream-compose tinyfeed-hidden">
-                <span id="tinyfeed-stream-donate" class="tinyfeed-compose-sticker tinyfeed-stream-donate-btn" title="โดเนทให้สตรีมเมอร์"><i class="fa-solid fa-gift"></i></span>
-                <div class="tinyfeed-inputwrap">
-                    <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
-                    <span id="tinyfeed-stream-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                </div>
-                <span id="tinyfeed-stream-send"><i class="fa-solid fa-paper-plane"></i></span>
-            </div>
+            <div id="tinyfeed-stream-streamer-compose" class="tinyfeed-stream-streamer-compose tinyfeed-hidden"></div>
+            <div id="tinyfeed-stream-compose" class="tinyfeed-stream-compose tinyfeed-hidden"></div>
         </div>
 
         <div id="tinyfeed-app-memo" class="tinyfeed-app tinyfeed-hidden">
@@ -972,13 +964,7 @@
                     <span>กำลังตอบกลับ <b id="tinyfeed-forum-reply-name"></b></span>
                     <span id="tinyfeed-forum-reply-cancel" title="ยกเลิก"><i class="fa-solid fa-xmark"></i></span>
                 </div>
-                <div class="tinyfeed-forum-compose">
-                    <div class="tinyfeed-inputwrap">
-                        <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
-                        <span id="tinyfeed-forum-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                    </div>
-                    <span id="tinyfeed-forum-comment-send"><i class="fa-solid fa-paper-plane"></i></span>
-                </div>
+                <div id="tinyfeed-forum-compose" class="tinyfeed-forum-compose"></div>
             </div>
         </div>
 
@@ -1081,6 +1067,10 @@
 
         <div id="tinyfeed-app-theater" class="tinyfeed-app tinyfeed-hidden">
             <div id="tinyfeed-theater-body" class="tinyfeed-theater-body"></div>
+        </div>
+
+        <div id="tinyfeed-app-novel" class="tinyfeed-app tinyfeed-hidden">
+            <div id="tinyfeed-novel-body" class="tinyfeed-novel-body"></div>
         </div>
 
         <div id="tinyfeed-gallery-picker" class="tinyfeed-modal tinyfeed-hidden">

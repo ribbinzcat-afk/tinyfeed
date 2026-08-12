@@ -12,7 +12,7 @@ import {
     stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
 } from "./src/util.js";
 import {
-    emptyInlineHtml, emptyStateHtml, skeletonCardHtml,
+    composeBarHtml, emptyInlineHtml, emptyStateHtml, skeletonCardHtml,
 } from "./src/components.js";
 
 
@@ -152,12 +152,23 @@ const APPS = [
     {
         id: "verse", name: "TinyVerse", icon: "fa-globe", a: "#6366f1", b: "#4338ca",
         panel: "#tinyfeed-app-verse", home: true, remember: true,
-        open() { openVerse(); },
+        open() { versePostId = null; openVerse(); },
+        back() { if (isVersePostOpen()) { closeVersePost(); return true; } return false; },
     },
     {
         id: "theater", name: "TinyTheater", icon: "fa-masks-theater", a: "#e11d48", b: "#9f1239",
         panel: "#tinyfeed-app-theater", home: true, remember: true,
         open() { openTheater(); },
+    },
+    {
+        id: "novel", name: "TinyNovel", icon: "fa-book-open", a: "#0ea5e9", b: "#0369a1",
+        panel: "#tinyfeed-app-novel", home: true, remember: true,
+        open() { openNovel(); },
+        back() {
+            if (novelScreen === "chars") { novelScreen = "read"; renderNovel(); return true; }   // ตัวละคร → กลับไปอ่านต่อ
+            if (novelScreen !== "shelf") { novelScreen = "shelf"; novelBookId = null; renderNovel(); return true; }
+            return false;
+        },
     },
 ];
 
@@ -2399,10 +2410,39 @@ function charCardForAuthor(author) {
 
 // ── TinyVerse app: แท็บ ฟีดโกลบอล / ตัวละคร ──
 let verseTab = "feed";
+let versePostId = null;   // โพสต์ที่กางหน้ารายละเอียดอยู่ (null = อยู่หน้ารายการ) — เหมือน TinyFeed
 function openVerse() { renderVerse(); }
+
+function isVersePostOpen() { return !!versePostId; }
+
+// เปิดหน้ารายละเอียดโพสต์ (ท่าเดียวกับ openPostDetail ของ TinyFeed)
+function openVersePost(id) {
+    if (!getVerse().feed.some((p) => p.id === id)) return;
+    versePostId = id;
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
+    $("#tinyfeed-back").removeClass("tinyfeed-hidden");
+    renderVerse();
+}
+
+function closeVersePost() {
+    versePostId = null;
+    $("#tinyfeed-back").addClass("tinyfeed-hidden");
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
+    $(".tinyfeed-title").text("TinyVerse");
+    renderVerse();
+}
+
 function renderVerse() {
     const body = $("#tinyfeed-verse-body");
     if (!body.length) return;
+    // หน้ารายละเอียด: ไม่มีแถบแท็บ เหมือน detail ของ TinyFeed
+    if (versePostId) {
+        const post = getVerse().feed.find((p) => p.id === versePostId);
+        if (!post) { versePostId = null; closeVersePost(); return; }
+        $(".tinyfeed-title").text("โพสต์");
+        body.html(`<div class="tinyfeed-screen">${renderVersePost(post, true)}</div>`);
+        return;
+    }
     body.html(`
         <div class="tinyfeed-tabs">
             <div class="tinyfeed-tab${verseTab === "feed" ? " tinyfeed-tab-active" : ""}" data-vtab="feed"><i class="fa-solid fa-hashtag"></i> ฟีด</div>
@@ -2501,46 +2541,57 @@ function renderVerseFeed() {
     applyVerseComposeMode();
     renderVerseFeedList();
 }
-// วาดเฉพาะรายการโพสต์ (ไม่แตะช่องเขียน → ไม่รีเซ็ตข้อความที่ผู้ใช้พิมพ์อยู่)
+/* วาดใหม่เฉพาะส่วนโพสต์ (ไม่แตะช่องเขียน → ไม่รีเซ็ตข้อความที่ผู้ใช้พิมพ์อยู่)
+ * ถ้ากางหน้ารายละเอียดอยู่ ให้วาดหน้านั้นแทน — ทุกจุดที่เรียกฟังก์ชันนี้จึงอัปเดตถูกที่เสมอ */
 function renderVerseFeedList() {
+    if (versePostId) { renderVerse(); return; }
     const list = $("#tinyfeed-verse-feed");
     if (!list.length) return;
     const feed = getVerse().feed;
     list.html(feed.length
-        ? feed.map(renderVersePost).join("")
+        ? feed.map((p) => renderVersePost(p, false)).join("")
         : emptyInlineHtml("ยังไม่มีโพสต์ · พิมพ์แล้วกดโพสต์ หรือเลือกตัวละครให้ AI โพสต์ให้"));
 }
-function renderVersePost(post) {
+/* วาดโพสต์ TinyVerse — 2 โหมดเหมือน TinyFeed
+ *   detail=false (ในฟีด)  : หัว + เนื้อ + [ไลก์][จำนวนคอมเมนต์]  แตะที่การ์ด = เปิดรายละเอียด
+ *   detail=true  (หน้าเต็ม): + ปุ่มให้ AI คอมเมนต์ + คอมเมนต์ทั้งหมด + ช่องเขียนคอมเมนต์
+ * ปุ่มย่อยทุกตัวต้อง stopPropagation ใน handler ไม่งั้นจะเด้งเข้าหน้ารายละเอียด */
+function renderVersePost(post, detail = false) {
+    const id = escapeAttr(post.id);
     const cs = Array.isArray(post.comments) ? post.comments : [];
-    const comments = cs.length ? `<div class="tinyfeed-comments">${cs.map((c, i) => `
+    const comments = detail && cs.length ? `<div class="tinyfeed-comments">${cs.map((c, i) => `
         <div class="tinyfeed-comment">
             ${makeAvatar(c)}
             <div class="tinyfeed-comment-body">
                 <span class="tinyfeed-comment-author">${escapeText(c.author)}</span>
                 <span class="tinyfeed-comment-text">${renderRich(c.text)}</span>
             </div>
-            <span class="tinyfeed-verse-cdel" data-vpost="${escapeAttr(post.id)}" data-cidx="${i}" title="ลบคอมเมนต์"><i class="fa-solid fa-trash"></i></span>
+            <span class="tinyfeed-verse-cdel" data-vpost="${id}" data-cidx="${i}" title="ลบคอมเมนต์"><i class="fa-solid fa-trash"></i></span>
         </div>`).join("")}</div>` : "";
-    return `<div class="tinyfeed-post" data-vpost="${escapeAttr(post.id)}">
+    const composer = detail ? commentComposeHtml({
+        postId: post.id, dataKey: "vpost",
+        inputCls: "tinyfeed-verse-cinput", stickerCls: "tinyfeed-verse-csticker", sendCls: "tinyfeed-verse-csend",
+    }) : "";
+    const aiBtn = detail
+        ? `<span class="tinyfeed-verse-aicomment" data-vpost="${id}" title="ให้ตัวละครอื่นมาคอมเมนต์"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ตัวละครคอมเมนต์</span>`
+        : "";
+    return `<div class="tinyfeed-post${detail ? " tinyfeed-post-detail" : ""}" data-vpost="${id}">
         <div class="tinyfeed-post-head">
             ${makeAvatar(post)}
             <div class="tinyfeed-post-meta">
                 <span class="tinyfeed-post-author">${escapeText(post.author)}</span>
                 <span class="tinyfeed-post-time">${displayTime(post)}</span>
             </div>
-            <span class="tinyfeed-verse-del" data-vpost="${escapeAttr(post.id)}" title="ลบโพสต์"><i class="fa-solid fa-trash"></i></span>
+            <span class="tinyfeed-verse-del" data-vpost="${id}" title="ลบโพสต์"><i class="fa-solid fa-trash"></i></span>
         </div>
         <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
         <div class="tinyfeed-post-actions">
-            <span class="tinyfeed-verse-like ${post.liked ? "tinyfeed-liked" : ""}" data-vpost="${escapeAttr(post.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}</span>
+            <span class="tinyfeed-verse-like ${post.liked ? "tinyfeed-liked" : ""}" data-vpost="${id}"><i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}</span>
             <span class="tinyfeed-verse-ccount"><i class="fa-solid fa-comment"></i> ${formatCount(cs.length)}</span>
-            <span class="tinyfeed-verse-aicomment" data-vpost="${escapeAttr(post.id)}" title="ให้ตัวละครอื่นมาคอมเมนต์"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ตัวละครคอมเมนต์</span>
+            ${aiBtn}
         </div>
         ${comments}
-        <div class="tinyfeed-verse-crow">
-            <input class="tinyfeed-verse-cinput" data-vpost="${escapeAttr(post.id)}" type="text" placeholder="คอมเมนต์..." />
-            <button class="tinyfeed-verse-csend" data-vpost="${escapeAttr(post.id)}" title="ส่ง"><i class="fa-solid fa-paper-plane"></i></button>
-        </div>
+        ${composer}
     </div>`;
 }
 // ผู้ใช้โพสต์เอง (persona) — รองรับ [img:]/[sticker:] เหมือน TinyFeed
@@ -3177,7 +3228,453 @@ function getForumRooms() {
 // ===== TinyGallery: คลังรูป + สติกเกอร์ (global — เก็บใน extension_settings ไม่ผูกกับแชท) =====
 
 
-// ===== TinyPet: สัตว์เลี้ยงเสมือนสไตล์ทามาก็อตจิ (global state ข้ามแชท) =====
+/* ===== TinyNovel (แอปที่ 12): แอปอ่านนิยายที่ AI เขียนให้ =====
+ * global เต็มตัว — ไม่ดึงข้อมูลจากแชท/การ์ดปัจจุบันเลย (ต่างจาก TinyTheater ที่อิง roster)
+ * ตัวเอกเลือกได้ 3 แบบ: ให้ AI สร้างเอง / persona ของเรา / ตัวละครจาก TinyVerse
+ * ตั้งจำนวนตอนไว้ล่วงหน้า แล้ว AI เดินเรื่องให้จบพอดีตอนสุดท้าย */
+const NOVEL_TROPES = [
+    "ทะลุมิติเข้าไปในนิยายที่เคยอ่าน",
+    "ย้อนเวลากลับไปแก้ไขอดีต",
+    "เกิดใหม่เป็นตัวร้ายที่รู้ชะตากรรมตัวเอง",
+    "สลับร่างกับคนที่เกลียดที่สุด",
+    "ติดอยู่ในเกมที่ตายจริง",
+    "ตื่นมาแล้วความจำหายไปสิบปี",
+    "สัญญาแต่งงานลวงกับคนแปลกหน้า",
+    "ศัตรูคู่แค้นที่ต้องร่วมมือกัน",
+    "ระบบลึกลับสั่งภารกิจรายวัน",
+    "โลกหลังหายนะที่เหลือคนไม่กี่คน",
+    "ชิงบัลลังก์ในราชสำนัก",
+    "ตัวประกอบที่ไม่ยอมเดินตามบท",
+    "วนลูปวันเดิมซ้ำไม่รู้จบ",
+    "ได้ยินเสียงในใจคนอื่น",
+    "จดหมายจากตัวเองในอนาคต",
+    "เมืองที่ทุกคนลืมชื่อเราไปแล้ว",
+];
+const NOVEL_GENRES = ["โรแมนซ์", "แฟนตาซี", "สืบสวน", "ดราม่า", "ตลก", "ระทึกขวัญ", "ไซไฟ", "ย้อนยุค"];
+const NOVEL_LENGTHS = {
+    short: { label: "สั้น", hint: "อ่านเร็ว ~1 นาทีต่อตอน", tokens: 500 },
+    medium: { label: "กลาง", hint: "กำลังดี", tokens: 850 },
+    long: { label: "ยาว", hint: "จัดเต็ม", tokens: 1300 },
+};
+const NOVEL_EP_CHOICES = [1, 3, 5, 8, 12];
+const NOVEL_HERO_AI = "__ai__";     // ให้ AI สร้างตัวเอกเอง
+
+function getNovel() {
+    const s = extension_settings[extensionName];
+    if (!s.novel || typeof s.novel !== "object") s.novel = { books: [] };
+    if (!Array.isArray(s.novel.books)) s.novel.books = [];
+    return s.novel;
+}
+function saveNovel() { saveSettingsDebounced(); }
+function novelBook(id) { return getNovel().books.find((b) => b.id === id) || null; }
+// ความยาว "กลาง" ปรับได้จากหน้าตั้งค่า (short/long ยังใช้ค่าคงที่)
+function novelLength(key) {
+    const base = NOVEL_LENGTHS[key] || NOVEL_LENGTHS.medium;
+    if ((key || "medium") === "medium") {
+        const t = parseInt(getSetting("novelTokens"), 10);
+        if (Number.isFinite(t) && t > 0) return Object.assign({}, base, { tokens: t });
+    }
+    return base;
+}
+// คำสั่งเสริมจากหน้าตั้งค่า (ว่างได้)
+function novelExtraLine() {
+    const x = String(getSetting("novelExtraPrompt") || "").trim();
+    return x ? `คำสั่งเพิ่มเติมจากผู้อ่าน: ${x}` : "";
+}
+
+// ── state ของหน้าจอ ──
+let novelScreen = "shelf";      // shelf | create | read | chars
+let novelBookId = null;
+let novelEpIdx = 0;
+let novelBusy = false;
+let novelCover = "";
+let novelHero = NOVEL_HERO_AI;
+let novelPlotIdeas = [];
+
+function openNovel() { novelScreen = "shelf"; novelBookId = null; renderNovel(); }
+
+function setNovelGenerating(on, sel, busyText, idleText) {
+    const $b = $(sel);
+    $b.prop("disabled", on);
+    $b.find(".tinyfeed-novel-btnlabel").text(on ? busyText : idleText);
+    $b.toggleClass("tinyfeed-generating", on);
+}
+
+// สุ่มพล็อตจากคลัง (ไม่เรียก AI)
+function novelRandomTrope() {
+    return NOVEL_TROPES[Math.floor(Math.random() * NOVEL_TROPES.length)];
+}
+
+// ชื่อตัวเอกที่ผู้ใช้เลือก (ไว้ส่งเข้า prompt)
+function novelHeroLine(hero) {
+    if (hero === NOVEL_HERO_AI) return "ให้คุณสร้างตัวเอกขึ้นมาเองทั้งหมด (ตั้งชื่อ นิสัย ปูมหลัง)";
+    if (hero === POSTER_USER) {
+        const desc = userPersonaDesc();
+        return `ให้ "${getUserName()}" เป็นตัวเอก${desc ? ` — ข้อมูลตัวละคร: ${desc}` : ""}`;
+    }
+    const c = getVerse().chars[hero];
+    if (!c) return "ให้คุณสร้างตัวเอกขึ้นมาเองทั้งหมด";
+    return `ให้ "${c.name}" เป็นตัวเอก${c.desc ? ` — ข้อมูลตัวละคร: ${String(c.desc).slice(0, 300)}` : ""}`;
+}
+
+/* แปลงผลจาก AI ตอนสร้างเรื่อง — รูปแบบ:
+ *   TITLE: <ชื่อเรื่อง>
+ *   SYNOPSIS: <เรื่องย่อ>
+ *   CHAR: <ชื่อ> | <บทบาท> | <คำบรรยาย>
+ * คืน {title, synopsis, chars[]} — escape ให้เรียบร้อยตั้งแต่ตรงนี้ */
+function parseNovelOutline(raw) {
+    const out = { title: "", synopsis: "", chars: [] };
+    for (const line of stripReasoning(String(raw || "")).split("\n")) {
+        const s = line.trim();
+        let m;
+        if ((m = s.match(/^TITLE:\s*(.+)$/i))) { if (!out.title) out.title = escapeText(stripWrapBrackets(m[1].trim())); }
+        else if ((m = s.match(/^SYNOPSIS:\s*(.+)$/i))) { if (!out.synopsis) out.synopsis = escapeText(m[1].trim()); }
+        else if ((m = s.match(/^CHAR:\s*(.+)$/i))) {
+            const parts = m[1].split("|").map((x) => x.trim());
+            if (parts[0]) {
+                out.chars.push({
+                    name: escapeText(stripWrapBrackets(parts[0])),
+                    role: escapeText(parts[1] || ""),
+                    desc: escapeText(parts[2] || ""),
+                });
+            }
+        }
+    }
+    return out;
+}
+
+/* แปลงเนื้อตอน — รับข้อความล้วน แยกย่อหน้าด้วยบรรทัดว่าง
+ * ดึง EPTITLE: ออกมาถ้ามี ที่เหลือถือเป็นเนื้อเรื่อง */
+function parseNovelEpisode(raw) {
+    const lines = stripReasoning(String(raw || "")).split("\n");
+    let title = "";
+    const body = [];
+    for (const line of lines) {
+        const m = line.trim().match(/^EPTITLE:\s*(.+)$/i);
+        if (m && !title) { title = escapeText(stripWrapBrackets(m[1].trim())); continue; }
+        body.push(line);
+    }
+    const text = body.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    return { title, text: escapeText(text) };
+}
+
+// เนื้อเรื่องที่ผ่านมา (ตัดเก็บส่วนท้ายไว้ให้ AI ไม่ให้ prompt บวม)
+function novelStorySoFar(book, cap = 2500) {
+    const parts = book.episodes.map((ep) =>
+        `[ตอนที่ ${ep.no}${ep.title ? ` — ${ep.title}` : ""}]\n${htmlToPlain(ep.text)}`);
+    const all = parts.join("\n\n");
+    return all.length > cap ? "…" + all.slice(-cap) : all;
+}
+
+function novelCoverHtml(book) {
+    if (book.cover) return `<div class="tinyfeed-novel-cover" style="background-image:url('${escapeAttr(book.cover)}')"></div>`;
+    const initial = escapeText(String(book.title || "?").trim().charAt(0) || "?");
+    return `<div class="tinyfeed-novel-cover tinyfeed-novel-cover-blank">${initial}</div>`;
+}
+
+function renderNovel() {
+    const body = $("#tinyfeed-novel-body");
+    if (!body.length) return;
+    if (novelScreen === "create") return renderNovelCreate();
+    if (novelScreen === "read") return renderNovelRead();
+    if (novelScreen === "chars") return renderNovelChars();
+    renderNovelShelf();
+}
+
+// ── ชั้นหนังสือ ──
+function renderNovelShelf() {
+    $(".tinyfeed-title").text("TinyNovel");
+    const books = getNovel().books;
+    const grid = books.length
+        ? `<div class="tinyfeed-novel-grid">${books.map((b) => {
+            const read = Math.min(b.lastReadEp || 0, b.episodes.length);
+            const done = b.episodes.length >= (b.totalEps || 0);
+            return `<div class="tinyfeed-novel-card" data-book="${escapeAttr(b.id)}">
+                ${novelCoverHtml(b)}
+                <div class="tinyfeed-novel-cardtitle">${b.title || "(ไม่มีชื่อ)"}</div>
+                <div class="tinyfeed-novel-cardmeta">
+                    ${done ? `<span class="tinyfeed-novel-done">จบแล้ว</span>` : `<span>อ่าน ${read}/${b.totalEps || "?"}</span>`}
+                </div>
+            </div>`;
+        }).join("")}</div>`
+        : emptyStateHtml("fa-book-open", "ยังไม่มีนิยาย", "กด “แต่งเรื่องใหม่” แล้วเลือกพล็อตที่ชอบ เดี๋ยว AI เขียนให้อ่าน");
+    $("#tinyfeed-novel-body").html(`
+        <div class="tinyfeed-novel-hero">
+            <div class="tinyfeed-novel-herotitle"><i class="fa-solid fa-book-open"></i> ห้องสมุด</div>
+            <div class="tinyfeed-novel-herosub">เลือกพล็อต ตั้งจำนวนตอน แล้วให้ AI แต่งให้อ่าน</div>
+            <button id="tinyfeed-novel-new" class="tinyfeed-btn-primary tinyfeed-novel-newbtn">
+                <i class="fa-solid fa-plus"></i> <span class="tinyfeed-novel-btnlabel">แต่งเรื่องใหม่</span>
+            </button>
+        </div>
+        <div class="tinyfeed-screen">${grid}</div>
+    `);
+}
+
+// ── ฟอร์มสร้างเรื่อง ──
+function renderNovelCreate() {
+    $(".tinyfeed-title").text("แต่งเรื่องใหม่");
+    const verseChars = Object.entries(getVerse().chars || {});
+    const heroOpts = [
+        `<option value="${NOVEL_HERO_AI}"${novelHero === NOVEL_HERO_AI ? " selected" : ""}>ให้ AI สร้างตัวเอกเอง</option>`,
+        `<option value="${POSTER_USER}"${novelHero === POSTER_USER ? " selected" : ""}>${escapeText(getUserName())} (ตัวเรา)</option>`,
+        ...verseChars.map(([k, c]) =>
+            `<option value="${escapeAttr(k)}"${novelHero === k ? " selected" : ""}>${escapeText(c.name || k)}</option>`),
+    ].join("");
+    const epOpts = NOVEL_EP_CHOICES.map((n) => `<option value="${n}"${n === 5 ? " selected" : ""}>${n} ตอนจบ</option>`).join("");
+    const lenOpts = Object.entries(NOVEL_LENGTHS)
+        .map(([k, v]) => `<option value="${k}"${k === "medium" ? " selected" : ""}>${v.label} — ${v.hint}</option>`).join("");
+    const genreChips = NOVEL_GENRES.map((g) => `<span class="tinyfeed-novel-chip" data-genre="${escapeAttr(g)}">${g}</span>`).join("");
+    $("#tinyfeed-novel-body").html(`
+        <div class="tinyfeed-screen">
+            <div class="tinyfeed-novel-field">
+                <label>พล็อตเรื่อง</label>
+                <textarea id="tinyfeed-novel-plot" rows="3" placeholder="อยากอ่านเรื่องแบบไหน? เช่น ทะลุมิติไปเป็นตัวร้ายในนิยายที่เคยอ่าน"></textarea>
+                <div class="tinyfeed-novel-plotbtns">
+                    <button id="tinyfeed-novel-dice" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn"><i class="fa-solid fa-dice"></i> สุ่มพล็อตยอดนิยม</button>
+                    <button id="tinyfeed-novel-ai" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn"><i class="fa-solid fa-wand-magic-sparkles"></i> <span class="tinyfeed-novel-btnlabel">ให้ AI คิดให้</span></button>
+                </div>
+                <div id="tinyfeed-novel-ideas" class="tinyfeed-novel-ideas"></div>
+            </div>
+            <div class="tinyfeed-novel-field">
+                <label>แนวเรื่อง</label>
+                <input id="tinyfeed-novel-genre" type="text" placeholder="เช่น โรแมนซ์ แฟนตาซี (เว้นว่างได้)" />
+                <div class="tinyfeed-novel-chips">${genreChips}</div>
+            </div>
+            <div class="tinyfeed-novel-field">
+                <label>ตัวเอก</label>
+                <select id="tinyfeed-novel-hero">${heroOpts}</select>
+                <small class="tinyfeed-field-hint">ไม่ต้องมีตัวละครในเครื่องก็ได้ — เลือก “ให้ AI สร้างตัวเอกเอง” ได้เลย</small>
+            </div>
+            <div class="tinyfeed-novel-field tinyfeed-novel-row2">
+                <div><label>ความยาวต่อตอน</label><select id="tinyfeed-novel-length">${lenOpts}</select></div>
+                <div><label>จบกี่ตอน</label><select id="tinyfeed-novel-eps">${epOpts}</select></div>
+            </div>
+            <div class="tinyfeed-novel-field">
+                <label>ปกหนังสือ</label>
+                <div class="tinyfeed-novel-coverrow">
+                    <div id="tinyfeed-novel-coverprev" class="tinyfeed-novel-coverprev">${novelCover
+                        ? `<img src="${escapeAttr(novelCover)}" alt="ปก" />` : `<i class="fa-solid fa-image"></i>`}</div>
+                    <button id="tinyfeed-novel-pickcover" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn">เลือกจากคลังรูป</button>
+                    ${novelCover ? `<button id="tinyfeed-novel-clearcover" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn">ล้าง</button>` : ""}
+                </div>
+            </div>
+            <button id="tinyfeed-novel-create" class="tinyfeed-btn-primary tinyfeed-novel-createbtn">
+                <i class="fa-solid fa-feather-pointed"></i> <span class="tinyfeed-novel-btnlabel">เริ่มเขียนตอนแรก</span>
+            </button>
+        </div>
+    `);
+    renderNovelIdeas();
+}
+
+function renderNovelIdeas() {
+    const box = $("#tinyfeed-novel-ideas");
+    if (!box.length) return;
+    box.html(novelPlotIdeas.length
+        ? novelPlotIdeas.map((t) => `<span class="tinyfeed-novel-idea" data-idea="${escapeAttr(t)}">${t}</span>`).join("")
+        : "");
+}
+
+/* วาดฟอร์มสร้างใหม่แต่คงค่าที่ผู้ใช้กรอกไว้ (ใช้ตอนเลือก/ล้างปก ซึ่งต้อง re-render)
+ * — ถ้าเรียก renderNovelCreate() ตรงๆ พล็อต/แนว/จำนวนตอนที่พิมพ์ไว้จะหายหมด */
+function restoreNovelForm() {
+    const keep = {
+        plot: String($("#tinyfeed-novel-plot").val() || ""),
+        genre: String($("#tinyfeed-novel-genre").val() || ""),
+        length: String($("#tinyfeed-novel-length").val() || "medium"),
+        eps: String($("#tinyfeed-novel-eps").val() || "5"),
+    };
+    renderNovelCreate();
+    $("#tinyfeed-novel-plot").val(keep.plot);
+    $("#tinyfeed-novel-genre").val(keep.genre);
+    $("#tinyfeed-novel-length").val(keep.length);
+    $("#tinyfeed-novel-eps").val(keep.eps);
+}
+
+// ── หน้าอ่าน ──
+function renderNovelRead() {
+    const b = novelBook(novelBookId);
+    if (!b) { novelScreen = "shelf"; return renderNovel(); }
+    $(".tinyfeed-title").text(b.title || "นิยาย");
+    novelEpIdx = Math.max(0, Math.min(novelEpIdx, b.episodes.length - 1));
+    const ep = b.episodes[novelEpIdx];
+    const finished = b.episodes.length >= (b.totalEps || 0);
+    const chips = b.episodes.map((e, i) =>
+        `<span class="tinyfeed-novel-epchip${i === novelEpIdx ? " tinyfeed-novel-epchip-active" : ""}" data-ep="${i}">ตอน ${e.no}</span>`).join("");
+    const paras = ep ? htmlToPlain(ep.text).split(/\n{2,}/).filter(Boolean)
+        .map((p) => `<p>${escapeText(p)}</p>`).join("") : "";
+    $("#tinyfeed-novel-body").html(`
+        <div class="tinyfeed-novel-readhero">
+            ${novelCoverHtml(b)}
+            <div class="tinyfeed-novel-readmeta">
+                <div class="tinyfeed-novel-readtitle">${b.title || "(ไม่มีชื่อ)"}</div>
+                <div class="tinyfeed-novel-readsub">${b.genre ? `${b.genre} · ` : ""}${b.episodes.length}/${b.totalEps} ตอน${finished ? " · จบแล้ว" : ""}</div>
+                <div class="tinyfeed-novel-readbtns">
+                    <button id="tinyfeed-novel-chars" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn"><i class="fa-solid fa-users"></i> ตัวละคร (${(b.chars || []).length})</button>
+                    <button id="tinyfeed-novel-del" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn tinyfeed-novel-delbtn"><i class="fa-solid fa-trash"></i> ลบ</button>
+                </div>
+            </div>
+        </div>
+        <div class="tinyfeed-screen">
+            ${b.synopsis ? `<div class="tinyfeed-novel-synopsis">${b.synopsis}</div>` : ""}
+            <div class="tinyfeed-novel-epbar">${chips}</div>
+            ${ep && ep.title ? `<div class="tinyfeed-novel-eptitle">${ep.title}</div>` : ""}
+            <div class="tinyfeed-novel-text">${paras}</div>
+            ${finished
+                ? `<div class="tinyfeed-novel-endmark">— จบบริบูรณ์ —</div>`
+                : `<button id="tinyfeed-novel-next" class="tinyfeed-btn-primary tinyfeed-novel-nextbtn">
+                       <i class="fa-solid fa-feather-pointed"></i> <span class="tinyfeed-novel-btnlabel">เขียนตอนที่ ${b.episodes.length + 1}</span>
+                   </button>`}
+        </div>
+    `);
+    // จำว่าอ่านถึงตอนไหน
+    b.lastReadEp = Math.max(b.lastReadEp || 0, novelEpIdx + 1);
+    saveNovel();
+}
+
+// ── หน้าตัวละครในเรื่อง ──
+function renderNovelChars() {
+    const b = novelBook(novelBookId);
+    if (!b) { novelScreen = "shelf"; return renderNovel(); }
+    $(".tinyfeed-title").text("ตัวละคร");
+    const cs = b.chars || [];
+    $("#tinyfeed-novel-body").html(`
+        <div class="tinyfeed-screen">
+            ${cs.length ? cs.map((c) => `
+                <div class="tinyfeed-novel-charcard">
+                    <div class="tinyfeed-novel-charname">${c.name}${c.role ? ` <span class="tinyfeed-novel-charrole">${c.role}</span>` : ""}</div>
+                    ${c.desc ? `<div class="tinyfeed-novel-chardesc">${c.desc}</div>` : ""}
+                </div>`).join("")
+            : emptyInlineHtml("เรื่องนี้ยังไม่มีข้อมูลตัวละคร")}
+        </div>
+    `);
+}
+
+// ── AI: ให้คิดพล็อตให้ 3 ข้อ ──
+async function novelSuggestPlots() {
+    if (novelBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyNovel"); return; }
+    novelBusy = true;
+    setNovelGenerating(true, "#tinyfeed-novel-ai", "กำลังคิด...", "ให้ AI คิดให้");
+    try {
+        const q = buildPrompt("novelPlot", { genre: String($("#tinyfeed-novel-genre").val() || "").trim() || "(อิสระ)" });
+        const raw = await tinyGenerate(q, 260, "novel");
+        const ideas = [];
+        for (const line of stripReasoning(String(raw || "")).split("\n")) {
+            const m = line.trim().match(/^PLOT:\s*(.+)$/i);
+            if (m) ideas.push(escapeText(stripWrapBrackets(m[1].trim())));
+            if (ideas.length >= 5) break;
+        }
+        if (!ideas.length) { toastr.info("ยังคิดไม่ออก ลองใหม่นะ", "TinyNovel"); return; }
+        novelPlotIdeas = ideas;
+        renderNovelIdeas();
+    } catch (e) {
+        console.error(`[${extensionName}] novelSuggestPlots failed:`, e);
+        toastr.error("คิดพล็อตไม่สำเร็จ", "TinyNovel");
+    } finally {
+        novelBusy = false;
+        setNovelGenerating(false, "#tinyfeed-novel-ai", "กำลังคิด...", "ให้ AI คิดให้");
+    }
+}
+
+// ── AI: สร้างเรื่อง + ตอนแรก ──
+async function novelCreateBook() {
+    if (novelBusy) return;
+    const plot = String($("#tinyfeed-novel-plot").val() || "").trim();
+    if (!plot) { toastr.info("ใส่พล็อตก่อนนะ (กดสุ่มก็ได้)", "TinyNovel"); return; }
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyNovel"); return; }
+    const genre = String($("#tinyfeed-novel-genre").val() || "").trim();
+    const hero = String($("#tinyfeed-novel-hero").val() || NOVEL_HERO_AI);
+    const lenKey = String($("#tinyfeed-novel-length").val() || "medium");
+    const totalEps = Math.max(1, parseInt($("#tinyfeed-novel-eps").val(), 10) || 5);
+    const len = novelLength(lenKey);
+    novelBusy = true;
+    setNovelGenerating(true, "#tinyfeed-novel-create", "กำลังแต่ง...", "เริ่มเขียนตอนแรก");
+    try {
+        const q = buildPrompt("novelOutline", {
+            plot, genre: genre || "(อิสระ)", hero: novelHeroLine(hero),
+            totalEps: String(totalEps), length: `${len.label} — ${len.hint}`,
+            extra: novelExtraLine(),
+        });
+        const raw = await tinyGenerate(q, len.tokens + 300, "novel");
+        const outline = parseNovelOutline(raw);
+        const first = parseNovelEpisode(raw.replace(/^(TITLE|SYNOPSIS|CHAR):.*$/gim, ""));
+        if (!first.text) { toastr.info("ยังเขียนไม่ออก ลองปรับพล็อตดูนะ", "TinyNovel"); return; }
+        const book = {
+            id: "nv" + Date.now(),
+            title: outline.title || escapeText(plot.slice(0, 40)),
+            synopsis: outline.synopsis, genre, plot: escapeText(plot),
+            cover: novelCover || "", hero, lengthKey: lenKey, totalEps,
+            chars: outline.chars,
+            episodes: [{ no: 1, title: first.title, text: first.text, ts: Date.now() }],
+            lastReadEp: 1, ts: Date.now(), updatedTs: Date.now(),
+        };
+        getNovel().books.unshift(book);
+        saveNovel();
+        novelCover = ""; novelPlotIdeas = []; novelHero = NOVEL_HERO_AI;
+        novelBookId = book.id; novelEpIdx = 0; novelScreen = "read";
+        renderNovel();
+    } catch (e) {
+        console.error(`[${extensionName}] novelCreateBook failed:`, e);
+        toastr.error("แต่งเรื่องไม่สำเร็จ", "TinyNovel");
+    } finally {
+        novelBusy = false;
+        setNovelGenerating(false, "#tinyfeed-novel-create", "กำลังแต่ง...", "เริ่มเขียนตอนแรก");
+    }
+}
+
+// ── AI: เขียนตอนต่อไป (รู้ว่าเหลืออีกกี่ตอนจะจบ) ──
+async function novelNextEpisode() {
+    if (novelBusy) return;
+    const b = novelBook(novelBookId);
+    if (!b) return;
+    if (b.episodes.length >= b.totalEps) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyNovel"); return; }
+    const len = novelLength(b.lengthKey);
+    const epNo = b.episodes.length + 1;
+    const isLast = epNo >= b.totalEps;
+    novelBusy = true;
+    setNovelGenerating(true, "#tinyfeed-novel-next", "กำลังเขียน...", `เขียนตอนที่ ${epNo}`);
+    try {
+        const roster = (b.chars || []).map((c) => `- ${c.name}${c.role ? ` (${c.role})` : ""}: ${c.desc || ""}`).join("\n");
+        const q = buildPrompt("novelEpisode", {
+            title: b.title, plot: b.plot || "", genre: b.genre || "(อิสระ)",
+            roster: roster || "(ยังไม่ระบุ)", story: novelStorySoFar(b),
+            epNo: String(epNo), totalEps: String(b.totalEps),
+            length: `${len.label} — ${len.hint}`,
+            endRule: isLast
+                ? "ตอนนี้คือ **ตอนสุดท้าย** ต้องปิดเรื่องให้จบสมบูรณ์ คลี่คลายทุกปมที่ค้างไว้ ห้ามทิ้งท้ายให้อ่านต่อ"
+                : `ยังเหลืออีก ${b.totalEps - epNo} ตอนจะจบ เดินเรื่องให้คืบหน้าและทิ้งท้ายให้อยากอ่านต่อ`,
+            extra: novelExtraLine(),
+        });
+        const raw = await tinyGenerate(q, len.tokens, "novel");
+        const parsed = parseNovelEpisode(raw);
+        if (!parsed.text) { toastr.info("ยังเขียนต่อไม่ออก ลองใหม่นะ", "TinyNovel"); return; }
+        b.episodes.push({ no: epNo, title: parsed.title, text: parsed.text, ts: Date.now() });
+        b.updatedTs = Date.now();
+        saveNovel();
+        novelEpIdx = b.episodes.length - 1;
+        renderNovel();
+    } catch (e) {
+        console.error(`[${extensionName}] novelNextEpisode failed:`, e);
+        toastr.error("เขียนตอนต่อไม่สำเร็จ", "TinyNovel");
+    } finally {
+        novelBusy = false;
+        setNovelGenerating(false, "#tinyfeed-novel-next", "กำลังเขียน...", `เขียนตอนที่ ${epNo}`);
+    }
+}
+
+function novelDeleteBook(id) {
+    const n = getNovel();
+    const i = n.books.findIndex((b) => b.id === id);
+    if (i < 0) return;
+    n.books.splice(i, 1);
+    saveNovel();
+    novelScreen = "shelf"; novelBookId = null;
+    renderNovel();
+}
 // เก็บใน extension_settings.tinyfeed.pet (ไม่ใช่ chat_metadata) → เพ็ทตัวเดียวตามผู้เล่นทุกแชท
 const PET_DECAY_DEFAULTS = { hunger: 0.5, energy: 0.35, cleanliness: 0.3 };   // ต่อนาที
 // สถานะ → sprite (เรียงตามความสำคัญใน petState) · emoji = fallback ตอนไม่มีไฟล์/ลิงก์
@@ -3352,11 +3849,15 @@ function setPetActionSprite(state, ms) {
 function petSpriteCandidates(state) {
     const map = getSetting("petSprites") || {};
     const stage = getPet().stage || "baby";
-    const keys = stage === "baby" ? [state] : [`${stage}_${state}`, state];
-    return keys.map((k) => {
-        const custom = String(map[k] || "").trim();
-        return custom || `${extensionFolderPath}/assets/pet-sprites/${k}.png`;
-    });
+    /* คีย์ที่ลองตามลำดับ: เฉพาะระยะ (`baby_idle`) → สถานะล้วน (`idle` = ค่าสำรองของทุกระยะ)
+     * เดิม baby ข้าม prefix ไปใช้คีย์ล้วนอย่างเดียว แต่ไฟล์ที่แถมมาใน assets/pet-sprites/
+     * ตั้งชื่อมี prefix ครบทั้ง 3 ระยะ (baby_idle.png ฯลฯ) → ระยะเด็กหารูปไม่เจอ ตกไปอิโมจิเสมอ */
+    const keys = [`${stage}_${state}`, state];
+    /* ลิงก์ที่ผู้ใช้ตั้งเองต้องชนะไฟล์ในตัว "ทุกคีย์" จึงไล่ลิงก์ให้ครบก่อนค่อยไล่ไฟล์
+     * (ถ้าสลับกันตามคีย์ ไฟล์ baby_idle.png ที่แถมมาจะทับลิงก์ที่ผู้ใช้ตั้งไว้ใต้คีย์ `idle`) */
+    const customs = keys.map((k) => String(map[k] || "").trim()).filter(Boolean);
+    const files = keys.map((k) => `${extensionFolderPath}/assets/pet-sprites/${k}.png`);
+    return [...customs, ...files];
 }
 // รูปหลัก (สำหรับ avatar contact/DM ฯลฯ) = candidate แรก
 function petSpriteUrl(state) { return petSpriteCandidates(state)[0]; }
@@ -4928,14 +5429,10 @@ function openPostDetail(postId) {
                 ? `<button class="tinyfeed-ai-reply tinyfeed-btn-generate" data-post="${post.id}"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI ตอบ</span></button>`
                 : "")}
         </div>
-        <div class="tinyfeed-comment-compose">
-            ${makeAvatar({ isUser: true, author: getUserName() })}
-            <div class="tinyfeed-inputwrap">
-                <input class="tinyfeed-comment-input" type="text" placeholder="เขียนคอมเมนต์..." data-post="${post.id}" />
-                <span class="tinyfeed-comment-sticker tinyfeed-compose-inbtn" data-post="${post.id}" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-            </div>
-            <span class="tinyfeed-comment-send" data-post="${post.id}"><i class="fa-solid fa-paper-plane"></i></span>
-        </div>
+        ${commentComposeHtml({
+            postId: post.id, dataKey: "post",
+            inputCls: "tinyfeed-comment-input", stickerCls: "tinyfeed-comment-sticker", sendCls: "tinyfeed-comment-send",
+        })}
     `;
     showDetail(html);
 }
@@ -5116,6 +5613,34 @@ const PROMPT_DEFS = {
             `โจทย์ What if: {{whatIf}}\nแนวเรื่อง: {{genre}}\nความยาว: {{length}}\n` +
             `ตั้งชื่อเรื่องให้น่าสนใจ + ชื่อตอนแรก แล้วเขียนเนื้อเรื่องสลับระหว่างคำบรรยายกับบทพูด ให้ตัวละครทุกคนมีบทบาท สมคาแรกเตอร์ มีจังหวะเปิดเรื่องที่ชวนติดตาม. ใช้ภาษาเดียวกับข้อมูลตัวละคร. {{userRule}}\n` +
             `ตอบตามรูปแบบนี้เท่านั้น (บรรทัดละ 1 รายการ):\nTITLE: <ชื่อเรื่อง>\nEPTITLE: <ชื่อตอน>\nNARRATION: <คำบรรยาย>\nLINE: <ชื่อตัวละคร> | <บทพูด>`,
+    },
+    novelPlot: {
+        label: "คิดพล็อตให้ (TinyNovel)", marker: "PLOT:", tokens: ["genre"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เสนอพล็อตนิยายที่คนชอบอ่าน 3 เรื่อง แนว: {{genre}}. ` +
+            `แต่ละพล็อตเขียนเป็นประโยคเดียวที่เห็นภาพและชวนติดตาม อย่าซ้ำแนวกัน อย่าใส่ชื่อตัวละคร.\n` +
+            `ตอบบรรทัดละ 1 พล็อตในรูปแบบนี้เท่านั้น:\nPLOT: <พล็อต>`,
+    },
+    novelOutline: {
+        label: "สร้างเรื่อง + ตอนแรก (TinyNovel)", marker: "TITLE:", tokens: ["plot", "genre", "hero", "totalEps", "length", "extra"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] คุณคือนักเขียนนิยาย เขียนนิยายเรื่องใหม่ตามโจทย์นี้\n` +
+            `พล็อต: {{plot}}\nแนวเรื่อง: {{genre}}\nตัวเอก: {{hero}}\n` +
+            `เรื่องนี้จะจบใน {{totalEps}} ตอน — ตอนนี้คือตอนที่ 1 วางจังหวะให้เหมาะกับความยาวทั้งเรื่อง\n` +
+            `ความยาวตอน: {{length}}\n{{extra}}\n` +
+            `ตั้งชื่อเรื่อง เขียนเรื่องย่อสั้นๆ ระบุตัวละครหลัก แล้วเขียนเนื้อเรื่องตอนที่ 1 เป็นร้อยแก้ว (มีบทสนทนาได้) แบ่งย่อหน้าด้วยบรรทัดว่าง\n` +
+            `ตอบตามรูปแบบนี้ (ส่วนหัวบรรทัดละรายการ แล้วเว้นบรรทัดก่อนเริ่มเนื้อเรื่อง):\n` +
+            `TITLE: <ชื่อเรื่อง>\nSYNOPSIS: <เรื่องย่อ 1-2 ประโยค>\nCHAR: <ชื่อ> | <บทบาท> | <นิสัย/ปูมหลังสั้นๆ>\n(CHAR ใส่ได้หลายบรรทัด)\nEPTITLE: <ชื่อตอนที่ 1>\n\n<เนื้อเรื่อง>`,
+    },
+    novelEpisode: {
+        label: "ตอนต่อไป (TinyNovel)", marker: "EPTITLE:", tokens: ["title", "plot", "genre", "roster", "story", "epNo", "totalEps", "length", "endRule", "extra"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนนิยายเรื่อง "{{title}}" ตอนที่ {{epNo}} จากทั้งหมด {{totalEps}} ตอน\n` +
+            `พล็อตหลัก: {{plot}}\nแนวเรื่อง: {{genre}}\nตัวละคร:\n{{roster}}\n` +
+            `เนื้อเรื่องที่ผ่านมา:\n{{story}}\n` +
+            `{{endRule}}\nความยาวตอน: {{length}}\n{{extra}}\n` +
+            `เขียนต่อให้ต่อเนื่องกับของเดิม อย่าเล่าซ้ำ เป็นร้อยแก้ว (มีบทสนทนาได้) แบ่งย่อหน้าด้วยบรรทัดว่าง ใช้ภาษาเดียวกับเนื้อเรื่องเดิม\n` +
+            `ตอบตามรูปแบบนี้:\nEPTITLE: <ชื่อตอน>\n\n<เนื้อเรื่อง>`,
     },
     theaterNext: {
         label: "ตอนต่อไป (TinyTheater)", marker: "NARRATION:", tokens: ["chars", "roster", "whatIf", "genre", "length", "epNo", "story", "userRule"],
@@ -7018,6 +7543,7 @@ const SETTINGS_LAYOUT = [
             { id: "gallery", name: "TinyGallery", icon: "fa-images", desc: "อัลบั้มที่ AI มองเห็น" },
             { id: "shop", name: "TinyShop", icon: "fa-bag-shopping", desc: "หมวดสินค้า · prompt เสริม" },
             { id: "pet", name: "TinyPet", icon: "fa-paw", desc: "ค่าลด · สไปรต์ · เหรียญ · เกม" },
+            { id: "novel", name: "TinyNovel", icon: "fa-book-open", desc: "ความยาวตอน · คำสั่งเสริม" },
         ],
     },
     {
@@ -7205,6 +7731,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-pet-autopost").prop("checked", Boolean(getSetting("petAutoPost")));
     $("#tinyfeed-cfg-pet-tokens").val(getSetting("petTokens"));
     $("#tinyfeed-cfg-pet-extra").val(getSetting("petExtraPrompt"));
+    $("#tinyfeed-cfg-novel-tokens").val(getSetting("novelTokens"));
+    $("#tinyfeed-cfg-novel-extra").val(getSetting("novelExtraPrompt"));
     $("#tinyfeed-cfg-pet-decay-hunger").val(getSetting("petDecayHunger"));
     $("#tinyfeed-cfg-pet-decay-energy").val(getSetting("petDecayEnergy"));
     $("#tinyfeed-cfg-pet-decay-clean").val(getSetting("petDecayClean"));
@@ -7246,6 +7774,48 @@ function populateApiProfiles() {
         html += `<option value="${escapeAttr(p.id)}">${escapeText(p.name || p.id)}</option>`;
     }
     sel.html(html).val(getSetting("apiProfile") || "");
+}
+
+/* เติมแถบพิมพ์ที่อยู่ใน phone.html (container ว่างไว้) — เรียกครั้งเดียวตอน init
+ * id ทุกตัวเหมือนเดิมเป๊ะ handler เดิมจึงใช้ได้ไม่ต้องแก้ */
+function mountComposeBars() {
+    $("#tinyfeed-connect-compose").html(composeBarHtml({
+        lead: [
+            { id: "tinyfeed-connect-plus", cls: "tinyfeed-compose-plus", icon: "fa-solid fa-plus", title: "เพิ่มเติม" },
+            { id: "tinyfeed-connect-image", icon: "fa-regular fa-image", title: "ส่งรูป" },
+        ],
+        field: { id: "tinyfeed-connect-input", multiline: true, placeholder: "พิมพ์ข้อความ..." },
+        sticker: { id: "tinyfeed-connect-sticker" },
+        send: { id: "tinyfeed-connect-send" },
+        after: `<div id="tinyfeed-connect-plusmenu" class="tinyfeed-plusmenu tinyfeed-hidden"></div>`,
+    }));
+    $("#tinyfeed-stream-streamer-compose").html(composeBarHtml({
+        field: { id: "tinyfeed-stream-streamer-input", placeholder: "พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." },
+        sticker: { id: "tinyfeed-stream-streamer-sticker" },
+        send: { id: "tinyfeed-stream-streamer-send", icon: "fa-solid fa-microphone", title: "พูด" },
+    }));
+    $("#tinyfeed-stream-compose").html(composeBarHtml({
+        lead: [{ id: "tinyfeed-stream-donate", cls: "tinyfeed-stream-donate-btn", icon: "fa-solid fa-gift", title: "โดเนทให้สตรีมเมอร์" }],
+        field: { id: "tinyfeed-stream-input", placeholder: "พิมพ์คอมเมนต์สด..." },
+        sticker: { id: "tinyfeed-stream-sticker" },
+        send: { id: "tinyfeed-stream-send" },
+    }));
+    $("#tinyfeed-forum-compose").html(composeBarHtml({
+        field: { id: "tinyfeed-forum-comment-input", placeholder: "ร่วมแสดงความเห็น..." },
+        sticker: { id: "tinyfeed-forum-sticker" },
+        send: { id: "tinyfeed-forum-comment-send" },
+    }));
+}
+
+// แถบเขียนคอมเมนต์ใต้โพสต์ — ใช้ร่วมกันระหว่าง TinyFeed กับ TinyVerse (ต่างกันแค่ชื่อ data + คลาสปุ่ม)
+function commentComposeHtml({ postId, dataKey, inputCls, stickerCls, sendCls }) {
+    return `<div class="tinyfeed-comment-compose">${composeBarHtml({
+        before: makeAvatar({ isUser: true, author: getUserName() }),
+        data: { [dataKey]: postId },
+        field: { cls: inputCls, placeholder: "เขียนคอมเมนต์..." },
+        sticker: { cls: stickerCls },
+        send: { cls: sendCls },
+    })}</div>`;
 }
 
 let settingsReturn = "feed";   // แอปที่จะกลับไปหลังปิด settings
@@ -7303,6 +7873,7 @@ jQuery(async () => {
         // โหลด panel โทรศัพท์ แปะไว้ที่ body
         const phoneHtml = await $.get(`${extensionFolderPath}/phone.html`);
         $("body").append(phoneHtml);
+        mountComposeBars();     // เติมแถบพิมพ์ 4 อันจาก composeBarHtml() (id เดิมทุกตัว)
         renderSettingsList();   // สร้างรายการหัวข้อตั้งค่า (ระดับ 1) + เช็คว่า layout กับ HTML ตรงกัน
 
         // โหลด drawer ตั้งค่าไปที่แผง extensions ด้านขวา
@@ -7732,7 +8303,12 @@ jQuery(async () => {
             applyVerseComposeMode();
         });
         $(document).on("keydown", "#tinyfeed-verse-guidance", function (e) { if (e.key === "Enter") { e.preventDefault(); verseGeneratePost(); } });
-        $(document).on("click", ".tinyfeed-verse-like", function () {
+        // แตะการ์ดโพสต์ = เปิดหน้ารายละเอียด (เหมือน TinyFeed) — ปุ่มย่อยด้านล่างต้อง stopPropagation
+        $(document).on("click", ".tinyfeed-post[data-vpost]:not(.tinyfeed-post-detail)", function () {
+            openVersePost(String($(this).data("vpost")));
+        });
+        $(document).on("click", ".tinyfeed-verse-like", function (e) {
+            e.stopPropagation();
             const p = verseFeedPost(String($(this).data("vpost")));
             if (!p) return;
             p.liked = !p.liked;
@@ -7740,15 +8316,29 @@ jQuery(async () => {
             saveVerse();
             renderVerseFeedList();
         });
-        $(document).on("click", ".tinyfeed-verse-del", function () {
+        $(document).on("click", ".tinyfeed-verse-del", function (e) {
+            e.stopPropagation();
             const id = String($(this).data("vpost"));
             const v = getVerse();
             const i = v.feed.findIndex((p) => p.id === id);
-            if (i >= 0) { v.feed.splice(i, 1); saveVerse(); renderVerseFeedList(); }
+            if (i < 0) return;
+            v.feed.splice(i, 1);
+            saveVerse();
+            if (versePostId === id) closeVersePost();   // ลบโพสต์ที่กางอยู่ → กลับหน้ารายการ
+            else renderVerseFeedList();
         });
         // ── ครอสโอเวอร์: คอมเมนต์ข้ามการ์ด ──
-        $(document).on("click", ".tinyfeed-verse-aicomment", function () { verseGenerateComments(String($(this).data("vpost"))); });
-        $(document).on("click", ".tinyfeed-verse-csend", function () {
+        $(document).on("click", ".tinyfeed-verse-aicomment", function (e) {
+            e.stopPropagation();
+            verseGenerateComments(String($(this).data("vpost")));
+        });
+        $(document).on("click", ".tinyfeed-verse-csticker", function (e) {
+            e.stopPropagation();
+            const id = String($(this).data("vpost"));
+            openGalleryPicker("sticker", (token) => addVerseComment(id, token));
+        });
+        $(document).on("click", ".tinyfeed-verse-csend", function (e) {
+            e.stopPropagation();
             const id = String($(this).data("vpost"));
             const $inp = $(`.tinyfeed-verse-cinput[data-vpost="${id}"]`);
             addVerseComment(id, $inp.val());
@@ -7757,6 +8347,49 @@ jQuery(async () => {
             if (e.key === "Enter") { e.preventDefault(); addVerseComment(String($(this).data("vpost")), $(this).val()); }
         });
         // ===== TinyTheater: มินิเธียเตอร์ What if =====
+        // ===== TinyNovel: แอปอ่านนิยาย =====
+        $(document).on("click", "#tinyfeed-novel-new", function () {
+            novelCover = ""; novelPlotIdeas = []; novelHero = NOVEL_HERO_AI;
+            novelScreen = "create"; renderNovel();
+        });
+        $(document).on("click", ".tinyfeed-novel-card", function () {
+            novelBookId = String($(this).data("book"));
+            const b = novelBook(novelBookId);
+            novelEpIdx = b ? Math.max(0, Math.min((b.lastReadEp || 1) - 1, b.episodes.length - 1)) : 0;
+            novelScreen = "read"; renderNovel();
+        });
+        $(document).on("click", "#tinyfeed-novel-dice", function () {
+            $("#tinyfeed-novel-plot").val(novelRandomTrope());
+        });
+        $(document).on("click", "#tinyfeed-novel-ai", novelSuggestPlots);
+        $(document).on("click", ".tinyfeed-novel-idea", function () {
+            $("#tinyfeed-novel-plot").val($(this).data("idea"));
+        });
+        $(document).on("click", ".tinyfeed-novel-chip", function () {
+            $("#tinyfeed-novel-genre").val($(this).data("genre"));
+        });
+        $(document).on("change", "#tinyfeed-novel-hero", function () { novelHero = String($(this).val()); });
+        $(document).on("click", "#tinyfeed-novel-pickcover", function () {
+            openGalleryPicker("image", (token) => {
+                const m = String(token).match(/\[img:([^\]]+)\]/i);
+                const img = m ? findGalleryImage(m[1]) : null;
+                if (!img) { toastr.info("เลือกรูปไม่สำเร็จ", "TinyNovel"); return; }
+                novelCover = img.url || "";
+                restoreNovelForm();   // วาดฟอร์มใหม่โดยคงค่าที่กรอกไว้
+            });
+        });
+        $(document).on("click", "#tinyfeed-novel-clearcover", function () { novelCover = ""; restoreNovelForm(); });
+        $(document).on("click", "#tinyfeed-novel-create", novelCreateBook);
+        $(document).on("click", "#tinyfeed-novel-next", novelNextEpisode);
+        $(document).on("click", ".tinyfeed-novel-epchip", function () {
+            novelEpIdx = parseInt($(this).data("ep"), 10) || 0;
+            renderNovel();
+        });
+        $(document).on("click", "#tinyfeed-novel-chars", function () { novelScreen = "chars"; renderNovel(); });
+        $(document).on("click", "#tinyfeed-novel-del", function () {
+            if (novelBookId) novelDeleteBook(novelBookId);
+        });
+
         $(document).on("click", "#tinyfeed-th-new", function () {
             theaterCastSel = []; theaterCover = ""; theaterWhatIfIdeas = []; theaterScreen = "create"; renderTheater();
         });
@@ -7814,7 +8447,8 @@ jQuery(async () => {
             theaterDeleteShow(String($(this).data("show")));
         });
 
-        $(document).on("click", ".tinyfeed-verse-cdel", function () {
+        $(document).on("click", ".tinyfeed-verse-cdel", function (e) {
+            e.stopPropagation();
             const post = verseFeedPost(String($(this).data("vpost")));
             const idx = parseInt($(this).data("cidx"), 10);
             if (!post || !Array.isArray(post.comments) || !(idx >= 0)) return;
@@ -8008,7 +8642,9 @@ jQuery(async () => {
         });
 
         // Stage 2.5: กดโพสต์/ข่าวเข้าหน้ารายละเอียด
-        $(document).on("click", ".tinyfeed-post:not(.tinyfeed-post-detail)", function () {
+        // จำกัดด้วย [data-post] — โพสต์ TinyVerse ก็ใช้ .tinyfeed-post แต่เก็บ id ใน data-vpost
+        // (เดิมไม่จำกัด → กดโพสต์ TinyVerse แล้วเข้า openPostDetail(undefined) = เงียบ ไม่มีอะไรเกิดขึ้น)
+        $(document).on("click", ".tinyfeed-post[data-post]:not(.tinyfeed-post-detail)", function () {
             openPostDetail($(this).data("post"));
         });
         $(document).on("click", ".tinyfeed-news", function () {
@@ -8534,6 +9170,13 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-pet-extra", function () {
             setSetting("petExtraPrompt", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-novel-tokens", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("novelTokens", Number.isFinite(v) && v > 0 ? v : 850);
+        });
+        $(document).on("input", "#tinyfeed-cfg-novel-extra", function () {
+            setSetting("novelExtraPrompt", $(this).val());
         });
         $(document).on("input", "#tinyfeed-cfg-pet-decay-hunger", function () {
             const v = parseFloat($(this).val());

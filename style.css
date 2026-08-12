@@ -46,6 +46,7 @@
     --tf-app-pet: #8b5cf6;
     --tf-app-verse: #6366f1;
     --tf-app-theater: #e11d48;
+    --tf-app-novel: #0ea5e9;
     --tf-app-news: #f59e0b;      /* ไม่ใช่แอป — เป็นแท็บใน feed */
 }
 
@@ -643,39 +644,11 @@
     font-size: 0.85em;
 }
 
-.tinyfeed-comment-input {
-    flex: 1;
-    min-width: 0;
-    box-sizing: border-box;
-    background: var(--tf-topbar);
-    color: var(--tf-text);
-    border: 1px solid var(--tf-border);
-    border-radius: 999px;
-    padding: 8px 14px;
-    font: inherit;
-    font-size: 0.9em;
-    outline: none;
-    transition: border-color 0.2s ease;
-}
-
-.tinyfeed-comment-input:focus {
-    border-color: var(--tf-accent);
-}
-
-.tinyfeed-comment-send {
-    flex-shrink: 0;
-    width: 34px;
-    height: 34px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    color: var(--tf-accent);
-    cursor: pointer;
-    transition: background 0.2s ease;
-}
-
-.tinyfeed-comment-send:hover {
+.tinyfeed-comment-input,
+.tinyfeed-comment-input:focus,
+.tinyfeed-comment-send,
+.tinyfeed-comment-send:hover,
+.tinyfeed-verse-csend:hover {
     background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
 }
 
@@ -4291,7 +4264,6 @@
 .tinyfeed-verse-cdel { margin-left: auto; color: var(--tf-text-muted); cursor: pointer; font-size: 0.8em; flex-shrink: 0; opacity: 0; transition: opacity 0.15s ease; }
 .tinyfeed-comment:hover .tinyfeed-verse-cdel { opacity: 1; }
 .tinyfeed-verse-cdel:hover { color: var(--tf-danger); }
-.tinyfeed-verse-crow { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .tinyfeed-verse-cinput {
     flex: 1; min-width: 0; box-sizing: border-box;
     background: var(--tf-topbar); color: var(--tf-text);
@@ -4513,3 +4485,154 @@
 }
 .tinyfeed-th-idea:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 18%, var(--tf-topbar)); }
 .tinyfeed-th-idea:active { transform: scale(0.99); }
+
+/* ===== TinyNovel (แอปที่ 12): แอปอ่านนิยาย ===== */
+.tinyfeed-novel-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* หัวชั้นหนังสือ */
+.tinyfeed-novel-hero {
+    flex-shrink: 0;
+    padding: var(--tf-sp-5) var(--tf-sp-4) var(--tf-sp-4);
+    background: linear-gradient(160deg,
+        color-mix(in srgb, var(--tf-app-novel) 32%, var(--tf-bg)),
+        var(--tf-bg));
+    border-bottom: 1px solid var(--tf-border);
+}
+.tinyfeed-novel-herotitle { font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong); }
+.tinyfeed-novel-herotitle i { color: var(--tf-app-novel); margin-right: var(--tf-sp-2); }
+.tinyfeed-novel-herosub { font-size: var(--tf-fs-sm); color: var(--tf-text-muted); margin: var(--tf-sp-1) 0 var(--tf-sp-4); }
+.tinyfeed-novel-newbtn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: var(--tf-sp-3); }
+
+/* กริดปกหนังสือ */
+.tinyfeed-novel-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--tf-sp-4); }
+.tinyfeed-novel-card { cursor: pointer; transition: transform 0.1s ease; }
+.tinyfeed-novel-card:active { transform: scale(0.97); }
+.tinyfeed-novel-cover {
+    width: 100%; aspect-ratio: 2 / 3; border-radius: var(--tf-r-md);
+    background-size: cover; background-position: center top;
+    background-color: color-mix(in srgb, var(--tf-app-novel) 22%, var(--tf-topbar));
+    border: 1px solid var(--tf-border);
+}
+.tinyfeed-novel-cover-blank {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2.4em; font-weight: 700; color: var(--tf-text-muted);
+}
+.tinyfeed-novel-cardtitle {
+    font-size: var(--tf-fs-sm); color: var(--tf-text-strong); font-weight: 600;
+    margin-top: var(--tf-sp-2); line-height: 1.3; word-break: break-word;
+}
+.tinyfeed-novel-cardmeta { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); margin-top: 2px; }
+.tinyfeed-novel-done { color: var(--tf-success); font-weight: 600; }
+
+/* ฟอร์มสร้างเรื่อง */
+.tinyfeed-novel-field { margin-bottom: var(--tf-sp-5); }
+.tinyfeed-novel-field > label {
+    display: block; font-size: var(--tf-fs-sm); font-weight: 600;
+    color: var(--tf-text-strong); margin-bottom: var(--tf-sp-2);
+}
+.tinyfeed-novel-field textarea,
+.tinyfeed-novel-field input[type="text"],
+.tinyfeed-novel-field select {
+    box-sizing: border-box; width: 100%;
+    background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-3) var(--tf-sp-4); font: inherit; font-size: var(--tf-fs-md);
+}
+.tinyfeed-novel-field textarea { resize: vertical; min-height: 62px; line-height: 1.5; }
+.tinyfeed-novel-field textarea:focus,
+.tinyfeed-novel-field input:focus,
+.tinyfeed-novel-field select:focus { border-color: var(--tf-accent); outline: none; }
+.tinyfeed-novel-row2 { display: flex; gap: var(--tf-sp-3); }
+.tinyfeed-novel-row2 > div { flex: 1; min-width: 0; }
+
+.tinyfeed-novel-plotbtns { display: flex; gap: var(--tf-sp-3); margin-top: var(--tf-sp-3); flex-wrap: wrap; }
+.tinyfeed-novel-toolbtn { font-size: var(--tf-fs-xs); padding: var(--tf-sp-2) var(--tf-sp-4); }
+
+.tinyfeed-novel-chips,
+.tinyfeed-novel-ideas { display: flex; flex-wrap: wrap; gap: var(--tf-sp-2); margin-top: var(--tf-sp-3); }
+.tinyfeed-novel-chip,
+.tinyfeed-novel-idea {
+    font-size: var(--tf-fs-xs); padding: var(--tf-sp-2) var(--tf-sp-4);
+    border-radius: var(--tf-r-pill); cursor: pointer;
+    border: 1px solid var(--tf-border); color: var(--tf-text-muted);
+    background: var(--tf-topbar); line-height: 1.4;
+}
+.tinyfeed-novel-chip:hover,
+.tinyfeed-novel-idea:hover { border-color: var(--tf-accent); color: var(--tf-text); }
+.tinyfeed-novel-idea { text-align: left; }
+
+.tinyfeed-novel-coverrow { display: flex; align-items: center; gap: var(--tf-sp-3); flex-wrap: wrap; }
+.tinyfeed-novel-coverprev {
+    width: 48px; height: 72px; flex-shrink: 0; border-radius: var(--tf-r-sm);
+    border: 1px solid var(--tf-border); background: var(--tf-topbar);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--tf-text-muted); overflow: hidden;
+}
+.tinyfeed-novel-coverprev img { width: 100%; height: 100%; object-fit: cover; }
+.tinyfeed-novel-createbtn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: var(--tf-sp-3); }
+
+/* หน้าอ่าน */
+.tinyfeed-novel-readhero {
+    flex-shrink: 0; display: flex; gap: var(--tf-sp-4);
+    padding: var(--tf-sp-4); border-bottom: 1px solid var(--tf-border);
+    background: color-mix(in srgb, var(--tf-app-novel) 10%, var(--tf-bg));
+}
+.tinyfeed-novel-readhero .tinyfeed-novel-cover { width: 68px; flex-shrink: 0; }
+.tinyfeed-novel-readmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tinyfeed-novel-readtitle {
+    font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong);
+    line-height: 1.25; word-break: break-word;
+}
+.tinyfeed-novel-readsub { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); margin-top: 2px; }
+.tinyfeed-novel-readbtns { display: flex; gap: var(--tf-sp-2); margin-top: auto; padding-top: var(--tf-sp-3); flex-wrap: wrap; }
+.tinyfeed-novel-delbtn { color: var(--tf-danger); border-color: var(--tf-danger); }
+
+.tinyfeed-novel-synopsis {
+    font-size: var(--tf-fs-sm); color: var(--tf-text-muted); line-height: 1.6;
+    padding: var(--tf-sp-3) var(--tf-sp-4); margin-bottom: var(--tf-sp-4);
+    border-left: 3px solid var(--tf-app-novel); border-radius: 0 var(--tf-r-sm) var(--tf-r-sm) 0;
+    background: color-mix(in srgb, var(--tf-app-novel) 8%, transparent);
+}
+.tinyfeed-novel-epbar {
+    display: flex; gap: var(--tf-sp-2); overflow-x: auto; padding-bottom: var(--tf-sp-2);
+    margin-bottom: var(--tf-sp-4); scrollbar-width: thin;
+}
+.tinyfeed-novel-epchip {
+    flex-shrink: 0; font-size: var(--tf-fs-xs); padding: var(--tf-sp-2) var(--tf-sp-4);
+    border-radius: var(--tf-r-pill); border: 1px solid var(--tf-border);
+    color: var(--tf-text-muted); cursor: pointer; background: var(--tf-topbar);
+}
+.tinyfeed-novel-epchip-active {
+    color: #fff; background: var(--tf-app-novel); border-color: var(--tf-app-novel); font-weight: 600;
+}
+.tinyfeed-novel-eptitle {
+    font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong);
+    margin-bottom: var(--tf-sp-4); text-align: center;
+}
+/* เนื้อนิยาย — เน้นอ่านสบาย บรรทัดห่างกว่าที่อื่น */
+.tinyfeed-novel-text { color: var(--tf-text); font-size: var(--tf-fs-md); line-height: 1.9; }
+.tinyfeed-novel-text p { margin: 0 0 var(--tf-sp-5); text-indent: 1.4em; }
+.tinyfeed-novel-endmark {
+    text-align: center; color: var(--tf-text-muted); font-size: var(--tf-fs-sm);
+    letter-spacing: 0.1em; margin: var(--tf-sp-6) 0;
+}
+.tinyfeed-novel-nextbtn {
+    width: 100%; display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-4);
+}
+
+/* ตัวละครในเรื่อง */
+.tinyfeed-novel-charcard {
+    padding: var(--tf-sp-4); border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md); background: var(--tf-topbar); margin-bottom: var(--tf-sp-3);
+}
+.tinyfeed-novel-charname { font-size: var(--tf-fs-md); font-weight: 600; color: var(--tf-text-strong); }
+.tinyfeed-novel-charrole {
+    font-size: var(--tf-fs-xs); font-weight: 400; color: var(--tf-app-novel);
+    border: 1px solid var(--tf-app-novel); border-radius: var(--tf-r-pill);
+    padding: 1px var(--tf-sp-3); margin-left: var(--tf-sp-2);
+}
+.tinyfeed-novel-chardesc {
+    font-size: var(--tf-fs-sm); color: var(--tf-text-muted);
+    line-height: 1.6; margin-top: var(--tf-sp-2);
+}
