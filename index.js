@@ -2110,25 +2110,47 @@ function recordGenTokens(app, prompt, maxTokens, preamble) {
 }
 
 // want-object ของการแทรกเข้าแชทหลัก (ใช้ร่วม updateChatInjection + dashboard ให้ตรงกันเป๊ะ)
+/* ทะเบียนแหล่งข้อมูลที่ส่งออกนอกแอปได้ — เพิ่มแหล่งใหม่ = เพิ่ม entry ที่นี่ที่เดียว
+ *   id      คีย์ใน want object + คีย์ใน APP_META (ใช้หาป้าย/ไอคอน/สี)
+ *   inject  setting ของ "แทรกเข้า RP" (feed/news ไม่มี เพราะคุมด้วย injectMode)
+ *   cross   setting ของ "ให้แอปอื่นเห็น"
+ *   single  want ย่อยสำหรับนับ token แยกรายแอปใน dashboard
+ * เดิมลิสต์นี้ถูกเขียนซ้ำ 4 ที่ (injectWant / injectText / injectDashboard / crossAppContext)
+ * → เพิ่มแหล่งใหม่แล้วลืมที่ใดที่หนึ่ง = แทรกไม่ออกหรือนับ token ขาดแบบเงียบๆ */
+const INJECT_SOURCES = [
+    { id: "feed", cross: "crossAppFeed", single: (w) => ({ feed: true, comments: w.comments }) },
+    { id: "news", cross: "crossAppNews", single: () => ({ news: true }) },
+    { id: "connect", inject: "injectConnect", cross: "crossAppConnect", single: () => ({ connect: true }) },
+    { id: "stream", inject: "injectStream", cross: "crossAppStream", single: () => ({ stream: true }) },
+    { id: "memo", inject: "injectMemo", cross: "crossAppMemo", single: () => ({ memo: true }) },
+    { id: "forum", inject: "injectForum", cross: "crossAppForum", single: (w) => ({ forum: true, forumComments: w.forumComments }) },
+    { id: "bank", inject: "injectBank", cross: "crossAppBank", single: () => ({ bank: true }) },
+    { id: "shop", inject: "injectShop", cross: "crossAppShop", single: () => ({ shop: true }) },
+    { id: "pet", inject: "injectPet", cross: "crossAppPet", single: () => ({ pet: true }) },
+];
+// มีแหล่งไหนเปิดอยู่บ้างไหม (ใช้แทนการไล่ && / || ทีละตัว)
+function anyWant(w) { return INJECT_SOURCES.some((s) => w[s.id]); }
+
 function injectWant() {
     const mode = getSetting("injectMode") || "off";
-    return {
+    const want = {
+        // feed/news คุมด้วย injectMode (dropdown) ไม่ใช่ checkbox แยก
         feed: ["posts", "posts_comments", "posts_comments_news", "both"].includes(mode),
         comments: ["posts_comments", "posts_comments_news"].includes(mode),
         news: ["news", "posts_comments_news", "both"].includes(mode),
-        connect: Boolean(getSetting("injectConnect")),
-        stream: Boolean(getSetting("injectStream")),
-        memo: Boolean(getSetting("injectMemo")),
-        forum: Boolean(getSetting("injectForum")),
         forumComments: Boolean(getSetting("injectForumComments")),
         count: Math.max(1, parseInt(getSetting("injectCount"), 10) || 5),
     };
+    for (const src of INJECT_SOURCES) {
+        if (src.inject) want[src.id] = Boolean(getSetting(src.inject));
+    }
+    return want;
 }
 
 // ข้อความที่แทรกเข้าแชทหลักจริง (ใช้ทั้งตอน setExtensionPrompt และตอนนับโทเคน)
 function injectText() {
     const w = injectWant();
-    if (!w.feed && !w.news && !w.connect && !w.stream && !w.memo && !w.forum) return "";
+    if (!anyWant(w)) return "";
     const blocks = buildAppBlocks(w);
     return blocks.length
         ? `[ข้อมูลจากโทรศัพท์ TinyPhone ที่ตัวละครรับรู้ได้ ใช้อ้างอิงในบทบาทได้ตามเหมาะสม]\n${blocks.join("\n\n")}`
@@ -2138,19 +2160,14 @@ function injectText() {
 // ── Dashboard ส่วน A: โทเคนที่ "ส่งเข้าแชทหลัก" ทุกข้อความ (ตรงกับ config แทรกจริง) ──
 function injectDashboard() {
     const w = injectWant();
-    const on = w.feed || w.news || w.connect || w.stream || w.memo || w.forum;
+    const on = anyWant(w);
     const rows = [];
     const add = (key, single) => {
         const t = buildAppBlocks(Object.assign({ count: w.count }, single)).join("\n");
         const tok = tinyTokenCount(t);
         if (tok) { const m = APP_META[key]; rows.push({ key, label: m.label, icon: m.icon, color: m.color, tokens: tok }); }
     };
-    if (w.feed) add("feed", { feed: true, comments: w.comments });
-    if (w.news) add("news", { news: true });
-    if (w.connect) add("connect", { connect: true });
-    if (w.stream) add("stream", { stream: true });
-    if (w.memo) add("memo", { memo: true });
-    if (w.forum) add("forum", { forum: true, forumComments: w.forumComments });
+    for (const src of INJECT_SOURCES) { if (w[src.id]) add(src.id, src.single(w)); }
     const total = tinyTokenCount(injectText());   // รวมจริง (มี header ครอบ)
     return { rows, total, on, depth: Math.max(0, parseInt(getSetting("injectDepth"), 10) || 4) };
 }
@@ -2624,7 +2641,8 @@ async function verseGeneratePost() {
         const q = buildPrompt("versePost", {
             charName: c.name,
             persona: (c.persona || c.bio || "").trim() || "(ไม่มีข้อมูลตัวละครเพิ่มเติม)",
-            guidance: guidance ? `แนวทางของโพสต์นี้: ${guidance}. ` : "",
+            guidance: (guidance ? `แนวทางของโพสต์นี้: ${guidance}. ` : "") + galleryPromptBlock(),
+            context: crossAppContext("verse"),
         });
         const raw = await tinyGenerate(q, verseTokens(), "verse");
         const parsed = parseGeneratedPost(raw, c.name);
@@ -3683,6 +3701,11 @@ const PET_STATE_EMOJI = {
     eating: "😋", playing: "🎾", cleaning: "🫧", sleeping: "💤", dead: "🪦",
 };
 const PET_SPRITE_STATES = Object.keys(PET_STATE_EMOJI);
+// ป้ายไทยของสถานะ — ใช้ทั้งหน้าตั้งค่าสไปรต์ และตอนแทรกสถานะเพ็ทเข้า RP
+const PET_STATE_LABEL = {
+    idle: "ปกติ", happy: "อารมณ์ดี", hungry: "หิว", sleepy: "ง่วง", dirty: "ตัวเลอะ", sick: "ป่วย",
+    eating: "กำลังกินอาหาร", playing: "กำลังเล่น", cleaning: "กำลังอาบน้ำ", sleeping: "กำลังหลับ", dead: "เสียชีวิต",
+};
 const clamp100 = (n) => Math.max(0, Math.min(100, Number(n) || 0));
 
 function defaultPet() {
@@ -4775,7 +4798,7 @@ function renderPet() {
 let petSpriteCfgStage = "baby";
 function renderPetSpriteCfg() {
     const map = getSetting("petSprites") || {};
-    const labels = { idle: "ปกติ", happy: "มีความสุข", hungry: "หิว", sleepy: "ง่วง", dirty: "เลอะ", sick: "ป่วย", eating: "กินอาหาร", playing: "เล่น", cleaning: "อาบน้ำ", sleeping: "หลับ", dead: "เสียชีวิต" };
+    const labels = PET_STATE_LABEL;
     const stg = PET_STAGES.includes(petSpriteCfgStage) ? petSpriteCfgStage : "baby";
     const stageOpts = PET_STAGES.map((s) => `<option value="${s}"${s === stg ? " selected" : ""}>${PET_STAGE_LABEL[s]}</option>`).join("");
     const rows = PET_SPRITE_STATES.map((st) => {
@@ -5200,6 +5223,42 @@ function buildAppBlocks(want) {
         });
         if (threads.length) blocks.push(`กระทู้ล่าสุดบนเว็บบอร์ด TinyForum:\n${threads.join("\n")}`);
     }
+    if (want.bank) {
+        const b = data.bank;
+        if (b && (b.balance || (b.txns || []).length)) {
+            const parts = [`ยอดคงเหลือ: ${formatMoney(b.balance || 0)}`];
+            const tx = (b.txns || []).slice(0, count)
+                .map((t) => `- ${t.dir === "in" ? "รับ" : "จ่าย"} ${formatMoney(t.amount)}${t.label ? ` — ${htmlToPlain(t.label)}` : ""}`);
+            if (tx.length) parts.push(`ธุรกรรมล่าสุด:\n${tx.join("\n")}`);
+            blocks.push(`การเงินในแอป TinyBank:\n${parts.join("\n")}`);
+        }
+    }
+    if (want.shop) {
+        const owned = data.shopOwned || {};
+        const catalog = getShop();
+        const items = Object.keys(owned)
+            .map((id) => ({ it: catalog.find((x) => x.id === id), n: owned[id] }))
+            .filter((x) => x.it && x.n > 0).slice(0, count)
+            .map((x) => `- ${htmlToPlain(x.it.name)}${x.n > 1 ? ` ×${x.n}` : ""}${x.it.desc ? ` (${htmlToPlain(x.it.desc)})` : ""}`);
+        if (items.length) blocks.push(`ของที่ซื้อไว้จากแอป TinyShop:\n${items.join("\n")}`);
+    }
+    if (want.pet) {
+        // เพ็ทเป็น global (ตัวเดียวข้ามแชท) — สถานะสดตอนนี้ ให้ตัวละครอ้างถึงได้
+        const p = getPet();
+        if (p.exists) {
+            if (p.isDead) {
+                blocks.push(`สัตว์เลี้ยงในแอป TinyPet:\n- ${p.name} เสียชีวิตแล้ว`);
+            } else {
+                petApplyDecay();
+                const s = p.stats || {};
+                const lv = petBondLevel(p.bond);   // ต้องส่ง bond เข้าไป — ฟังก์ชันนี้รับค่าเป็นอาร์กิวเมนต์
+                blocks.push(`สัตว์เลี้ยงในแอป TinyPet:\n`
+                    + `- ชื่อ ${p.name} (${PET_STAGE_LABEL[p.stage] || p.stage}) · ตอนนี้ ${PET_STATE_LABEL[petState()] || petState()}\n`
+                    + `- อิ่ม ${Math.round(100 - (s.hunger || 0))}% · พลังงาน ${Math.round(s.energy || 0)}% · ความสะอาด ${Math.round(s.cleanliness || 0)}% · อารมณ์ ${Math.round(s.mood || 0)}% · สุขภาพ ${Math.round(s.health || 0)}%\n`
+                    + `- ความผูกพันกับเรา: เลเวล ${lv}`);
+            }
+        }
+    }
     return blocks;
 }
 
@@ -5207,16 +5266,8 @@ function buildAppBlocks(want) {
 function crossAppContext(exclude) {
     if (!getSetting("crossAppEnabled")) return "";
     const count = Math.max(1, parseInt(getSetting("crossAppCount"), 10) || 3);
-    const want = {
-        feed: Boolean(getSetting("crossAppFeed")),
-        comments: Boolean(getSetting("crossAppComments")),
-        news: Boolean(getSetting("crossAppNews")),
-        connect: Boolean(getSetting("crossAppConnect")),
-        stream: Boolean(getSetting("crossAppStream")),
-        memo: Boolean(getSetting("crossAppMemo")),
-        forum: Boolean(getSetting("crossAppForum")),
-        count,
-    };
+    const want = { comments: Boolean(getSetting("crossAppComments")), count };
+    for (const src of INJECT_SOURCES) want[src.id] = Boolean(getSetting(src.cross));
     // ตัดแอปที่กำลัง generate ออก (คอมเมนต์ผูกกับฟีด → ตัดไปพร้อมกัน)
     if (exclude && Object.prototype.hasOwnProperty.call(want, exclude)) want[exclude] = false;
     if (exclude === "feed") want.comments = false;
@@ -5584,9 +5635,10 @@ const PROMPT_DEFS = {
             `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
     },
     versePost: {
-        label: "โพสต์ฟีดโกลบอล (TinyVerse)", marker: "POST:", tokens: ["charName", "persona", "guidance"],
+        label: "โพสต์ฟีดโกลบอล (TinyVerse)", marker: "POST:", tokens: ["charName", "persona", "guidance", "context"],
         default:
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{charName}} กำลังจะโพสต์ลงฟีดโซเชียลส่วนตัวในมุมมองของตัวเอง. ข้อมูลตัวละคร (ใช้กำหนดนิสัย/น้ำเสียง): {{persona}}. ` +
+            `{{context}}` +
             `เขียนโพสต์สั้นๆ 1 โพสต์ (1-3 ประโยค) ในน้ำเสียงและมุมมองของ {{charName}} ให้สมคาแรกเตอร์ เป็นธรรมชาติเหมือนโพสต์โซเชียลจริง. {{guidance}}ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
             `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
     },
@@ -6892,7 +6944,7 @@ async function loadForumComments(threadId, opts) {
         const q = buildPrompt("forumComments", {
             room: htmlToPlain(t.room), title: htmlToPlain(t.title), body: htmlToPlain(t.body), batch: batch,
             roster: npcRosterLine(charName),
-            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            extra: (extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "") + galleryPromptBlock(),
             existing: existing ? `\nคอมเมนต์ที่มีอยู่แล้ว (อ้างเลขเพื่อตอบกลับได้ อย่าเขียนซ้ำ):\n${existing}\n` : "",
             context: crossAppContext("forum"),
         });
@@ -7705,6 +7757,9 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-memo").prop("checked", Boolean(getSetting("injectMemo")));
     $("#tinyfeed-cfg-inject-forum").prop("checked", Boolean(getSetting("injectForum")));
     $("#tinyfeed-cfg-inject-forum-comments").prop("checked", Boolean(getSetting("injectForumComments")));
+    $("#tinyfeed-cfg-inject-bank").prop("checked", Boolean(getSetting("injectBank")));
+    $("#tinyfeed-cfg-inject-shop").prop("checked", Boolean(getSetting("injectShop")));
+    $("#tinyfeed-cfg-inject-pet").prop("checked", Boolean(getSetting("injectPet")));
 
     $("#tinyfeed-cfg-memo-auto").prop("checked", Boolean(getSetting("memoAutoGenerate")));
     $("#tinyfeed-cfg-memo-mode").val(getSetting("memoAutoMode") || "interval");
@@ -7758,6 +7813,9 @@ function populateSettings() {
     $("#tinyfeed-cfg-crossapp-stream").prop("checked", Boolean(getSetting("crossAppStream")));
     $("#tinyfeed-cfg-crossapp-memo").prop("checked", Boolean(getSetting("crossAppMemo")));
     $("#tinyfeed-cfg-crossapp-forum").prop("checked", Boolean(getSetting("crossAppForum")));
+    $("#tinyfeed-cfg-crossapp-bank").prop("checked", Boolean(getSetting("crossAppBank")));
+    $("#tinyfeed-cfg-crossapp-shop").prop("checked", Boolean(getSetting("crossAppShop")));
+    $("#tinyfeed-cfg-crossapp-pet").prop("checked", Boolean(getSetting("crossAppPet")));
     $("#tinyfeed-cfg-crossapp-count").val(getSetting("crossAppCount"));
 }
 
@@ -9065,6 +9123,18 @@ jQuery(async () => {
             setSetting("injectForumComments", $(this).prop("checked"));
             updateChatInjection();
         });
+        $(document).on("change", "#tinyfeed-cfg-inject-bank", function () {
+            setSetting("injectBank", $(this).prop("checked"));
+            updateChatInjection();
+        });
+        $(document).on("change", "#tinyfeed-cfg-inject-shop", function () {
+            setSetting("injectShop", $(this).prop("checked"));
+            updateChatInjection();
+        });
+        $(document).on("change", "#tinyfeed-cfg-inject-pet", function () {
+            setSetting("injectPet", $(this).prop("checked"));
+            updateChatInjection();
+        });
         $(document).on("change", "#tinyfeed-cfg-crossapp", function () {
             setSetting("crossAppEnabled", $(this).prop("checked"));
         });
@@ -9088,6 +9158,15 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp-forum", function () {
             setSetting("crossAppForum", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-bank", function () {
+            setSetting("crossAppBank", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-shop", function () {
+            setSetting("crossAppShop", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-pet", function () {
+            setSetting("crossAppPet", $(this).prop("checked"));
         });
         $(document).on("input", "#tinyfeed-cfg-crossapp-count", function () {
             let v = parseInt($(this).val(), 10);

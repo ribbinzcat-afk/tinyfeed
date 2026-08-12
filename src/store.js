@@ -120,6 +120,9 @@ export const defaultSettings = {
     forumRooms: ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"],
     injectForum: false,           // แทรกกระทู้ เข้า RP หลัก
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
+    injectBank: false,            // แทรกยอดเงิน + ธุรกรรมล่าสุด เข้า RP
+    injectShop: false,            // แทรกของที่ซื้อไว้ เข้า RP
+    injectPet: false,             // แทรกสถานะสัตว์เลี้ยง เข้า RP
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
     bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
     bankCurrencyAfter: false,     // แสดงสัญลักษณ์ไว้ข้างหลังตัวเลข (เช่น 100฿) แทนข้างหน้า
@@ -158,6 +161,9 @@ export const defaultSettings = {
     crossAppStream: true,         // ไลฟ์ TinyStream
     crossAppMemo: false,          // กำหนดการ/โน้ต TinyMemo
     crossAppForum: false,         // กระทู้ TinyForum
+    crossAppBank: false,          // การเงิน TinyBank
+    crossAppShop: false,          // ของที่ซื้อไว้ TinyShop
+    crossAppPet: false,           // สถานะสัตว์เลี้ยง TinyPet
     // ── ทริกเกอร์ด้วยคีย์เวิร์ด: เมื่อโหมด auto ของแอปตั้งเป็น "keyword" ──
     // เจอคำเหล่านี้ในข้อความ RP ล่าสุด → สั่งแอปนั้นสร้างเนื้อหา (มี cooldown กันถี่)
     // ฟรี ทำงานฝั่งเบราว์เซอร์ ไม่มีดีเลย์/ไม่ต้องโหลดโมเดล (embedding เป็นแผนอนาคต)
