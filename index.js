@@ -2127,6 +2127,8 @@ const INJECT_SOURCES = [
     { id: "bank", inject: "injectBank", cross: "crossAppBank", single: () => ({ bank: true }) },
     { id: "shop", inject: "injectShop", cross: "crossAppShop", single: () => ({ shop: true }) },
     { id: "pet", inject: "injectPet", cross: "crossAppPet", single: () => ({ pet: true }) },
+    { id: "theater", inject: "injectTheater", cross: "crossAppTheater", single: () => ({ theater: true }) },
+    { id: "novel", inject: "injectNovel", cross: "crossAppNovel", single: () => ({ novel: true }) },
 ];
 // มีแหล่งไหนเปิดอยู่บ้างไหม (ใช้แทนการไล่ && / || ทีละตัว)
 function anyWant(w) { return INJECT_SOURCES.some((s) => w[s.id]); }
@@ -3340,10 +3342,19 @@ function novelHeroLine(hero) {
  *   SYNOPSIS: <เรื่องย่อ>
  *   CHAR: <ชื่อ> | <บทบาท> | <คำบรรยาย>
  * คืน {title, synopsis, chars[]} — escape ให้เรียบร้อยตั้งแต่ตรงนี้ */
+/* จับบรรทัดหัวข้อ (TITLE / SYNOPSIS / CHAR / EPTITLE)
+ * ยอมให้มีชื่อผู้พูดนำหน้าได้ เช่น "ST System: TITLE: ..." — บางโมเดลแอบใส่มา
+ * คืน [ชนิด, เนื้อหา] หรือ null ถ้าไม่ใช่บรรทัดหัวข้อ */
+function novelHeaderLine(line) {
+    const m = String(line).trim().match(/^(?:[^:\n]{0,24}:\s*)?(TITLE|SYNOPSIS|CHAR|EPTITLE)\s*:\s*(.*)$/i);
+    return m ? [m[1].toUpperCase(), m[2].trim()] : null;
+}
+
 function parseNovelOutline(raw) {
     const out = { title: "", synopsis: "", chars: [] };
     for (const line of stripReasoning(String(raw || "")).split("\n")) {
-        const s = line.trim();
+        const h = novelHeaderLine(line);
+        const s = h ? `${h[0]}: ${h[1]}` : line.trim();
         let m;
         if ((m = s.match(/^TITLE:\s*(.+)$/i))) { if (!out.title) out.title = escapeText(stripWrapBrackets(m[1].trim())); }
         else if ((m = s.match(/^SYNOPSIS:\s*(.+)$/i))) { if (!out.synopsis) out.synopsis = escapeText(m[1].trim()); }
@@ -3361,19 +3372,50 @@ function parseNovelOutline(raw) {
     return out;
 }
 
-/* แปลงเนื้อตอน — รับข้อความล้วน แยกย่อหน้าด้วยบรรทัดว่าง
- * ดึง EPTITLE: ออกมาถ้ามี ที่เหลือถือเป็นเนื้อเรื่อง */
+/* แปลงเนื้อตอน — เอา EPTITLE ตัวแรกเป็นชื่อตอน ที่เหลือเป็นเนื้อเรื่อง
+ * ตัดบรรทัดหัวข้อ "ทุกบรรทัด" ทิ้ง (ไม่ใช่แค่ตัวแรก) เพราะบางโมเดลแอบใส่ TITLE: ซ้ำกลางเนื้อ
+ * และรองรับกรณีมีชื่อผู้พูดนำหน้า เช่น "ST System: TITLE: ..." */
 function parseNovelEpisode(raw) {
     const lines = stripReasoning(String(raw || "")).split("\n");
     let title = "";
     const body = [];
     for (const line of lines) {
-        const m = line.trim().match(/^EPTITLE:\s*(.+)$/i);
-        if (m && !title) { title = escapeText(stripWrapBrackets(m[1].trim())); continue; }
+        const h = novelHeaderLine(line);
+        if (h) {
+            if (h[0] === "EPTITLE" && !title && h[1]) title = escapeText(stripWrapBrackets(h[1]));
+            continue;   // บรรทัดหัวข้อไม่ใช่เนื้อเรื่อง ทิ้งทุกกรณี
+        }
         body.push(line);
     }
-    const text = body.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    let text = body.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    text = novelTrimEcho(text);
     return { title, text: escapeText(text) };
+}
+
+/* บางโมเดลแปะเนื้อหาจากแชทหลัก/หน้าต้อนรับ ST ไว้หน้าเนื้อนิยาย เจอ 2 แบบ:
+ *   1) บทบาทตัวละคร แล้วคั่นด้วยเส้น ***  → ตัดถึงเส้นคั่นตัวสุดท้ายในช่วงต้น
+ *   2) ข้อความ UI ของ ST ที่มีลิงก์ markdown → ตัดบรรทัดนำที่มีลิงก์ทิ้ง
+ * จำกัดเฉพาะช่วงต้นเรื่อง กันไปตัดเนื้อจริงที่ใช้ *** คั่นฉากกลางเรื่อง */
+function novelTrimEcho(text) {
+    const HEAD = 400;
+    // (1) เส้นคั่นในช่วงต้น
+    const re = /^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/gm;
+    let cut = -1, m;
+    while ((m = re.exec(text)) !== null) {
+        if (m.index > HEAD) break;
+        cut = m.index + m[0].length;
+    }
+    let out = cut > 0 ? text.slice(cut).trim() : text;
+    // (2) บรรทัดนำที่มีลิงก์ markdown/URL — ร้อยแก้วภาษาไทยไม่ใช้แบบนี้
+    const lines = out.split("\n");
+    let i = 0;
+    while (i < lines.length) {
+        const l = lines[i].trim();
+        if (!l) { i++; continue; }
+        if (/\[[^\]]*\]\([^)]*\)|https?:\/\//.test(l)) { i++; continue; }
+        break;
+    }
+    return lines.slice(i).join("\n").trim();
 }
 
 // เนื้อเรื่องที่ผ่านมา (ตัดเก็บส่วนท้ายไว้ให้ AI ไม่ให้ prompt บวม)
@@ -3617,7 +3659,7 @@ async function novelCreateBook() {
         });
         const raw = await tinyGenerate(q, len.tokens + 300, "novel");
         const outline = parseNovelOutline(raw);
-        const first = parseNovelEpisode(raw.replace(/^(TITLE|SYNOPSIS|CHAR):.*$/gim, ""));
+        const first = parseNovelEpisode(raw);   // ตัดบรรทัดหัวข้อให้เองแล้ว
         if (!first.text) { toastr.info("ยังเขียนไม่ออก ลองปรับพล็อตดูนะ", "TinyNovel"); return; }
         const book = {
             id: "nv" + Date.now(),
@@ -5241,6 +5283,26 @@ function buildAppBlocks(want) {
             .filter((x) => x.it && x.n > 0).slice(0, count)
             .map((x) => `- ${htmlToPlain(x.it.name)}${x.n > 1 ? ` ×${x.n}` : ""}${x.it.desc ? ` (${htmlToPlain(x.it.desc)})` : ""}`);
         if (items.length) blocks.push(`ของที่ซื้อไว้จากแอป TinyShop:\n${items.join("\n")}`);
+    }
+    if (want.theater) {
+        // global — เรื่องที่เขียนไว้ในมินิเธียเตอร์ (ตัวละครอ้างถึงได้ว่า "เคยดู/เคยเขียนเรื่องนี้")
+        const shows = (getTheater().shows || []).slice(0, count).map((sh) => {
+            const eps = (sh.episodes || []).length;
+            return `- "${htmlToPlain(sh.title)}"${sh.genre ? ` (${htmlToPlain(sh.genre)})` : ""} — ${eps} ตอน`
+                + (sh.whatIf ? `\n  โจทย์: ${htmlToPlain(sh.whatIf)}` : "")
+                + (sh.castNames && sh.castNames.length ? `\n  นักแสดง: ${sh.castNames.map(htmlToPlain).join(", ")}` : "");
+        });
+        if (shows.length) blocks.push(`เรื่องในแอปมินิเธียเตอร์ TinyTheater:\n${shows.join("\n")}`);
+    }
+    if (want.novel) {
+        // global — นิยายที่อ่านอยู่ (แนบเรื่องย่อ + ความคืบหน้า ไม่แนบเนื้อเต็มเพราะยาวมาก)
+        const books = (getNovel().books || []).slice(0, count).map((b) => {
+            const read = Math.min(b.lastReadEp || 0, (b.episodes || []).length);
+            const done = (b.episodes || []).length >= (b.totalEps || 0);
+            return `- "${htmlToPlain(b.title)}"${b.genre ? ` (${htmlToPlain(b.genre)})` : ""} — ${done ? "อ่านจบแล้ว" : `อ่านถึงตอน ${read}/${b.totalEps}`}`
+                + (b.synopsis ? `\n  เรื่องย่อ: ${htmlToPlain(b.synopsis)}` : "");
+        });
+        if (books.length) blocks.push(`นิยายในแอป TinyNovel:\n${books.join("\n")}`);
     }
     if (want.pet) {
         // เพ็ทเป็น global (ตัวเดียวข้ามแชท) — สถานะสดตอนนี้ ให้ตัวละครอ้างถึงได้
@@ -7760,6 +7822,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-bank").prop("checked", Boolean(getSetting("injectBank")));
     $("#tinyfeed-cfg-inject-shop").prop("checked", Boolean(getSetting("injectShop")));
     $("#tinyfeed-cfg-inject-pet").prop("checked", Boolean(getSetting("injectPet")));
+    $("#tinyfeed-cfg-inject-theater").prop("checked", Boolean(getSetting("injectTheater")));
+    $("#tinyfeed-cfg-inject-novel").prop("checked", Boolean(getSetting("injectNovel")));
 
     $("#tinyfeed-cfg-memo-auto").prop("checked", Boolean(getSetting("memoAutoGenerate")));
     $("#tinyfeed-cfg-memo-mode").val(getSetting("memoAutoMode") || "interval");
@@ -7816,6 +7880,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-crossapp-bank").prop("checked", Boolean(getSetting("crossAppBank")));
     $("#tinyfeed-cfg-crossapp-shop").prop("checked", Boolean(getSetting("crossAppShop")));
     $("#tinyfeed-cfg-crossapp-pet").prop("checked", Boolean(getSetting("crossAppPet")));
+    $("#tinyfeed-cfg-crossapp-theater").prop("checked", Boolean(getSetting("crossAppTheater")));
+    $("#tinyfeed-cfg-crossapp-novel").prop("checked", Boolean(getSetting("crossAppNovel")));
     $("#tinyfeed-cfg-crossapp-count").val(getSetting("crossAppCount"));
 }
 
@@ -9135,6 +9201,14 @@ jQuery(async () => {
             setSetting("injectPet", $(this).prop("checked"));
             updateChatInjection();
         });
+        $(document).on("change", "#tinyfeed-cfg-inject-theater", function () {
+            setSetting("injectTheater", $(this).prop("checked"));
+            updateChatInjection();
+        });
+        $(document).on("change", "#tinyfeed-cfg-inject-novel", function () {
+            setSetting("injectNovel", $(this).prop("checked"));
+            updateChatInjection();
+        });
         $(document).on("change", "#tinyfeed-cfg-crossapp", function () {
             setSetting("crossAppEnabled", $(this).prop("checked"));
         });
@@ -9167,6 +9241,12 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp-pet", function () {
             setSetting("crossAppPet", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-theater", function () {
+            setSetting("crossAppTheater", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-novel", function () {
+            setSetting("crossAppNovel", $(this).prop("checked"));
         });
         $(document).on("input", "#tinyfeed-cfg-crossapp-count", function () {
             let v = parseInt($(this).val(), 10);
