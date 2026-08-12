@@ -1,206 +1,29 @@
 import { extension_settings, getContext } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
 
-const extensionName = "tinyfeed";
-const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
+// โมดูลย่อย (ดู CONVENTIONS.md บทที่ 7 — module layout)
+import {
+    extensionName, extensionFolderPath,
+    defaultSettings, getFeedData, getGallery, getSetting, saveFeedData, saveGallery, setSetting,
+} from "./src/store.js";
+import {
+    displayTime, escapeAttr, escapeHtml, escapeText, findGalleryImage, htmlToPlain,
+    renderImgToken, renderRich, renderStickerToken, resolveMediaPriority,
+    stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
+} from "./src/util.js";
+import {
+    emptyInlineHtml, emptyStateHtml, skeletonCardHtml,
+} from "./src/components.js";
+
 
 // อ้างอิงโมดูล core ของ SillyTavern แบบ lazy (โหลดใน init) เพื่อดึง user_avatar ที่ context ไม่ได้ export
 // ใช้ dynamic import + try/catch จะได้ไม่พังทั้งไฟล์ถ้าเวอร์ชันไหน export ไม่ตรง
 let stScriptModule = null;
 
-const defaultSettings = {
-    enabled: true,
-    theme: "dark",
-    // ปรับแต่งหน้าตา (Appearance)
-    accentColor: "",          // hex; "" = ใช้ค่าเริ่มจากธีม
-    overlayOpacity: 50,       // 0–90 (%) ความทึบฟิลเตอร์ดำที่คลุมจอ
-    themedIcons: false,       // สีไอคอนแอปตามธีม
-    themedHomeBg: false,      // พื้นหลังโฮมตามธีม (เมื่อไม่มีวอลเปเปอร์)
-    homeBgHue: 210,           // hue พื้นหลังโฮม (สุ่มได้)
-    widgetOpacity: 82,        // ความทึบพื้นหลังวิดเจ็ต (0–100%)
-    widgetClock: true,        // วิดเจ็ตนาฬิกา+วันที่
-    widgetTokens: false,      // วิดเจ็ตแดชบอร์ดโทเคนต่อแอป
-    widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
-    customCss: "",            // CSS snippet ของผู้ใช้
-    // ทักเชิงรุก (proactive) + แจ้งเตือน OS + กลุ่มคุยกันเอง
-    proactiveEnabled: false,      // ให้ตัวละครทักเองเป็นระยะ
-    proactiveIntervalMin: 20,     // ตรวจ/เว้นระยะขั้นต่ำ (นาที)
-    proactiveChance: 50,          // โอกาสทักในแต่ละรอบ (%)
-    proactiveQuietFrom: 0,        // ช่วงเงียบ เริ่ม (ชม. 0-23)
-    proactiveQuietTo: 7,          // ช่วงเงียบ ถึง (ชม. 0-23)
-    proactiveTokens: 120,         // ความยาวข้อความทัก
-    groupAutoChat: false,         // ให้กลุ่มคุยกันเองเป็นระยะ
-    osNotifEnabled: false,        // แจ้งเตือน OS/desktop จริง (default ปิด — ระวังเนื้อหา 18+)
-    proactiveIdleMin: 0,          // ทักเฉพาะเมื่อผู้ใช้เงียบ RP เกิน N นาที (0 = ปิด)
-    proactiveTimeAware: false,    // ใส่บริบทช่วงเวลาจริง (เช้า/บ่าย/ดึก) ลง prompt
-    proactiveViaFeed: false,      // บางครั้งทักผ่านการโพสต์ฟีดแทน DM
-    notifLog: [],                 // ประวัติแจ้งเตือน (cap 30) — persist ลิ้นชัก
-    notifSeenTs: 0,               // เวลาเปิดดูลิ้นชักล่าสุด (คำนวณ badge)
-    promptOverrides: {},          // id → template override ("" / ไม่มี = ใช้ default)
-    // Stage 5: override รูปโปรไฟล์ด้วยลิงก์ภายนอก
-    wallpaperUrl: "",           // ลิงก์วอลเปเปอร์หน้าโฮม
-    wallpaperOverlay: 45,       // ความทึบสcrim ดำที่ทับวอลเปเปอร์ (0–100%)
-    userAvatarUrl: "",          // (legacy fallback) รูปผู้ใช้แบบ global
-    charAvatarUrls: {},         // (legacy fallback) { "<ไฟล์ avatar การ์ด>": "url" }
-    // Identity: โปรไฟล์ผูกกับ persona / char + NPC ผูกกับ char
-    userProfiles: {},           // { <personaKey>: { avatarUrl, username, alias, primary } }
-    charProfiles: {},           // { <charFile>: { avatarUrl, username, alias, primary } }
-    npcsByChar: {},             // { <charFile>: [{ name, avatar }] } — NPC ผูกกับตัวละคร
-    // Stage 6: ช่วงยอดไลค์เริ่มต้นแบบสุ่มของโพสต์ AI
-    likesMin: 0,
-    likesMax: 48,
-    // Stage 6.6: จำนวนโพสต์ล่าสุดที่แนบเป็น context ให้ AI (0 = ไม่แนบ)
-    historyCount: 5,
-    // ตั้งค่าล่วงหน้าสำหรับฟีเจอร์อนาคต (ยังไม่ทำงานจนกว่าจะถึง stage นั้น)
-    autoGenerate: false,        // Stage 7
-    autoGenerateMode: "interval", // "interval" | "ai"
-    autoGenerateInterval: 10,
-    commentReplyMode: "instant", // "instant" | "manual"
-    // Stage 8: คอมเมนต์ NPC ที่ติดมากับโพสต์ AI ใหม่
-    initialCommentMode: "none",  // "none" | "ai" (AI เลือกจำนวน) | "fixed" (กำหนดจำนวน)
-    initialCommentCount: 2,
-    // Stage 9: ข่าวสาร
-    newsAutoGenerate: false,
-    newsAutoMode: "interval",    // "interval" | "ai"
-    newsAutoInterval: 20,
-    newsHistoryCount: 5,
-    // Stage 10: การแจ้งเตือน
-    notificationsEnabled: true,
-    // TinyConnect
-    connectTokens: 200,
-    connectExtraPrompt: "",
-    connectSplitBubbles: true,    // แยกข้อความหลายบรรทัดเป็นหลายบับเบิล
-    connectAutoGenerate: false,   // ให้คู่แชททักหาเราเองอัตโนมัติ (ตามจังหวะ RP)
-    connectAutoMode: "interval",  // "interval" | "ai" | "keyword"
-    connectAutoInterval: 12,      // ทักทุกๆ กี่ข้อความ (โหมด interval)
-    // TinyStream
-    streamStreamer: "char",       // "char" | "user" | "npc"
-    streamStreamerNpc: "",        // ชื่อ NPC ที่เป็นสตรีมเมอร์ (เมื่อ streamStreamer = "npc")
-    streamCoStreamers: [],        // ชื่อตัวละคร/NPC ที่ร่วมไลฟ์ (หลายผู้พูด)
-    streamStreamerReply: true,    // สตรีมเมอร์อ่านคอมเมนต์เราแล้วตอบอัตโนมัติ
-    streamStreamerTalk: false,    // สตรีมเมอร์เล่าเรื่องเองเป็นระยะ (มอโนล็อก)
-    streamCommentMode: "manual",  // "manual" | "auto" | "onupdate"
-    streamBgUrl: "",              // ลิงก์รูปพื้นหลังกรอบสตรีม ("" = ใช้สีพื้น)
-    streamBgTheme: false,         // ใช้สีพื้นหลังตามธีม (accent) เมื่อไม่มีลิงก์รูป
-    streamAutoInterval: 12,        // วินาที (โหมด auto)
-    streamTokens: 300,
-    streamExtraPrompt: "",
-    // Phase 2: โมเดล/API แยกสำหรับ TinyFeed ("" = ใช้ API หลัก, หรือ id ของ connection profile)
-    apiProfile: "",
-    apiContextMessages: 10,   // จำนวนข้อความล่าสุดที่แนบเป็น context เมื่อใช้ profile แยก
-    worldInfoLimit: 0,        // จำกัดความยาว World Info ที่แนบ (ตัวอักษร, 0 = ไม่จำกัด)
-    // Phase 2: จำนวน token ตอบกลับ (กันข้อความขาด)
-    postTokens: 400,
-    newsTokens: 500,
-    // Phase 2: คำสั่งเสริมที่ผู้ใช้ใส่เอง (ต่อท้าย prompt โดยไม่แตะโครงสร้าง)
-    postExtraPrompt: "",
-    newsExtraPrompt: "",
-    // Phase 2: แทรกฟีดเข้าประวัติแชทหลัก ("off" | "posts" | "news" | "posts_comments" | "posts_comments_news")
-    injectMode: "off",
-    injectDepth: 4,
-    injectCount: 5,
-    injectConnect: false,   // แทรกแชต TinyConnect เข้า RP
-    injectStream: false,    // แทรกไลฟ์ TinyStream เข้า RP
-    // TinyMemo (กำหนดการ + โน้ต/ความจำ)
-    memoAutoGenerate: false,      // สแกนกำหนดการ/ความจำอัตโนมัติ
-    memoAutoMode: "interval",     // "interval" | "ai"
-    memoAutoInterval: 15,
-    memoTokens: 350,
-    memoExtraPrompt: "",
-    injectMemo: false,            // แทรกกำหนดการ/โน้ต เข้า RP หลัก
-    // TinyForum (เว็บบอร์ด/กระทู้)
-    forumAutoGenerate: false,     // สร้างกระทู้อัตโนมัติ
-    forumAutoMode: "interval",    // "interval" | "ai"
-    forumAutoInterval: 20,
-    forumTokens: 500,
-    forumExtraPrompt: "",
-    forumCommentBatch: 8,         // จำนวนคอมเมนต์ต่อการโหลด 1 ครั้ง
-    forumRooms: ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"],
-    injectForum: false,           // แทรกกระทู้ เข้า RP หลัก
-    injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
-    // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
-    bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
-    bankCurrencyAfter: false,     // แสดงสัญลักษณ์ไว้ข้างหลังตัวเลข (เช่น 100฿) แทนข้างหน้า
-    streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
-    bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
-    connectSlipEnabled: false,    // ให้คู่แชทส่งสลิปโอนเงินเข้าบัญชีเราได้ (AI)
-    shop: [],                     // แคตตาล็อกร้านค้า (global) [{ id, name, price, image, emoji, desc, food, cat }]
-    shopCategories: ["เสื้อผ้า", "ของกิน", "ไอเทม/ของใช้", "ของแต่งบ้าน", "อื่นๆ"],  // หมวดสินค้า (แก้ในตั้งค่า)
-    shopTokens: 400,              // ความยาวผลลัพธ์ตอน AI สร้างสินค้า
-    shopExtraPrompt: "",          // คำสั่งเสริมตอน AI สร้างสินค้า
-    // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
-    donateTiers: [
-        { min: 0, color: "#1d9bf0" },
-        { min: 50, color: "#00b8d4" },
-        { min: 200, color: "#22c55e" },
-        { min: 500, color: "#ffca28" },
-        { min: 1000, color: "#ff9100" },
-        { min: 2000, color: "#ec407a" },
-        { min: 5000, color: "#e53935" },
-    ],
-    // TinyGallery (คลังรูป + สติกเกอร์ — global ข้ามแชท ไม่ผูกกับแชทไหน)
-    gallery: { images: [], stickers: [], imageAlbums: ["ทั่วไป"], stickerAlbums: ["ทั่วไป"] },
-    galleryPrompt: true,          // ให้บอทรู้จักคลัง + ส่งสติกเกอร์/รูปได้ด้วย [sticker:ชื่อ] / [img:ชื่อ]
-    galleryPromptScope: "all",    // "all" = ทุกอัลบั้ม · "selected" = เฉพาะอัลบั้มที่เลือก
-    galleryAlbums: [],            // ชื่ออัลบั้มที่ให้ AI เข้าถึง (เมื่อ scope = "selected")
-    galleryMaxImages: 24,         // จำนวนรูปสูงสุดที่แนบเข้า prompt
-    galleryMaxStickers: 24,       // จำนวนสติกเกอร์สูงสุดที่แนบเข้า prompt
-    // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
-    crossAppEnabled: false,       // master switch
-    crossAppCount: 3,
-    // เลือกรายแหล่งว่าเนื้อหาไหนให้แอปอื่นมองเห็น (แชต default ปิดเพื่อความเป็นส่วนตัว)
-    crossAppFeed: true,           // โพสต์ในฟีด
-    crossAppComments: false,      // คอมเมนต์ในโพสต์
-    crossAppNews: true,           // ข่าว
-    crossAppConnect: false,       // แชต TinyConnect (ส่วนตัว)
-    crossAppStream: true,         // ไลฟ์ TinyStream
-    crossAppMemo: false,          // กำหนดการ/โน้ต TinyMemo
-    crossAppForum: false,         // กระทู้ TinyForum
-    // ── ทริกเกอร์ด้วยคีย์เวิร์ด: เมื่อโหมด auto ของแอปตั้งเป็น "keyword" ──
-    // เจอคำเหล่านี้ในข้อความ RP ล่าสุด → สั่งแอปนั้นสร้างเนื้อหา (มี cooldown กันถี่)
-    // ฟรี ทำงานฝั่งเบราว์เซอร์ ไม่มีดีเลย์/ไม่ต้องโหลดโมเดล (embedding เป็นแผนอนาคต)
-    feedKeywords: "โพสต์, ลงฟีด, ลงรูป, ลงสตอรี่, เล่นโซเชียล, ถ่ายรูปลง, อัปรูป, story, post, feed",
-    newsKeywords: "ข่าว, อ่านข่าว, เปิดข่าว, ดูข่าว, ประกาศ, มีข่าวว่า, news, breaking",
-    memoKeywords: "จดไว้, โน้ตไว้, เตือนความจำ, กันลืม, นัดหมาย, กำหนดการ, ตารางงาน, memo, reminder, todo",
-    forumKeywords: "กระทู้, เว็บบอร์ด, พันทิป, ตั้งกระทู้, ในบอร์ด, ชาวเน็ต, forum, pantip",
-    connectKeywords: "แชต, ทักไลน์, ส่งไลน์, ทักมา, ส่งข้อความ, ไลน์มา, chat, line, dm, ทักหา",
-    keywordCooldownSec: 45,       // เว้นระยะขั้นต่ำต่อแอป (วินาที) กันทริกเกอร์ถี่เกิน
-    keywordScope: "both",         // ทริกเกอร์คีย์เวิร์ดจับข้อความฝั่งไหน: "both" | "char" | "user"
-    // ── TinyPet (สัตว์เลี้ยงเสมือน — global ข้ามแชท, เก็บใน key "pet") ──
-    petSprites: {},               // { state: url } override รูป sprite ต่อสถานะ ("" = ใช้ไฟล์ในตัว)
-    petDecayHunger: 0.5,          // หิวเพิ่ม/นาที
-    petDecayEnergy: 0.35,         // พลังงานลด/นาที
-    petDecayClean: 0.3,           // ความสะอาดลด/นาที
-    petOfflineCapHours: 8,        // เพดานคิด decay ตอนหายไปนาน (ชม.) — พอให้หายข้ามคืนแล้วยังไม่ตาย แต่โทรมมาก
-    petAiReactions: true,         // ให้ AI แต่งบทพูดเพ็ทหลังกดปุ่ม
-    petTokens: 60,                // ความยาวบทพูดเพ็ท
-    petExtraPrompt: "",           // คำสั่งเสริมบทพูดเพ็ท (นิสัย/สายพันธุ์/โทน)
-    petAutoPost: false,           // ให้เพ็ทโพสต์ลงฟีดเองเป็นระยะ (ตอนอารมณ์ดี)
-    // ร้านสัตว์เลี้ยง (แยกจาก TinyShop) — ซื้อด้วย "เหรียญเพ็ท" (เติมจาก TinyBank / รับจากมินิเกม)
-    petCoinRate: 1,               // เหรียญที่ได้ต่อ 1 บาท TinyBank ตอนเติม
-    petGameEnergyCost: 15,        // พลังงานที่ใช้ต่อการเล่นมินิเกม 1 รอบ (เป็นตัวจำกัดกันฟาร์มเหรียญ)
-    petShop: [                    // [{ id, name, price(เหรียญ), emoji, image, type, amount, desc }]
-        { id: "pi_food1", name: "ขนมอบกรอบ", price: 8, emoji: "🍪", image: "", type: "food", amount: 40, desc: "ของว่างอร่อยๆ" },
-        { id: "pi_toy1", name: "ลูกบอลนุ่ม", price: 12, emoji: "🎾", image: "", type: "toy", amount: 30, desc: "ของเล่นโปรด" },
-        { id: "pi_care1", name: "สบู่หอม", price: 10, emoji: "🧼", image: "", type: "care", amount: 60, desc: "อาบน้ำหอมสะอาด" },
-    ],
-    // TinyVerse
-    verseBioLimit: 1000,          // จำกัดจำนวนตัวอักษร bio ที่ดึงจากการ์ด (0 = ไม่จำกัด)
-    verseTokens: 120,             // ความยาวโพสต์ฟีดโกลบอล (โทเคน)
-};
 
 // อ่านค่า setting (fallback เป็นค่า default ถ้ายังไม่มี key นั้น — เผื่อผู้ใช้เก่าที่ settings ถูกสร้างก่อน key ใหม่)
-function getSetting(key) {
-    const s = extension_settings[extensionName] || {};
-    return s[key] !== undefined ? s[key] : defaultSettings[key];
-}
 
 // บันทึกค่า setting
-function setSetting(key, value) {
-    extension_settings[extensionName] = extension_settings[extensionName] || {};
-    extension_settings[extensionName][key] = value;
-    saveSettingsDebounced();
-}
 
 function loadSettings() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
@@ -275,7 +98,7 @@ const APPS = [
         id: "feed", name: "TinyFeed", icon: "fa-hashtag", a: "#1d9bf0", b: "#0a6bd8",
         panel: "#tinyfeed-app-feed", home: true, remember: true,
         open() {
-            $(".tinyfeed-tabs").removeClass("tinyfeed-hidden");
+            $("#tinyfeed-app-feed .tinyfeed-tabs").removeClass("tinyfeed-hidden");
             applyFeedComposeMode();
             switchTab(activeTab);
         },
@@ -1311,8 +1134,8 @@ function openGallery() {
 
 function switchGalleryTab(tab) {
     galleryTab = tab === "stickers" ? "stickers" : "images";
-    $(".tinyfeed-gallery-tab").removeClass("tinyfeed-gallery-tab-active");
-    $(`.tinyfeed-gallery-tab[data-gtab="${galleryTab}"]`).addClass("tinyfeed-gallery-tab-active");
+    $(".tinyfeed-tab[data-gtab]").removeClass("tinyfeed-tab-active");
+    $(`.tinyfeed-tab[data-gtab="${galleryTab}"]`).addClass("tinyfeed-tab-active");
     $("#tinyfeed-gallery-panel-images").toggleClass("tinyfeed-hidden", galleryTab !== "images");
     $("#tinyfeed-gallery-panel-stickers").toggleClass("tinyfeed-hidden", galleryTab !== "stickers");
     renderGalleryGrid(galleryTab === "stickers" ? "sticker" : "image");
@@ -1343,7 +1166,7 @@ function renderGalleryGrid(kind) {
     const list = (kind === "sticker" ? g.stickers : g.images).filter((it) => (it.album || "ทั่วไป") === album);
     const gridSel = kind === "sticker" ? "#tinyfeed-gallery-stk-grid" : "#tinyfeed-gallery-img-grid";
     if (!list.length) {
-        $(gridSel).html(`<div class="tinyfeed-gallery-empty">ยังไม่มี${kind === "sticker" ? "สติกเกอร์" : "รูป"}ในอัลบั้มนี้ · เพิ่มด้านบนได้เลย</div>`);
+        $(gridSel).html(emptyInlineHtml(`ยังไม่มี${kind === "sticker" ? "สติกเกอร์" : "รูป"}ในอัลบั้มนี้ · เพิ่มด้านบนได้เลย`));
         return;
     }
     $(gridSel).html(list.map((it) => `
@@ -1614,7 +1437,7 @@ function renderPickerGrid() {
     const album = String($("#tinyfeed-gallery-picker-album").val() || "ทั่วไป");
     const list = (kind === "sticker" ? g.stickers : g.images).filter((it) => (it.album || "ทั่วไป") === album);
     if (!list.length) {
-        $("#tinyfeed-gallery-picker-grid").html(`<div class="tinyfeed-gallery-empty">อัลบั้มนี้ว่าง</div>`);
+        $("#tinyfeed-gallery-picker-grid").html(emptyInlineHtml("อัลบั้มนี้ว่าง"));
         return;
     }
     $("#tinyfeed-gallery-picker-grid").html(list.map((it) => `
@@ -2415,45 +2238,12 @@ function renderHomeWidgets() {
 }
 
 // ===== ข้อมูลผูกกับแชท (chat_metadata) =====
-const METADATA_KEY = "tinyfeed";
 
 // ข้อมูลเริ่มต้นสำหรับแชทที่ยังไม่มีฟีด (เริ่มว่าง — โชว์ empty state)
-function getSeedData() {
-    return {
-        feed: [],
-        news: [],
-        npcs: [],   // รายชื่อ NPC ประจำของแชทนี้ [{ name, avatar }]
-        agenda: [], // TinyMemo กำหนดการ [{ id, when, title, status, isAI, ts }]
-        notes: [],  // TinyMemo โน้ต/ความจำ [{ id, text, kind, isAI, ts }]
-        forum: [],  // TinyForum กระทู้ [{ id, room, title, body, author, likes, comments:[] }]
-    };
-}
 
 // ล้างข้อมูล mockup เก่าที่เคยฝังไว้ (ids p1/p2/n1) ออกจากแชทที่มีอยู่แล้ว
-function cleanupMockData(data) {
-    let changed = false;
-    if (Array.isArray(data.feed) && data.feed.some((p) => p.id === "p1" || p.id === "p2")) {
-        data.feed = data.feed.filter((p) => p.id !== "p1" && p.id !== "p2");
-        changed = true;
-    }
-    if (Array.isArray(data.news) && data.news.some((n) => n.id === "n1")) {
-        data.news = data.news.filter((n) => n.id !== "n1");
-        changed = true;
-    }
-    if (changed) saveFeedData();
-}
 
 // ดึงข้อมูล TinyFeed ของแชทปัจจุบัน
-function getFeedData() {
-    const context = getContext();
-    const meta = context.chatMetadata;
-    if (!meta[METADATA_KEY]) {
-        meta[METADATA_KEY] = getSeedData();
-        saveFeedData();
-    }
-    cleanupMockData(meta[METADATA_KEY]);   // ล้าง mockup เก่า (ครั้งเดียวต่อแชท)
-    return meta[METADATA_KEY];
-}
 
 // รายชื่อ NPC ประจำของแชทปัจจุบัน (ensure array สำหรับแชทเก่าที่ยังไม่มี field นี้)
 // NPC ผูกกับตัวละคร (charFile) — ย้ายจากเดิมที่ผูกกับแชท (migrate อัตโนมัติครั้งเดียว)
@@ -2552,7 +2342,7 @@ function renderVerseImportList() {
     if (!list.length) return;
     const cands = verseImportCandidates();
     if (!cands.length) {
-        list.html(`<div class="tinyfeed-verse-import-empty">ไม่พบตัวละครใน SillyTavern<br><small>ลองเปิด/โหลดการ์ดก่อน</small></div>`);
+        list.html(emptyInlineHtml("ไม่พบตัวละครใน SillyTavern<br><small>ลองเปิด/โหลดการ์ดก่อน</small>"));
         return;
     }
     const prof = getProfileStore("char");
@@ -2614,9 +2404,9 @@ function renderVerse() {
     const body = $("#tinyfeed-verse-body");
     if (!body.length) return;
     body.html(`
-        <div class="tinyfeed-verse-tabs">
-            <div class="tinyfeed-verse-tab${verseTab === "feed" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="feed"><i class="fa-solid fa-hashtag"></i> ฟีด</div>
-            <div class="tinyfeed-verse-tab${verseTab === "roster" ? " tinyfeed-verse-tab-active" : ""}" data-vtab="roster"><i class="fa-solid fa-users"></i> ตัวละคร</div>
+        <div class="tinyfeed-tabs">
+            <div class="tinyfeed-tab${verseTab === "feed" ? " tinyfeed-tab-active" : ""}" data-vtab="feed"><i class="fa-solid fa-hashtag"></i> ฟีด</div>
+            <div class="tinyfeed-tab${verseTab === "roster" ? " tinyfeed-tab-active" : ""}" data-vtab="roster"><i class="fa-solid fa-users"></i> ตัวละคร</div>
         </div>
         <div id="tinyfeed-verse-tabbody" class="tinyfeed-verse-tabbody"></div>
     `);
@@ -2646,7 +2436,7 @@ function renderVerseRoster() {
         </div>
         ${keys.length
             ? `<div class="tinyfeed-verse-grid">${cards}</div>`
-            : `<div class="tinyfeed-verse-empty"><i class="fa-solid fa-user-astronaut"></i><p>ยังไม่มีตัวละคร<br>กด <b>Import</b> เพื่อดึงการ์ด + NPC เข้ามารวมกัน</p></div>`}
+            : emptyStateHtml("fa-user-astronaut", "ยังไม่มีตัวละคร", "กด Import เพื่อดึงการ์ด + NPC เข้ามารวมกัน")}
     `);
 }
 
@@ -2718,7 +2508,7 @@ function renderVerseFeedList() {
     const feed = getVerse().feed;
     list.html(feed.length
         ? feed.map(renderVersePost).join("")
-        : `<div class="tinyfeed-verse-feed-empty">ยังไม่มีโพสต์ · พิมพ์แล้วกดโพสต์ หรือเลือกตัวละครให้ AI โพสต์ให้</div>`);
+        : emptyInlineHtml("ยังไม่มีโพสต์ · พิมพ์แล้วกดโพสต์ หรือเลือกตัวละครให้ AI โพสต์ให้"));
 }
 function renderVersePost(post) {
     const cs = Array.isArray(post.comments) ? post.comments : [];
@@ -3095,7 +2885,7 @@ function renderTheaterBrowse() {
         </div>
         ${shows.length
             ? `<div class="tinyfeed-th-sectitle">คลังเรื่อง</div><div class="tinyfeed-th-grid">${cards}</div>`
-            : `<div class="tinyfeed-verse-empty"><i class="fa-solid fa-clapperboard"></i><p>ยังไม่มีเรื่อง<br>กด <b>สร้างเรื่องใหม่</b> เพื่อเปิดโรงละครแรกของคุณ</p></div>`}
+            : emptyStateHtml("fa-clapperboard", "ยังไม่มีเรื่อง", "กด \"สร้างเรื่องใหม่\" เพื่อเปิดโรงละครแรกของคุณ")}
     `);
 }
 function renderTheaterCreate() {
@@ -3385,23 +3175,7 @@ function getForumRooms() {
 }
 
 // ===== TinyGallery: คลังรูป + สติกเกอร์ (global — เก็บใน extension_settings ไม่ผูกกับแชท) =====
-function getGallery() {
-    const store = extension_settings[extensionName] || {};
-    let g = store.gallery;
-    if (!g || typeof g !== "object") g = {};
-    if (!Array.isArray(g.images)) g.images = [];
-    if (!Array.isArray(g.stickers)) g.stickers = [];
-    if (!Array.isArray(g.imageAlbums) || !g.imageAlbums.length) g.imageAlbums = ["ทั่วไป"];
-    if (!Array.isArray(g.stickerAlbums) || !g.stickerAlbums.length) g.stickerAlbums = ["ทั่วไป"];
-    if (store.gallery !== g) setSetting("gallery", g);   // เขียนกลับถ้าเพิ่งสร้าง/ซ่อม
-    return g;
-}
 
-function saveGallery() {
-    extension_settings[extensionName] = extension_settings[extensionName] || {};
-    extension_settings[extensionName].gallery = getGallery();
-    saveSettingsDebounced();
-}
 
 // ===== TinyPet: สัตว์เลี้ยงเสมือนสไตล์ทามาก็อตจิ (global state ข้ามแชท) =====
 // เก็บใน extension_settings.tinyfeed.pet (ไม่ใช่ chat_metadata) → เพ็ทตัวเดียวตามผู้เล่นทุกแชท
@@ -4522,23 +4296,8 @@ function renderPetSpriteCfg() {
 }
 
 // ถอด HTML entity เบาๆ (สำหรับจับคู่ชื่อในโทเคน [sticker:...] / [img:...] ที่ผ่าน escape มาแล้ว)
-function unescapeLite(s) {
-    return String(s == null ? "" : s)
-        .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
-}
 
 // หาสติกเกอร์/รูปในคลังตามชื่อ (case-insensitive) ไม่เจอคืน null
-function findSticker(name) {
-    const k = String(name || "").trim().toLowerCase();
-    if (!k) return null;
-    return getGallery().stickers.find((s) => String(s.name || "").trim().toLowerCase() === k) || null;
-}
-function findGalleryImage(name) {
-    const k = String(name || "").trim().toLowerCase();
-    if (!k) return null;
-    return getGallery().images.find((s) => String(s.name || "").trim().toLowerCase() === k) || null;
-}
 
 // หา URL รูปของ NPC จากรายชื่อประจำ (ตามชื่อ) ไม่เจอคืน ""
 function getNpcAvatar(name) {
@@ -4549,19 +4308,8 @@ function getNpcAvatar(name) {
 }
 
 // แปลง HTML ของโพสต์กลับเป็น plain text (สำหรับแนบเข้า prompt)
-function htmlToPlain(html) {
-    const d = document.createElement("div");
-    d.innerHTML = String(html || "").replace(/<br\s*\/?>/gi, "\n");
-    return (d.textContent || "").trim();
-}
 
 // บันทึกข้อมูลผูกกับแชท
-function saveFeedData() {
-    const context = getContext();
-    if (typeof context.saveMetadata === "function") {
-        context.saveMetadata();
-    }
-}
 
 // ตัวละครหลักของแชทปัจจุบัน { file, name } หรือ null
 function getCurrentCharacter() {
@@ -4588,32 +4336,10 @@ function getCharacterAvatar() {
 }
 
 // เวลาสัมพัทธ์แบบไทย จาก timestamp (ms)
-function timeAgo(ts) {
-    const s = Math.floor((Date.now() - ts) / 1000);
-    if (s < 60) return "เมื่อสักครู่";
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m} นาทีที่แล้ว`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h} ชั่วโมงที่แล้ว`;
-    const d = Math.floor(h / 24);
-    if (d < 7) return `${d} วันที่แล้ว`;
-    if (d < 30) return `${Math.floor(d / 7)} สัปดาห์ที่แล้ว`;
-    if (d < 365) return `${Math.floor(d / 30)} เดือนที่แล้ว`;
-    return `${Math.floor(d / 365)} ปีที่แล้ว`;
-}
 
 // หา timestamp ของ item (จาก field ts หรือกู้จากตัวเลขใน id) ไม่มีคืน null
-function itemTimestamp(item) {
-    if (item.ts) return item.ts;
-    const m = String(item.id || "").match(/(\d{10,})/);
-    return m ? Number(m[1]) : null;
-}
 
 // ข้อความเวลาที่จะแสดง (ใช้เวลาสัมพัทธ์ถ้ามี ts/id, ไม่มีก็ใช้ field time เดิม เช่นข้อมูล seed)
-function displayTime(item) {
-    const ts = itemTimestamp(item);
-    return ts ? timeAgo(ts) : (item.time || "");
-}
 
 // ย่อเลขก้อนใหญ่ให้สั้น (1500 → 1.5K, 1200000 → 1.2M) ใช้โชว์ในฟีด
 function formatCount(n) {
@@ -4634,62 +4360,17 @@ function randomInitialLikes() {
 }
 
 // escape อักขระพิเศษ (คง \n ไว้) สำหรับข่าวที่ต้องแบ่งย่อหน้าเอง
-function escapeText(str) {
-    const div = document.createElement("div");
-    div.textContent = String(str == null ? "" : str);
-    return div.innerHTML;
-}
 
 // escape ข้อความของผู้ใช้ก่อนยัดลง HTML (กัน HTML พัง/inject) + แปลงขึ้นบรรทัดใหม่เป็น <br>
-function escapeHtml(str) {
-    return escapeText(str).replace(/\n/g, "<br>");
-}
 
 // แต่งข้อความที่ escape แล้ว: markdown เบาๆ + #แฮชแท็ก / @เมนชัน เป็นสีฟ้า
 // (ปลอดภัยเพราะรับ input ที่ผ่าน escape มาแล้ว แท็กเดียวที่มีคือ <br>)
 // รูป > สติกเกอร์: ถ้าข้อความมีทั้ง [img:] (ที่หาเจอ) และ [sticker:] → ตัดสติกเกอร์ทิ้ง แสดงแค่รูป
-function resolveMediaPriority(s) {
-    s = String(s == null ? "" : s);
-    const hasValidImg = [...s.matchAll(/\[img:([^\]]+)\]/gi)].some((m) => findGalleryImage(unescapeLite(m[1])));
-    if (hasValidImg) s = s.replace(/\[sticker:[^\]]+\]/gi, "");
-    return s;
-}
 
-function renderRich(html) {
-    let s = resolveMediaPriority(html);
-    // โทเคนคลังรูป: [sticker:ชื่อ] → รูปสติกเกอร์ · [img:ชื่อ] → รูปพร้อมคำบรรยาย (ทำก่อน markdown)
-    s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => renderStickerToken(unescapeLite(n)));
-    s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => renderImgToken(unescapeLite(n)));
-    s = s.replace(/`([^`<]+)`/g, '<code class="tinyfeed-code">$1</code>');
-    s = s.replace(/\*\*([^*<]+)\*\*/g, "<strong>$1</strong>");
-    s = s.replace(/\*([^*<\n]+)\*/g, "<em>$1</em>");
-    s = s.replace(/~~([^~<]+)~~/g, "<del>$1</del>");
-    s = s.replace(/(^|[\s(])#([^\s#@<&]+)/g, '$1<span class="tinyfeed-tag">#$2</span>');
-    s = s.replace(/(^|[\s(])@([^\s#@<&]+)/g, '$1<span class="tinyfeed-mention">@$2</span>');
-    return s;
-}
 
 // escape สำหรับใส่ในค่า attribute (value="...")
-function escapeAttr(s) {
-    return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
 
 // แปลงโทเคนสติกเกอร์/รูปเป็น <img> (เรียกจาก renderRich) — ไม่เจอชื่อ = โชว์ placeholder
-function renderStickerToken(name) {
-    const s = findSticker(name);
-    if (s && s.url) {
-        return `<img class="tinyfeed-sticker-img" src="${escapeAttr(s.url)}" alt="${escapeText(s.name)}" title="${escapeText(s.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
-    }
-    return `<span class="tinyfeed-token-missing">[สติกเกอร์: ${escapeText(name)}]</span>`;
-}
-function renderImgToken(name) {
-    const im = findGalleryImage(name);
-    if (im && im.url) {
-        // คำบรรยายไม่โชว์ในเนื้อหา (ใช้เป็น prompt + โชว์ตอนดูรูปเต็มในคลังเท่านั้น)
-        return `<span class="tinyfeed-content-img-wrap"><img class="tinyfeed-content-img" src="${escapeAttr(im.url)}" alt="${escapeText(im.name)}" onerror="this.classList.add('tinyfeed-img-broken')" /></span>`;
-    }
-    return `<span class="tinyfeed-token-missing">[รูป: ${escapeText(name)}]</span>`;
-}
 
 // วาดเนื้อโพสต์ TinyFeed: ข้อความ/แคปชันอยู่บน · รูป/สติกเกอร์ย้ายลงล่างเสมอ
 function renderPostBody(text) {
@@ -4703,16 +4384,6 @@ function renderPostBody(text) {
 }
 
 // ตัดวงเล็บ [ ] ที่โมเดลครอบข้อความมา โดยไม่ทำลายโทเคน [sticker:..]/[img:..]
-function stripWrapBrackets(s) {
-    s = String(s == null ? "" : s).trim();
-    if (/^\[(?:sticker|img):[^\]]+\]$/i.test(s)) return s;   // เป็นโทเคนล้วน อย่าแตะ
-    if (s.startsWith("[") && !/^\[(?:sticker|img):/i.test(s)) s = s.slice(1);
-    if (s.endsWith("]")) {
-        const tail = s.slice(s.lastIndexOf("["));
-        if (!/^\[(?:sticker|img):[^\]]+\]$/i.test(tail)) s = s.slice(0, -1);   // ] ไม่ได้ปิดโทเคนท้ายข้อความ
-    }
-    return s.trim();
-}
 
 // วาดรายการ NPC ประจำในหน้า settings
 function renderNpcList() {
@@ -5089,27 +4760,11 @@ function updateChatInjection() {
 }
 
 // Stage 11: empty state + skeleton
-function emptyStateHtml(icon, title, sub) {
-    return `<div class="tinyfeed-empty">
-        <i class="fa-solid ${icon}"></i>
-        <div class="tinyfeed-empty-title">${title}</div>
-        <div class="tinyfeed-empty-sub">${sub}</div>
-    </div>`;
-}
 
-function skeletonCardHtml() {
-    return `<div class="tinyfeed-skel">
-        <div class="tinyfeed-skel-head">
-            <div class="tinyfeed-skel-avatar tinyfeed-shimmer"></div>
-            <div class="tinyfeed-skel-lines">
-                <div class="tinyfeed-shimmer tinyfeed-skel-line" style="width:40%"></div>
-                <div class="tinyfeed-shimmer tinyfeed-skel-line" style="width:25%"></div>
-            </div>
-        </div>
-        <div class="tinyfeed-shimmer tinyfeed-skel-line" style="width:95%"></div>
-        <div class="tinyfeed-shimmer tinyfeed-skel-line" style="width:80%"></div>
-    </div>`;
-}
+/* empty state แบบกะทัดรัด — ใช้ในกล่องเล็ก (กริดคลังรูป, ตัวเลือกใน modal, ลิ้นชักแจ้งเตือน)
+ * ที่ .tinyfeed-empty (ไอคอน 2.4em + padding 52px) ใหญ่เกินไป
+ * รับ HTML ได้ (มี <br>/<small>) — ผู้เรียกต้อง escape เนื้อหาที่มาจากผู้ใช้เอง */
+
 
 function renderFeed() {
     const data = getFeedData();
@@ -5232,7 +4887,8 @@ let activeTab = "feed";
 
 function switchTab(tab) {
     activeTab = tab;
-    $(".tinyfeed-tab").removeClass("tinyfeed-tab-active");
+    // ต้องจำกัดด้วย [data-tab] — ตอนนี้ทุกแอปใช้ .tinyfeed-tab ร่วมกัน ถ้าไม่จำกัดจะไปล้าง active ของแอปอื่น
+    $(".tinyfeed-tab[data-tab]").removeClass("tinyfeed-tab-active");
     $(`.tinyfeed-tab[data-tab="${tab}"]`).addClass("tinyfeed-tab-active");
     $(".tinyfeed-panel").addClass("tinyfeed-hidden");
     $(`#tinyfeed-panel-${tab}`).removeClass("tinyfeed-hidden");
@@ -5359,24 +5015,6 @@ function deleteComment(postId, cidx) {
 // ===== Stage 6: ให้ AI สร้างโพสต์ฟีด =====
 
 // ตัดส่วน reasoning/thinking ออกจากผลลัพธ์ AI (กันโมเดลที่คิดก่อนตอบ)
-function stripReasoning(raw) {
-    let s = String(raw || "");
-    // 1) ใช้ reasoning tag ที่ตั้งไว้ใน SillyTavern (ถ้ามี)
-    try {
-        const r = getContext().powerUserSettings && getContext().powerUserSettings.reasoning;
-        if (r && r.prefix && r.suffix) {
-            const esc = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            s = s.replace(new RegExp(`${esc(r.prefix)}[\\s\\S]*?${esc(r.suffix)}`, "g"), "");
-            // reasoning ถูกตัดกลางคัน (มี prefix แต่ไม่มี suffix) → ตัดตั้งแต่ prefix ทิ้ง
-            const pi = s.indexOf(r.prefix);
-            if (pi !== -1 && s.indexOf(r.suffix, pi) === -1) s = s.slice(0, pi);
-        }
-    } catch (e) { /* ไม่มี config ก็ข้ามไป fallback */ }
-    // 2) fallback: tag ยอดนิยม (ทั้งแบบปิดครบ และแบบเปิดค้างเพราะถูกตัด)
-    s = s.replace(/<(think|thinking|reason|reasoning)>[\s\S]*?<\/\1>/gi, "");
-    s = s.replace(/<(think|thinking|reason|reasoning)>[\s\S]*$/i, "");
-    return s.trim();
-}
 
 // ===== Prompt แก้ไขได้ (template registry) =====
 // default = template ที่ใช้ {{token}} แทนส่วน dynamic · marker = ข้อความที่ parser ต้องใช้ (ห้ามลบ)
@@ -6067,8 +5705,8 @@ let isMemoBusy = false;
 
 function switchMemoTab(tab) {
     memoTab = (tab === "notes") ? "notes" : "agenda";
-    $(".tinyfeed-memo-tab").removeClass("tinyfeed-memo-tab-active");
-    $(`.tinyfeed-memo-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-memo-tab-active");
+    $(".tinyfeed-tab[data-mtab]").removeClass("tinyfeed-tab-active");
+    $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
     $("#tinyfeed-memo-agenda, #tinyfeed-memo-notes").addClass("tinyfeed-hidden");
     $(`#tinyfeed-memo-${memoTab}`).removeClass("tinyfeed-hidden");
     if (memoTab === "agenda") renderAgenda(); else renderNotes();
@@ -6359,8 +5997,8 @@ function openForumThread(id) {
 
 function switchForumSort(sort) {
     forumSort = sort === "hot" ? "hot" : "latest";
-    $(".tinyfeed-forum-tab").removeClass("tinyfeed-forum-tab-active");
-    $(`.tinyfeed-forum-tab[data-fsort="${forumSort}"]`).addClass("tinyfeed-forum-tab-active");
+    $(".tinyfeed-tab[data-fsort]").removeClass("tinyfeed-tab-active");
+    $(`.tinyfeed-tab[data-fsort="${forumSort}"]`).addClass("tinyfeed-tab-active");
     renderForumList();
 }
 
@@ -7090,7 +6728,7 @@ function openFeedFromNotif() {
 function renderNotifDrawer() {
     const box = $("#tinyfeed-notif-drawer-list");
     if (!notifLog.length) {
-        box.html(`<div class="tinyfeed-notif-drawer-empty">ยังไม่มีแจ้งเตือน</div>`);
+        box.html(emptyInlineHtml("ยังไม่มีแจ้งเตือน"));
         return;
     }
     box.html(notifLog.map((e, i) => `
@@ -7321,7 +6959,8 @@ function showDetail(html) {
     $("#tinyfeed-detail").html(html);
     $(".tinyfeed-panel").addClass("tinyfeed-hidden");
     $("#tinyfeed-detail").removeClass("tinyfeed-hidden");
-    $(".tinyfeed-tabs").addClass("tinyfeed-hidden");
+    // จำกัดที่แอปฟีด — .tinyfeed-tabs เป็นคลาสร่วมทุกแอปแล้ว (เฟส 4) และหน้า detail อยู่ในฟีด
+    $("#tinyfeed-app-feed .tinyfeed-tabs").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
     $("#tinyfeed-back").removeClass("tinyfeed-hidden");
 }
@@ -7329,7 +6968,7 @@ function showDetail(html) {
 function closeDetail() {
     $("#tinyfeed-back").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
-    $(".tinyfeed-tabs").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-app-feed .tinyfeed-tabs").removeClass("tinyfeed-hidden");
     switchTab(activeTab);
 }
 
@@ -7894,7 +7533,7 @@ jQuery(async () => {
         });
 
         // TinyMemo: สลับแท็บ + เพิ่ม/ติ๊ก/ลบ + สแกน
-        $(document).on("click", ".tinyfeed-memo-tab", function () {
+        $(document).on("click", ".tinyfeed-tab[data-mtab]", function () {
             switchMemoTab($(this).data("mtab"));
         });
         $(document).on("click", "#tinyfeed-agenda-add", function () {
@@ -7923,7 +7562,7 @@ jQuery(async () => {
         });
 
         // TinyForum
-        $(document).on("click", ".tinyfeed-forum-tab", function () {
+        $(document).on("click", ".tinyfeed-tab[data-fsort]", function () {
             switchForumSort($(this).data("fsort"));
         });
         $(document).on("click", "#tinyfeed-forum-new", openForumNewForm);
@@ -8052,7 +7691,7 @@ jQuery(async () => {
             toastr.success("เคลียร์ตัวละครทั้งหมดแล้ว", "TinyVerse");
         });
         $(document).on("click", ".tinyfeed-verse-card", function () { openCharProfile(String($(this).data("key"))); });
-        $(document).on("click", ".tinyfeed-verse-tab", function () {
+        $(document).on("click", ".tinyfeed-tab[data-vtab]", function () {
             const t = String($(this).data("vtab"));
             if (t && t !== verseTab) { verseTab = t; renderVerse(); }
         });
@@ -8224,7 +7863,7 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-pet-adopt-new", petAdoptNew);
 
         // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
-        $(document).on("click", ".tinyfeed-gallery-tab", function () {
+        $(document).on("click", ".tinyfeed-tab[data-gtab]", function () {
             switchGalleryTab($(this).data("gtab"));
         });
         $(document).on("change", "#tinyfeed-gallery-img-album", function () { renderGalleryGrid("image"); });
@@ -8364,7 +8003,7 @@ jQuery(async () => {
         // Stage 2: render mock + ผูกแท็บ
         renderFeed();
         renderNews();
-        $(document).on("click", ".tinyfeed-tab", function () {
+        $(document).on("click", ".tinyfeed-tab[data-tab]", function () {
             switchTab($(this).data("tab"));
         });
 
