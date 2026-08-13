@@ -860,10 +860,36 @@ function getBankData() {
     return data.bank;
 }
 
+/* สกุลเงินผูกกับการ์ดตัวละคร (เดิม global setting เดียวใช้ทุกเรื่อง — ย้ายตามคำขอผู้ใช้ 2026-08)
+ * เก็บแบบเดียวกับ charProfiles/npcsByChar: object คีย์ด้วย getCharKey() ใน extension_settings
+ * ไม่มีตัวละคร (เช่น ยังไม่ได้เลือกการ์ด) → fallback ไปค่า global เดิม (bankCurrency) เผื่อผู้ใช้เคยตั้งไว้ก่อนย้าย แล้วค่อย "฿" เป็นค่าสุดท้าย */
+function getCharCurrencyStore() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    if (!extension_settings[extensionName].charCurrency || typeof extension_settings[extensionName].charCurrency !== "object") {
+        extension_settings[extensionName].charCurrency = {};
+    }
+    return extension_settings[extensionName].charCurrency;
+}
+function getCharCurrency() {
+    const key = getCharKey();
+    const c = key ? getCharCurrencyStore()[key] : null;
+    if (c && c.symbol) return { symbol: String(c.symbol), after: !!c.after };
+    return { symbol: String(getSetting("bankCurrency") || "฿"), after: Boolean(getSetting("bankCurrencyAfter")) };
+}
+function setCharCurrency(field, value) {
+    const key = getCharKey();
+    if (!key) return;   // ไม่มีตัวละคร = ไม่มีที่ให้ผูก (ฟิลด์ใน UI จะถูก disable ไว้อยู่แล้ว)
+    const store = getCharCurrencyStore();
+    const cur = store[key] || {};
+    cur[field] = value;
+    store[key] = cur;
+    saveSettingsDebounced();
+}
+
 function formatMoney(n) {
-    const cur = getSetting("bankCurrency") || "฿";
+    const { symbol, after } = getCharCurrency();
     const num = Number(n || 0).toLocaleString();
-    return getSetting("bankCurrencyAfter") ? `${num}${cur}` : `${cur}${num}`;
+    return after ? `${num}${symbol}` : `${symbol}${num}`;
 }
 
 // แกนธุรกรรม: dir "in" = เงินเข้า, "out" = เงินออก · app = แหล่งที่มา (bank/stream/connect/shop)
@@ -932,16 +958,23 @@ function bankManualTxn(dir) {
     }
 }
 
-// ===== TinyShop: ร้านค้า (แคตตาล็อก global, ยอดซื้อผูกกับแชท) =====
+/* ===== TinyShop: ร้านค้า — แคตตาล็อกผูกกับแชท (เดิม global, ย้ายตามคำขอผู้ใช้ 2026-08)
+ * หมวดสินค้า (shopCategories) ยังเป็น global เหมือนเดิม — คู่กับแนวทางเดียวกับ TinyForum
+ * (forumRooms เป็น global แต่กระทู้จริงผูกแชท) ตั้งชื่อหมวดครั้งเดียวใช้ข้ามเรื่องได้ แต่สินค้าแยกตามเรื่อง */
 function getShop() {
-    const store = extension_settings[extensionName] || {};
-    if (!Array.isArray(store.shop)) { store.shop = []; setSetting("shop", store.shop); }
-    return store.shop;
+    const data = getFeedData();
+    if (!Array.isArray(data.shop)) {
+        // แชทนี้ยังไม่เคยมีแคตตาล็อกของตัวเอง — สำเนาจากแคตตาล็อก global เดิม (ถ้ามี) มาเป็นจุดเริ่มต้น
+        // ครั้งเดียวต่อแชท กันของเดิมหายไปเงียบๆ ตอนย้ายมาเป็น per-chat; ไม่แตะ/ลบ global เดิม (แชทอื่นที่ยังไม่เปิดจะได้สำเนาด้วย)
+        const legacy = extension_settings[extensionName];
+        const seed = legacy && Array.isArray(legacy.shop) ? legacy.shop : [];
+        data.shop = seed.map((it) => Object.assign({}, it));
+        saveFeedData();
+    }
+    return data.shop;
 }
 function saveShop() {
-    extension_settings[extensionName] = extension_settings[extensionName] || {};
-    extension_settings[extensionName].shop = getShop();
-    saveSettingsDebounced();
+    saveFeedData();
 }
 function getShopOwned() {
     const data = getFeedData();
@@ -5067,6 +5100,22 @@ function populateProfileSettings() {
     }
 }
 
+// สกุลเงิน — ผูกกับตัวละครปัจจุบัน (เหมือนโปรไฟล์ตัวละคร) disable ฟิลด์เมื่อไม่มีการ์ดให้ผูก
+function populateCurrencySettings() {
+    const char = getCurrentCharacter();
+    const cc = getCharCurrency();   // มี fallback ในตัวอยู่แล้วแม้ไม่มีตัวละคร
+    const fields = $("#tinyfeed-cfg-bank-currency, #tinyfeed-cfg-bank-currency-pos");
+    $("#tinyfeed-cfg-bank-currency").val(cc.symbol);
+    $("#tinyfeed-cfg-bank-currency-pos").val(cc.after ? "after" : "before");
+    if (char) {
+        $("#tinyfeed-cfg-currency-charname").text(getRawCharName());
+        fields.prop("disabled", false);
+    } else {
+        $("#tinyfeed-cfg-currency-charname").text("(ไม่มีตัวละคร — ใช้ค่าเริ่มต้นไปก่อน)");
+        fields.prop("disabled", true);
+    }
+}
+
 // ===== Identity: โปรไฟล์ผูกกับ persona / char =====
 function getPersonaKey() {
     try {
@@ -7944,8 +7993,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-gallery-max-stickers").val(getSetting("galleryMaxStickers"));
     galleryCfgPage = 0;
     renderGalleryCfgAlbums();
-    $("#tinyfeed-cfg-bank-currency").val(getSetting("bankCurrency") || "฿");
-    $("#tinyfeed-cfg-bank-currency-pos").val(getSetting("bankCurrencyAfter") ? "after" : "before");
+    populateCurrencySettings();
     $("#tinyfeed-cfg-donate-enabled").prop("checked", Boolean(getSetting("streamDonateEnabled")));
     $("#tinyfeed-cfg-bank-donate-max").val(getSetting("bankDonateMax"));
     renderDonateTiers();
@@ -9470,14 +9518,14 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-gallery-prompt", function () {
             setSetting("galleryPrompt", $(this).prop("checked"));
         });
-        // TinyBank config
+        // TinyBank config — สกุลเงินผูกกับตัวละครปัจจุบัน (ไม่จำกัดความยาวตัวอักษรแล้ว)
         $(document).on("input", "#tinyfeed-cfg-bank-currency", function () {
-            setSetting("bankCurrency", String($(this).val() || "฿").trim() || "฿");
+            setCharCurrency("symbol", String($(this).val() || "").trim() || "฿");
             if (currentApp === "bank") renderBank();
             if (currentApp === "shop") renderShop();
         });
         $(document).on("change", "#tinyfeed-cfg-bank-currency-pos", function () {
-            setSetting("bankCurrencyAfter", $(this).val() === "after");
+            setCharCurrency("after", $(this).val() === "after");
             if (currentApp === "bank") renderBank();
             if (currentApp === "shop") renderShop();
         });

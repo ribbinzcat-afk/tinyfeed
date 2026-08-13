@@ -129,12 +129,12 @@ export const defaultSettings = {
     injectTheater: false,         // แทรกเรื่องในมินิเธียเตอร์ เข้า RP
     injectNovel: false,           // แทรกนิยายที่อ่านอยู่ เข้า RP
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
-    bankCurrency: "฿",            // สัญลักษณ์สกุลเงิน
-    bankCurrencyAfter: false,     // แสดงสัญลักษณ์ไว้ข้างหลังตัวเลข (เช่น 100฿) แทนข้างหน้า
+    bankCurrency: "฿",            // (fallback เท่านั้น) สกุลเงินจริงผูกกับตัวละคร — ดู getCharCurrency() ใน index.js · ใช้ตอนไม่มีตัวละครในแชท
+    bankCurrencyAfter: false,     // (fallback) ตำแหน่งสัญลักษณ์เมื่อไม่มีตัวละคร — ค่าจริงต่อตัวละครอยู่ที่ charCurrency
     streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
     bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
     connectSlipEnabled: false,    // ให้คู่แชทส่งสลิปโอนเงินเข้าบัญชีเราได้ (AI)
-    shop: [],                     // แคตตาล็อกร้านค้า (global) [{ id, name, price, image, emoji, desc, food, cat }]
+    shop: [],                     // (legacy) แคตตาล็อกเดิมตอนยังเป็น global — เหลือไว้ให้ getShop() สำเนาเข้าแชทครั้งแรกเท่านั้น ไม่ได้ใช้อ่าน/เขียนตรงๆ แล้ว
     shopCategories: ["เสื้อผ้า", "ของกิน", "ไอเทม/ของใช้", "ของแต่งบ้าน", "อื่นๆ"],  // หมวดสินค้า (แก้ในตั้งค่า)
     shopTokens: 400,              // ความยาวผลลัพธ์ตอน AI สร้างสินค้า
     shopExtraPrompt: "",          // คำสั่งเสริมตอน AI สร้างสินค้า

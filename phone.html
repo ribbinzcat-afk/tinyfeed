@@ -739,9 +739,10 @@
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="bank">
                     <div class="tinyfeed-settings-title">TinyBank (ธนาคาร)</div>
+                    <div class="tinyfeed-field-label tinyfeed-profile-head">สกุลเงิน — ผูกกับการ์ด: <b id="tinyfeed-cfg-currency-charname">—</b></div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สัญลักษณ์สกุลเงิน</span>
-                        <input id="tinyfeed-cfg-bank-currency" type="text" maxlength="4" placeholder="฿" />
+                        <input id="tinyfeed-cfg-bank-currency" type="text" placeholder="฿" />
                     </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ตำแหน่งสัญลักษณ์</span>
@@ -750,6 +751,7 @@
                             <option value="after">ข้างหลังตัวเลข (100฿)</option>
                         </select>
                     </label>
+                    <small class="tinyfeed-field-hint">แต่ละตัวละครมีสกุลเงินของตัวเอง (เช่น การ์ดแฟนตาซีใช้ "โกลด์" การ์ดยุคใหม่ใช้ "฿") · ไม่มีตัวละครในแชทนี้ = ใช้ค่าเริ่มต้นไปก่อน ตั้งได้ยาวเท่าไหร่ก็ได้ ไม่จำกัดตัวอักษร</small>
                     <label class="tinyfeed-field-row">
                         <span>เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)</span>
                         <input id="tinyfeed-cfg-donate-enabled" type="checkbox" />
@@ -788,6 +790,7 @@
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="shop">
                     <div class="tinyfeed-settings-title">TinyShop (ร้านค้า)</div>
+                    <small class="tinyfeed-field-hint"><b>สินค้าผูกกับแชทนี้</b> (แต่ละเรื่องมีร้านของตัวเอง) · หมวดสินค้าด้านล่างใช้ร่วมทุกแชท เหมือนห้องของ TinyForum</small>
                     <div class="tinyfeed-field-label">หมวดสินค้า (AI เลือกจากรายการนี้)</div>
                     <div id="tinyfeed-shop-cat-list"></div>
                     <button id="tinyfeed-shop-cat-add" class="tinyfeed-btn-generate">
