@@ -175,6 +175,15 @@
                     <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์ · กด “ทดสอบ” เพื่อเช็คว่าใช้ได้ไหม (จะบอกสาเหตุถ้าติด) · ⚠️ <b>ต้องเปิด ST ผ่าน HTTPS หรือ localhost</b> ถ้าเปิดผ่าน IP/HTTP เบราว์เซอร์จะบล็อก · ข้อความจะโผล่บน lock screen/แถบ OS แบบเห็นได้ ระวังเนื้อหา 18+</small>
                 </div>
 
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="homeLayout">
+                    <div class="tinyfeed-settings-title">หน้าโฮม (แอปที่แสดง + ลำดับ)</div>
+                    <small class="tinyfeed-field-hint">ปิดสวิตช์เพื่อซ่อนแอปจากหน้าโฮม (เปิดใช้งานได้เหมือนเดิม) · ใช้ลูกศรจัดลำดับไอคอน</small>
+                    <div id="tinyfeed-home-layout-list"></div>
+                    <button id="tinyfeed-home-layout-reset" class="tinyfeed-btn-ghost">
+                        <i class="fa-solid fa-arrow-rotate-left"></i> <span>คืนค่าเริ่มต้น</span>
+                    </button>
+                </div>
+
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="proactive">
                     <div class="tinyfeed-settings-title">ทักเชิงรุก (ตัวละครทักเอง)</div>
                     <label class="tinyfeed-field-row">

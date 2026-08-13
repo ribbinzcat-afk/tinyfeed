@@ -2031,10 +2031,84 @@ function appIconHtml(a) {
     </div>`;
 }
 
+// แอปทั้งหมดที่ "มีสิทธิ์" ขึ้นหน้าโฮม (ตาม APPS ในโค้ด) — ไม่สนใจว่าผู้ใช้ซ่อนไว้หรือจัดลำดับใหม่หรือยัง
+function homeEligibleApps() { return APPS.filter((a) => a.home); }
+
+/* ลำดับ id เต็มของแอปที่มีสิทธิ์ขึ้นหน้าโฮม ตามที่ผู้ใช้จัดไว้ (รวมตัวที่ซ่อนด้วย เพื่อจำตำแหน่งไว้เผื่อเปิดกลับ)
+ * เริ่มจาก homeAppOrder ที่เซฟไว้ กรองตัวที่ไม่มีอยู่จริงแล้วออก (แอปถูกถอดออกจากโค้ด)
+ * แล้วต่อท้ายด้วยแอปใหม่ที่ยังไม่เคยอยู่ในลิสต์ที่เซฟ (เช่นเพิ่งเพิ่มแอปใหม่หลังผู้ใช้เคยจัดลำดับไปแล้ว) */
+function homeAppOrderIds() {
+    const eligible = homeEligibleApps();
+    const eligibleIds = new Set(eligible.map((a) => a.id));
+    const saved = getSetting("homeAppOrder");
+    const ordered = (Array.isArray(saved) ? saved : []).filter((id) => eligibleIds.has(id));
+    for (const a of eligible) if (!ordered.includes(a.id)) ordered.push(a.id);
+    return ordered;
+}
+
+// แอปที่ "จะแสดงจริง" บนหน้าโฮม — ลำดับผู้ใช้จัด + กรองตัวที่ซ่อนไว้ออก (ใช้วาดกริดจริง)
+function homeAppList() {
+    const hidden = new Set(getSetting("homeAppHidden") || []);
+    const byId = Object.fromEntries(homeEligibleApps().map((a) => [a.id, a]));
+    return homeAppOrderIds().filter((id) => !hidden.has(id)).map((id) => byId[id]);
+}
+
+// หน้าตั้งค่า "หน้าโฮม" — รายการทุกแอปที่มีสิทธิ์ขึ้นโฮม พร้อมสวิตช์เปิด/ปิด + ลูกศรจัดลำดับ
+function renderHomeLayoutSettings() {
+    const box = $("#tinyfeed-home-layout-list");
+    if (!box.length) return;
+    const byId = Object.fromEntries(homeEligibleApps().map((a) => [a.id, a]));
+    const order = homeAppOrderIds();
+    const hidden = new Set(getSetting("homeAppHidden") || []);
+    box.html(order.map((id, i) => {
+        const a = byId[id];
+        const isHidden = hidden.has(id);
+        return `<div class="tinyfeed-home-layout-row${isHidden ? " tinyfeed-home-layout-row-hidden" : ""}">
+            <span class="tinyfeed-home-layout-icon" style="--app-a:${a.a}; --app-b:${a.b};"><i class="fa-solid ${a.icon}"></i></span>
+            <span class="tinyfeed-home-layout-name">${escapeText(a.name)}</span>
+            <span class="tinyfeed-home-layout-arrows">
+                <i class="fa-solid fa-chevron-up tinyfeed-home-layout-up${i === 0 ? " tinyfeed-field-disabled" : ""}" data-app="${id}" title="เลื่อนขึ้น"></i>
+                <i class="fa-solid fa-chevron-down tinyfeed-home-layout-down${i === order.length - 1 ? " tinyfeed-field-disabled" : ""}" data-app="${id}" title="เลื่อนลง"></i>
+            </span>
+            <input type="checkbox" class="tinyfeed-home-layout-toggle" data-app="${id}" ${isHidden ? "" : "checked"} title="แสดงบนหน้าโฮม" />
+        </div>`;
+    }).join(""));
+}
+
+// สลับตำแหน่ง id สองตัวในลิสต์ที่เซฟไว้ แล้วบันทึก + วาดใหม่ทั้งหน้าตั้งค่าและหน้าโฮม
+function moveHomeApp(id, dir) {
+    const order = homeAppOrderIds();
+    const i = order.indexOf(id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    [order[i], order[j]] = [order[j], order[i]];
+    setSetting("homeAppOrder", order);
+    renderHomeLayoutSettings();
+    renderHomeApps();
+}
+
+function toggleHomeApp(id, show) {
+    const hidden = new Set(getSetting("homeAppHidden") || []);
+    if (show) hidden.delete(id);
+    else {
+        // กันซ่อนจนไม่เหลือแอปบนหน้าโฮมเลย
+        const willRemain = homeEligibleApps().filter((a) => a.id !== id && !hidden.has(a.id));
+        if (!willRemain.length) {
+            toastr.warning("ต้องเหลืออย่างน้อย 1 แอปบนหน้าโฮม", "TinyPhone");
+            renderHomeLayoutSettings();   // คืน checkbox กลับตามค่าจริง
+            return;
+        }
+        hidden.add(id);
+    }
+    setSetting("homeAppHidden", Array.from(hidden));
+    renderHomeLayoutSettings();
+    renderHomeApps();
+}
+
 function renderHomeApps() {
     const pager = $("#tinyfeed-home-pager");
     if (!pager.length) return;
-    const homeApps = APPS.filter((a) => a.home);
+    const homeApps = homeAppList();
     const pages = [];
     for (let i = 0; i < homeApps.length; i += HOME_APPS_PER_PAGE) {
         const slice = homeApps.slice(i, i + HOME_APPS_PER_PAGE);
@@ -3808,7 +3882,7 @@ function petOnEvolve(stage) {
         teen: "ดูสิ~ ฉันโตเป็นวัยรุ่นแล้วนะ! ขอบคุณที่ดูแลกันมาตลอดเลย 🥹",
         adult: "ฉันโตเต็มวัยแล้ว! เราผ่านอะไรด้วยกันมาเยอะเลยเนอะ 💖",
     };
-    petSendDM(lines[stage] || "ฉันโตขึ้นแล้ว! 🎉");
+    petNotifyUser(lines[stage] || "ฉันโตขึ้นแล้ว! 🎉");
 }
 function savePet() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
@@ -4665,24 +4739,20 @@ async function petPostToFeed(opts) {
 function petNotifAvatar() {
     return `<div class="tinyfeed-avatar tinyfeed-pet-notif-ava">${PET_STATE_EMOJI[petState()] || "🐾"}</div>`;
 }
-// เพ็ท "ทัก" ผู้ใช้ผ่าน TinyConnect (global thread) + แจ้งเตือนในโทรศัพท์ + OS (ผ่าน showNotif)
-function petSendDM(text) {
+/* เพ็ท "ทัก" ผู้ใช้ — แจ้งเตือนล้วน (แบนเนอร์ + ลิ้นชัก + OS ผ่าน showNotif) กดแล้วพาไปแอป TinyPet โดยตรง
+ * เดิมพฤติกรรมนี้ยังพุชข้อความเข้าห้องแชตเพ็ทใน TinyConnect ด้วย (p.dm) — ตัดออกตามที่ผู้ใช้ขอ
+ * (ผู้ใช้ยังคุยกับเพ็ทเองใน TinyConnect ได้ตามปกติ ผ่าน sendConnectMessage ซึ่งเขียนลง p.dm เหมือนเดิม
+ *  ที่ตัดคือฝั่งเพ็ทพูดเองอัตโนมัติ ไม่ใช่ทั้งห้องแชต) */
+function petNotifyUser(text) {
     const p = getPet();
     if (!p.exists) return;
-    if (!Array.isArray(p.dm)) p.dm = [];
-    p.dm.push({ from: "contact", author: p.name || "เพ็ท", text: escapeHtml(String(text || "")), ts: Date.now() });
-    if (p.dm.length > 60) p.dm.splice(0, p.dm.length - 60);
-    savePet();
-    if (currentApp === "connect" && activeThread === "pet") renderThread();
-    else if (currentApp === "connect") renderConnectList();   // อัปเดตข้อความล่าสุดในรายชื่อ
-    // แจ้งเตือน (แบนเนอร์ + ลิ้นชัก + OS) กดแล้วเข้าห้องแชตเพ็ทใน TinyConnect
-    showNotif(petNotifAvatar(), p.name || "เพ็ท", String(text || ""), "connect", "connect", "pet", p.name || "เพ็ท");
+    showNotif(petNotifAvatar(), p.name || "เพ็ท", String(text || ""), "pet", "pet");
 }
 // เช็คสถานะวิกฤต → ให้เพ็ททักเข้ามาเอง (edge-triggered ผ่าน p.notified กันสแปม)
 function petCheckCritical(p) {
     const s = p.stats, n = p.notified;
     const fire = (key, cond, msg) => {
-        if (cond && !n[key]) { n[key] = true; petSendDM(msg); }
+        if (cond && !n[key]) { n[key] = true; petNotifyUser(msg); }
         else if (!cond && n[key]) { n[key] = false; }   // กลับมาปกติ = เตือนได้อีกรอบเมื่อวิกฤตซ้ำ
     };
     fire("hunger", s.hunger >= 85, "หิวมากแล้วน้า~ มาให้ข้าวหน่อยได้ไหม 🍽️");
@@ -4787,13 +4857,14 @@ function petDeadHtml() {
         <button id="tinyfeed-pet-adopt-new" class="tinyfeed-btn-primary"><i class="fa-solid fa-seedling"></i> รับเลี้ยงตัวใหม่</button>
     </div>`;
 }
+let petLastBondLv = null;   // เลเวล bond ครั้งก่อนที่วาด — ใช้เช็คว่าเพิ่งขึ้นเลเวลไหม (ดู renderPet)
 function renderPet() {
     const p = petApplyDecay();
     savePet();
     const body = $("#tinyfeed-pet-body");
     if (!body.length) return;
-    if (!p.exists) { body.html(petCreateHtml()); return; }
-    if (p.isDead) { body.html(petDeadHtml()); return; }
+    if (!p.exists) { petLastBondLv = null; body.html(petCreateHtml()); return; }
+    if (p.isDead) { petLastBondLv = null; body.html(petDeadHtml()); return; }
     const s = p.stats;
     const st = petState();
     const stageLabel = ({ baby: "เด็ก", teen: "วัยรุ่น", adult: "โตเต็มวัย" })[p.stage] || "เด็ก";
@@ -4803,6 +4874,13 @@ function renderPet() {
     const bondLv = petBondLevel(p.bond);
     const bondPct = bondLv >= 10 ? 100 : ((Number(p.bond) || 0) % PET_BOND_PER_LEVEL) / PET_BOND_PER_LEVEL * 100;
     const bondTitle = bondLv >= 10 ? "เพื่อนซี้ 💫" : `Lv.${bondLv}`;
+    /* บาร์ผูกพันคิดจาก bond % 50 → พอข้ามเลเวลบาร์จะกลับไป 0% ทันที (ถูกต้องทางคณิต แต่ดูเหมือน "ไม่ขึ้นเลย")
+     * แจ้งด้วย toast ทุกครั้งที่เลเวลขึ้นจริง กันสับสน — เหมือนที่ evolution มี toast ของตัวเองอยู่แล้ว */
+    const bondJustLeveledUp = petLastBondLv !== null && bondLv > petLastBondLv;
+    if (bondJustLeveledUp) {
+        toastr.success(bondLv >= 10 ? "ผูกพันสูงสุดแล้ว! ตอนนี้เป็นเพื่อนซี้กัน 💫" : `ความผูกพันขึ้นเป็น Lv.${bondLv} แล้ว! 💗`, "TinyPet");
+    }
+    petLastBondLv = bondLv;
     body.html(`
         <div class="tinyfeed-pet-stage-wrap">
             ${bubble}
@@ -4810,7 +4888,7 @@ function renderPet() {
             <div class="tinyfeed-pet-name">${escapeText(p.name)} <span class="tinyfeed-pet-stagepill">${stageLabel}</span></div>
             <div class="tinyfeed-pet-mood">${escapeText(petMoodText(st))}</div>
             <div class="tinyfeed-pet-bond" title="ผูกพันเพิ่มจากการดูแล + เอ่ยถึงเพ็ทในบทบาท">
-                <span class="tinyfeed-pet-bond-label"><i class="fa-solid fa-heart-circle-check"></i> ความผูกพัน ${bondTitle}</span>
+                <span class="tinyfeed-pet-bond-label"><i class="fa-solid fa-heart-circle-check${bondJustLeveledUp ? " tinyfeed-pop" : ""}"></i> ความผูกพัน ${bondTitle}</span>
                 <span class="tinyfeed-pet-bond-bar"><span style="width:${bondPct}%"></span></span>
                 <span class="tinyfeed-pet-coins" title="เหรียญเพ็ท">🪙 ${petCoins().toLocaleString()}</span>
             </div>
@@ -7619,6 +7697,7 @@ const SETTINGS_LAYOUT = [
         head: "ทั่วไป", icon: "fa-gear",
         groups: [
             { id: "notif", name: "การแจ้งเตือน", icon: "fa-bell", desc: "แบนเนอร์ · กระดิ่ง · แจ้งเตือนระบบ" },
+            { id: "homeLayout", name: "หน้าโฮม", icon: "fa-table-cells", desc: "เปิด/ปิด + จัดลำดับแอปบนหน้าโฮม" },
             { id: "proactive", name: "ทักเชิงรุก", icon: "fa-hand", desc: "ให้ตัวละครทักเราเองเป็นระยะ" },
         ],
     },
@@ -7774,6 +7853,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-news-history").val(getSetting("newsHistoryCount"));
     $("#tinyfeed-cfg-notif").prop("checked", Boolean(getSetting("notificationsEnabled")));
     $("#tinyfeed-cfg-osnotif").prop("checked", Boolean(getSetting("osNotifEnabled")));
+    renderHomeLayoutSettings();
     $("#tinyfeed-cfg-proactive").prop("checked", Boolean(getSetting("proactiveEnabled")));
     $("#tinyfeed-cfg-proactive-interval").val(getSetting("proactiveIntervalMin") || 20);
     $("#tinyfeed-cfg-proactive-chance").val(getSetting("proactiveChance"));
@@ -9036,6 +9116,23 @@ jQuery(async () => {
             if (on) ensureNotifPermission();
         });
         $(document).on("click", "#tinyfeed-osnotif-test", testOsNotif);
+        // หน้าโฮม: เปิด/ปิด + จัดลำดับแอป
+        $(document).on("change", ".tinyfeed-home-layout-toggle", function () {
+            toggleHomeApp(String($(this).data("app")), $(this).prop("checked"));
+        });
+        $(document).on("click", ".tinyfeed-home-layout-up:not(.tinyfeed-field-disabled)", function () {
+            moveHomeApp(String($(this).data("app")), -1);
+        });
+        $(document).on("click", ".tinyfeed-home-layout-down:not(.tinyfeed-field-disabled)", function () {
+            moveHomeApp(String($(this).data("app")), 1);
+        });
+        $(document).on("click", "#tinyfeed-home-layout-reset", function () {
+            setSetting("homeAppOrder", []);
+            setSetting("homeAppHidden", []);
+            renderHomeLayoutSettings();
+            renderHomeApps();
+            toastr.success("คืนค่าหน้าโฮมเริ่มต้นแล้ว", "TinyPhone");
+        });
         // ทักเชิงรุก
         $(document).on("change", "#tinyfeed-cfg-proactive", function () {
             const on = $(this).prop("checked");

@@ -835,6 +835,73 @@
     opacity: 0.6;
 }
 
+/* หัวข้อตั้งค่า "หน้าโฮม" — แถวแอปพร้อมลูกศรจัดลำดับ + สวิตช์เปิด/ปิด */
+.tinyfeed-home-layout-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-3);
+    padding: var(--tf-sp-2) 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+}
+
+.tinyfeed-home-layout-row:last-child {
+    border-bottom: none;
+}
+
+.tinyfeed-home-layout-row-hidden {
+    opacity: 0.5;
+}
+
+.tinyfeed-home-layout-icon {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--tf-r-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: var(--tf-fs-sm);
+    background: linear-gradient(135deg, var(--app-a), var(--app-b));
+}
+
+.tinyfeed-home-layout-name {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--tf-fs-md);
+    color: var(--tf-text-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tinyfeed-home-layout-arrows {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--tf-text-muted);
+    font-size: var(--tf-fs-xs);
+}
+
+.tinyfeed-home-layout-arrows i {
+    cursor: pointer;
+    padding: 2px 6px;
+}
+
+.tinyfeed-home-layout-arrows i:hover {
+    color: var(--tf-accent);
+}
+
+.tinyfeed-home-layout-toggle {
+    /* ไม่ได้อยู่ใน .tinyfeed-field-row ที่ตั้ง accent-color ให้ → ตั้งเอง กันเป็น checkbox เปล่าของเบราว์เซอร์ */
+    width: 18px;
+    height: 18px;
+    accent-color: var(--tf-accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
 .tinyfeed-settings-title {
     font-weight: 600;
     color: var(--tf-text-strong);
@@ -971,7 +1038,9 @@
     margin-top: 4px;
 }
 
-/* ===== จุดแดง badge + สั่น บนปุ่มเมนู (Stage 10) ===== */
+/* ===== จุดแดง badge + สั่น บนปุ่มเมนู (Stage 10) =====
+   อยู่ใน #extensionsMenu ของ ST เอง — นอก #tinyfeed-phone จึงเข้าถึง --tf-* ไม่ได้
+   (เหมือน .tinyfeed-notif) ใช้ค่าดิบตรงนี้โดยตั้งใจ ห้ามเปลี่ยนกลับเป็น var(--tf-danger) */
 .tinyfeed-menu-badge {
     margin-left: auto;
     min-width: 18px;
@@ -979,7 +1048,7 @@
     padding: 0 5px;
     box-sizing: border-box;
     border-radius: 999px;
-    background: var(--tf-danger);
+    background: #f4212e;
     color: #fff;
     font-size: 0.72em;
     font-weight: 700;
@@ -1132,6 +1201,11 @@
 }
 .tinyfeed-like.tinyfeed-pop i {
     animation: tinyfeed-heartpop 0.32s ease;
+}
+
+/* หัวใจเด้งตอนความผูกพัน pet ขึ้นเลเวล (ใช้ keyframe เดียวกับไลค์) */
+.tinyfeed-pet-bond-label i.tinyfeed-pop {
+    animation: tinyfeed-heartpop 0.4s ease;
 }
 
 /* hover โพสต์/ข่าว */

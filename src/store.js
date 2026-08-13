@@ -24,6 +24,9 @@ export const defaultSettings = {
     widgetTokens: false,      // วิดเจ็ตแดชบอร์ดโทเคนต่อแอป
     widgetAgenda: false,      // วิดเจ็ตมินิกำหนดการ (TinyMemo)
     customCss: "",            // CSS snippet ของผู้ใช้
+    // หน้าโฮม: เปิด/ปิด + จัดลำดับแอป ([] ทั้งคู่ = ใช้ลำดับ/แสดงผลตาม APPS ในโค้ดเป๊ะๆ)
+    homeAppOrder: [],         // ["feed","connect",...] ลำดับที่ผู้ใช้จัดเอง — แอปที่ไม่อยู่ในนี้ต่อท้ายตามลำดับเดิม
+    homeAppHidden: [],        // id ของแอปที่ผู้ใช้ปิดไว้ ไม่โชว์บนหน้าโฮม (ยังเปิดใช้งานผ่านทางอื่นได้ตามปกติ)
     // ทักเชิงรุก (proactive) + แจ้งเตือน OS + กลุ่มคุยกันเอง
     proactiveEnabled: false,      // ให้ตัวละครทักเองเป็นระยะ
     proactiveIntervalMin: 20,     // ตรวจ/เว้นระยะขั้นต่ำ (นาที)
