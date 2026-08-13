@@ -277,3 +277,16 @@ export function saveFeedData() {
         context.saveMetadata();
     }
 }
+
+/* saveMetadata() ตรง ๆ มีเงื่อนไขล็อกภายในของ ST เอง (isChatSaving):
+ * ถ้ามีการเซฟค้างอยู่แล้วเกิน 1 วินาที คำขอเซฟใหม่จะถูก "ข้ามเงียบ ๆ" ไม่มี error ให้เห็น
+ * saveMetadataDebounced() ของ ST เอง (บน context) กันปัญหานี้ด้วย debounce จริง + เช็คไม่เซฟทับตอนสลับตัวละคร/แชท
+ * ใช้ตัวนี้เป็นค่าเริ่มต้นสำหรับ path ที่ไม่ต้องการผลลัพธ์ทันที (ส่วนใหญ่ของ 50+ จุดที่เรียก saveFeedData) */
+export function saveFeedDataDebounced() {
+    const context = getContext();
+    if (typeof context.saveMetadataDebounced === "function") {
+        context.saveMetadataDebounced();
+    } else {
+        saveFeedData();
+    }
+}

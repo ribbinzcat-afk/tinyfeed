@@ -4,7 +4,7 @@ import { saveSettingsDebounced } from "../../../../script.js";
 // โมดูลย่อย (ดู CONVENTIONS.md บทที่ 7 — module layout)
 import {
     extensionName, extensionFolderPath,
-    defaultSettings, getFeedData, getGallery, getSetting, saveFeedData, saveGallery, setSetting,
+    defaultSettings, getFeedData, getGallery, getSetting, saveFeedData, saveFeedDataDebounced, saveGallery, setSetting,
 } from "./src/store.js";
 import {
     displayTime, escapeAttr, escapeHtml, escapeText, findGalleryImage, htmlToPlain,
@@ -481,7 +481,7 @@ async function toggleStream() {
         s.live = false;
         s.comments.push({ isSystem: true, text: "⏹ จบไลฟ์แล้ว", ts: Date.now() });
         clearStreamTimer();
-        saveFeedData();
+        saveFeedDataDebounced();
         renderStream();
         return;
     }
@@ -509,7 +509,7 @@ async function toggleStream() {
         s.comments.push({ isSystem: true, text: escapeText(`🔴 เริ่มไลฟ์ — ${s.title}`), ts: Date.now() });
         $("#tinyfeed-stream-title-input").val("");
         $("#tinyfeed-stream-direction-input").val("");
-        saveFeedData();
+        saveFeedDataDebounced();
         renderStream();
         maybeStartStreamTimer();
         // สตรีมเมอร์ตัวละครทักเปิดไลฟ์เอง · ถ้าเราเป็นสตรีมเมอร์ให้พิมพ์เอง
@@ -623,7 +623,7 @@ async function loadLiveComments(opts) {
         const before = s.comments.length;
         s.comments.push(...list);
         processDonations(raw);   // โดเนทที่ AI กำหนด → เข้าบัญชี + การ์ดโดเนท
-        if (s.comments.length > before) { saveFeedData(); renderStream(); }
+        if (s.comments.length > before) { saveFeedDataDebounced(); renderStream(); }
     } catch (e) {
         console.error(`[${extensionName}] live comments failed:`, e);
         if (!opts.silent) toastr.error("โหลดคอมเมนต์ไม่สำเร็จ", "TinyStream");
@@ -727,7 +727,7 @@ async function streamerSpeak(kind, opts) {
 
         if (spoken.length) {
             s.lastSpeaker = spoken[spoken.length - 1];   // จำไว้เพื่อวนเวียนคนถัดไป
-            saveFeedData();
+            saveFeedDataDebounced();
             renderStream();
         } else if (!opts.silent) {
             toastr.info("สตรีมเมอร์ยังไม่พูดอะไร ลองใหม่นะ", "TinyStream");
@@ -778,7 +778,7 @@ async function sendStreamComment(text) {
     const s = getStreamData();
     if (!clean || !s.live) return;
     s.comments.push({ author: getUserName(), isUser: true, text: escapeHtml(clean), ts: Date.now() });
-    saveFeedData();
+    saveFeedDataDebounced();
     $("#tinyfeed-stream-input").val("");
     renderStream();
     // สตรีมเมอร์ (ตัวละคร) อ่านคอมเมนต์เราแล้วตอบ (auto) — ข้ามถ้าเราเป็นสตรีมเมอร์เอง
@@ -797,7 +797,7 @@ async function sendStreamerLine(text) {
     const s = getStreamData();
     if (!clean || !s.live || !userIsHost()) return;
     s.comments.push({ isStreamer: true, author: getUserName(), text: escapeHtml(clean), ts: Date.now() });
-    saveFeedData();
+    saveFeedDataDebounced();
     $("#tinyfeed-stream-streamer-input").val("");
     renderStream();
     // โหมด onupdate: คำพูดสตรีมเมอร์ทำให้ผู้ชมรีแอค
@@ -827,7 +827,7 @@ async function sendUserDonate() {
     const streamerName = getStreamer().name || "สตรีมเมอร์";
     if (!bankDeduct(amt, `โดเนทให้ ${streamerName}`, "stream")) return;   // ยอดไม่พอ → toast ในตัว
     s.comments.push({ isDonation: true, isUser: true, author: getUserName(), amount: amt, text: escapeHtml(note), ts: Date.now() });
-    saveFeedData();
+    saveFeedDataDebounced();
     closeDonateModal();
     renderStream();
     // สตรีมเมอร์ (ตัวละคร) ขอบคุณ/รีแอคโดเนท (ถ้าเปิดให้ตอบ และมีสตรีมเมอร์ AI)
@@ -846,7 +846,7 @@ function clearEndedStream() {
     s.direction = "";
     s.viewers = 0;
     s.lastSpeaker = "";
-    saveFeedData();
+    saveFeedDataDebounced();
     renderStream();
     toastr.success("ลบไลฟ์เก่าแล้ว", "TinyStream");
 }
@@ -909,7 +909,7 @@ function bankTxn(dir, amount, label, app, opts) {
         dir, amount: amt, label: String(label || ""), app: app || "bank", ts: Date.now(),
     });
     if (b.txns.length > 200) b.txns.length = 200;
-    saveFeedData();
+    saveFeedDataDebounced();
     if (currentApp === "bank") renderBank();
     return true;
 }
@@ -969,12 +969,12 @@ function getShop() {
         const legacy = extension_settings[extensionName];
         const seed = legacy && Array.isArray(legacy.shop) ? legacy.shop : [];
         data.shop = seed.map((it) => Object.assign({}, it));
-        saveFeedData();
+        saveFeedDataDebounced();
     }
     return data.shop;
 }
 function saveShop() {
-    saveFeedData();
+    saveFeedDataDebounced();
 }
 function getShopOwned() {
     const data = getFeedData();
@@ -1158,7 +1158,7 @@ function buyShopItem(id) {
     if (!bankDeduct(it.price, `ซื้อ ${it.name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
     const owned = getShopOwned();
     owned[id] = (owned[id] || 0) + 1;
-    saveFeedData();
+    saveFeedDataDebounced();
     renderShop();
     toastr.success(`ซื้อ "${it.name}" แล้ว`, "TinyShop");
 }
@@ -1567,7 +1567,7 @@ function createGroup() {
     if (!name) { toastr.info("ตั้งชื่อกลุ่มก่อนนะ", "TinyConnect"); return; }
     if (members.length < 2) { toastr.info("เลือกสมาชิกอย่างน้อย 2 คน", "TinyConnect"); return; }
     getConnectGroups().push({ id: "g" + Date.now(), name, members, avatar });
-    saveFeedData();
+    saveFeedDataDebounced();
     toggleGroupForm(false);
     renderConnectList();
 }
@@ -1579,7 +1579,7 @@ function deleteGroup(key) {
     const c = getConnectData();
     c.groups = getConnectGroups().filter((x) => x.id !== g.id);
     delete c.threads[key];
-    saveFeedData();
+    saveFeedDataDebounced();
     renderConnectList();
 }
 
@@ -1762,7 +1762,7 @@ function deleteConnectMessage(idx) {
     if (idx < 0 || idx >= msgs.length) return;
     if (!confirm("ต้องการลบข้อความนี้ใช่ไหม?")) return;
     msgs.splice(idx, 1);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderThread();
 }
 
@@ -1815,7 +1815,7 @@ function sendUserSlip() {
     const toName = activeThreadName || "ผู้รับ";
     if (!bankDeduct(amt, `โอนให้ ${toName}`, "connect")) return;   // ยอดไม่พอ → มี toast ในตัว
     getThread(activeThread).push({ from: "user", isSlip: true, dir: "out", amount: amt, note, ts: Date.now() });
-    saveFeedData();
+    saveFeedDataDebounced();
     closeSlipModal();
     renderThread();
 }
@@ -1840,7 +1840,7 @@ function sendConnectMessage(text) {
     if (!clean || !activeThread) return;
     getThread(activeThread).push({ from: "user", text: escapeHtml(clean), ts: Date.now() });
     if (activeThread === "pet") { petBondAdd(2); savePet(); }   // เพ็ท = global → persist ด้วย savePet + คุยด้วยเพิ่มผูกพันนิดหน่อย
-    else saveFeedData();
+    else saveFeedDataDebounced();
     $("#tinyfeed-connect-input").val("").css("height", "");   // เคลียร์ + คืนความสูงเริ่มต้น
     renderThread();
 }
@@ -1880,7 +1880,7 @@ async function generateConnectReply() {
                 for (const c of list.slice(0, 3)) {
                     getThread(activeThread).push({ from: "contact", author: c.author, text: c.text, ts: Date.now() });
                 }
-                saveFeedData();
+                saveFeedDataDebounced();
             } else {
                 toastr.warning("ยังไม่มีใครตอบในกลุ่ม ลองใหม่นะ", "TinyConnect");
             }
@@ -1923,7 +1923,7 @@ async function generateConnectReply() {
         reply = reply.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
         if (reply) {
             getThread(activeThread).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
-            saveFeedData();
+            saveFeedDataDebounced();
         }
         processConnectSlip(raw, name);   // คู่แชทโอนเงินเข้า (ถ้าเปิดระบบ + AI ส่ง SLIP)
         if (!reply && !getThread(activeThread).some((m) => m.isSlip && m.ts > Date.now() - 3000)) {
@@ -1943,6 +1943,7 @@ function closePhone() {
     clearStreamTimer();   // ปิดเครื่อง = หยุด timer สตรีม
     clearHomeClock();     // หยุดนาฬิกาหน้าโฮม
     clearPetLiveTick();   // หยุด live tick เพ็ท (พื้นหลัง petTimer ยังเดินเพื่อ decay/แจ้งเตือน)
+    saveFeedData();        // flush ทันที — กันเซฟที่ debounce ค้างอยู่หายไปตอนปิดเครื่อง
     console.log(`[${extensionName}] Phone closed`);
 }
 
@@ -4756,7 +4757,7 @@ async function petPostToFeed(opts) {
             avatar: petSpriteUrl(petState()), ts: Date.now(), text: escapeHtml(text),
             likes: randomInitialLikes(), comments: [],
         });
-        saveFeedData();
+        saveFeedDataDebounced();
         if (currentApp === "feed") renderFeed();
         if (opts.notify) showNotif(petNotifAvatar(), p.name || "เพ็ท", htmlToPlain(text), "feed", "feed");
     } catch (e) {
@@ -5682,7 +5683,7 @@ function toggleLike(postId) {
     if (!post) return;
     post.liked = !post.liked;
     post.likes += post.liked ? 1 : -1;
-    saveFeedData();
+    saveFeedDataDebounced();
     // อัปเดตเฉพาะปุ่ม (ไม่ re-render ทั้งฟีด กัน flicker) + หัวใจเด้ง
     const el = $(`.tinyfeed-like[data-post="${postId}"]`);
     el.toggleClass("tinyfeed-liked", post.liked)
@@ -5698,7 +5699,7 @@ function toggleShare(postId) {
     const post = getFeedData().feed.find((p) => p.id === postId);
     if (!post) return;
     post.shared = !post.shared;
-    saveFeedData();
+    saveFeedDataDebounced();
     $(`.tinyfeed-share[data-post="${postId}"]`).toggleClass("tinyfeed-shared", post.shared);
     console.log(`[${extensionName}] share:`, postId, post.shared);
 }
@@ -5718,7 +5719,7 @@ async function addUserPost(text) {
         comments: [],
     };
     getFeedData().feed.unshift(post);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderFeed();
     console.log(`[${extensionName}] user post added:`, post.id);
     await generateInitialComments(post);   // ให้ NPC คอมเมนต์โพสต์ของผู้ใช้ (ตาม config)
@@ -5731,7 +5732,7 @@ function deleteUserPost(postId) {
     if (!post || !(post.isUser || post.isAI)) return;
     if (!confirm("ต้องการลบโพสต์นี้ใช่ไหม?")) return;
     data.feed = data.feed.filter((p) => p.id !== postId);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderFeed();
     console.log(`[${extensionName}] post deleted:`, postId);
 }
@@ -5743,7 +5744,7 @@ function deleteComment(postId, cidx) {
     if (isNaN(cidx) || cidx < 0 || cidx >= post.comments.length) return;
     if (!confirm("ต้องการลบคอมเมนต์นี้ใช่ไหม?")) return;
     post.comments.splice(cidx, 1);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderFeed();
     // ถ้าหน้ารายละเอียดโพสต์เปิดอยู่ ให้รีเฟรชด้วย
     if (!$("#tinyfeed-detail").hasClass("tinyfeed-hidden")) openPostDetail(postId);
@@ -6192,7 +6193,7 @@ async function generateFeedPost(opts) {
             comments: [],
         };
         getFeedData().feed.unshift(post);
-        saveFeedData();
+        saveFeedDataDebounced();
         renderFeed();
         if (opts.notify) showPushNotification(post);   // แจ้งเตือนสไตล์โทรศัพท์ (auto-post)
         console.log(`[${extensionName}] AI post added:`, post.id, "by", post.author);
@@ -6249,7 +6250,7 @@ async function addComment(postId, text) {
     const post = getFeedData().feed.find((p) => p.id === postId);
     if (!post) return;
     post.comments.push({ author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean) });
-    saveFeedData();
+    saveFeedDataDebounced();
     openPostDetail(postId);   // refresh หน้ารายละเอียด
     if (getSetting("commentReplyMode") === "instant") {
         await generateCommentReply(postId);
@@ -6293,7 +6294,7 @@ async function generateCommentReply(postId) {
         const list = parseCommentLines(raw, charName);
         if (list.length) {
             post.comments.push(list[0]);
-            saveFeedData();
+            saveFeedDataDebounced();
         }
     } catch (e) {
         console.error(`[${extensionName}] comment reply failed:`, e);
@@ -6326,7 +6327,7 @@ async function runInitialComments(post, mode) {
         .filter((c) => c.author.trim().toLowerCase() !== String(post.author).trim().toLowerCase());
     if (comments.length) {
         post.comments.push(...comments);
-        saveFeedData();
+        saveFeedDataDebounced();
         renderFeed();
     }
     return comments.length;
@@ -6438,7 +6439,7 @@ async function generateNews(opts) {
             isAI: true,
         };
         getFeedData().news.unshift(news);
-        saveFeedData();
+        saveFeedDataDebounced();
         renderNews();
         if (opts.notify) showNotif(makeAnonAvatar(news.source), news.source, news.title, "news");
         console.log(`[${extensionName}] news added:`, news.id);
@@ -6460,7 +6461,7 @@ function deleteNews(newsId) {
     if (!news || !news.isAI) return;
     if (!confirm("ต้องการลบข่าวนี้ใช่ไหม?")) return;
     data.news = data.news.filter((n) => n.id !== newsId);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderNews();
     console.log(`[${extensionName}] news deleted:`, newsId);
 }
@@ -6545,7 +6546,7 @@ function addAgendaManual(text) {
     if (bar >= 0) { when = clean.slice(0, bar).trim(); title = clean.slice(bar + 1).trim(); }
     if (!title) return;
     getAgenda().push({ id: "a" + Date.now(), when: escapeHtml(when), title: escapeHtml(title), status: "pending", isAI: false, ts: Date.now() });
-    saveFeedData();
+    saveFeedDataDebounced();
     $("#tinyfeed-agenda-input").val("");
     renderAgenda();
     updateChatInjection();
@@ -6555,7 +6556,7 @@ function addNoteManual(text) {
     const clean = String(text || "").trim();
     if (!clean) return;
     getNotes().push({ id: "n" + Date.now(), text: escapeHtml(clean), kind: "fact", isAI: false, ts: Date.now() });
-    saveFeedData();
+    saveFeedDataDebounced();
     $("#tinyfeed-note-input").val("");
     renderNotes();
     updateChatInjection();
@@ -6566,7 +6567,7 @@ function toggleAgenda(id) {
     const a = getAgenda().find((x) => x.id === id);
     if (!a) return;
     a.status = a.status === "pending" ? "done" : "pending";
-    saveFeedData();
+    saveFeedDataDebounced();
     renderAgenda();
     updateChatInjection();
 }
@@ -6577,7 +6578,7 @@ function deleteAgenda(id) {
     if (!a) return;
     if (!confirm("ต้องการลบกำหนดการนี้ใช่ไหม?")) return;
     agenda.splice(agenda.indexOf(a), 1);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderAgenda();
     updateChatInjection();
 }
@@ -6588,7 +6589,7 @@ function deleteNote(id) {
     if (!n) return;
     if (!confirm("ต้องการลบโน้ตนี้ใช่ไหม?")) return;
     notes.splice(notes.indexOf(n), 1);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderNotes();
     updateChatInjection();
 }
@@ -6701,7 +6702,7 @@ async function scanMemo(opts) {
         }
 
         if (added || changed || noted) {
-            saveFeedData();
+            saveFeedDataDebounced();
             if (currentApp === "memo") { renderAgenda(); renderNotes(); }
             updateChatInjection();
             if (opts.notify) {
@@ -6903,7 +6904,7 @@ async function addForumThread() {
         author: getUserName(), isUser: true, likes: randomInitialLikes(), liked: false, ts: Date.now(), comments: [],
     };
     getForum().unshift(thread);
-    saveFeedData();
+    saveFeedDataDebounced();
     $("#tinyfeed-forum-newform").addClass("tinyfeed-hidden");
     openForumThread(thread.id);
     updateChatInjection();
@@ -6916,7 +6917,7 @@ async function addForumComment(threadId, text) {
     const t = getForum().find((x) => x.id === threadId);
     if (!t) return;
     t.comments.push({ id: forumId("fc"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: randomInitialLikes(), liked: false, ts: Date.now(), replies: [] });
-    saveFeedData();
+    saveFeedDataDebounced();
     $("#tinyfeed-forum-comment-input").val("");
     renderForumThread(threadId);
     updateChatInjection();
@@ -6931,7 +6932,7 @@ function addForumReply(threadId, cid, text) {
     if (!Array.isArray(c.replies)) c.replies = [];
     c.replies.push({ id: forumId("fr"), author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean), likes: randomInitialLikes(), liked: false, ts: Date.now() });
     cancelForumReply();
-    saveFeedData();
+    saveFeedDataDebounced();
     renderForumThread(threadId);
     updateChatInjection();
 }
@@ -6974,7 +6975,7 @@ function deleteForumComment(tid, cid) {
     if (!confirm("ต้องการลบความคิดเห็นนี้ใช่ไหม?")) return;
     t.comments.splice(t.comments.indexOf(c), 1);
     if (forumReplyingTo === cid) cancelForumReply();
-    saveFeedData();
+    saveFeedDataDebounced();
     renderForumThread(tid);
     updateChatInjection();
 }
@@ -6987,7 +6988,7 @@ function deleteForumReply(tid, cid, rid) {
     if (!r) return;
     if (!confirm("ต้องการลบการตอบกลับนี้ใช่ไหม?")) return;
     c.replies.splice(c.replies.indexOf(r), 1);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderForumThread(tid);
     updateChatInjection();
 }
@@ -6997,7 +6998,7 @@ function toggleForumThreadLike(id) {
     if (!t) return;
     t.liked = !t.liked;
     t.likes = (Number(t.likes) || 0) + (t.liked ? 1 : -1);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderForumThread(id);
 }
 
@@ -7009,7 +7010,7 @@ function toggleForumCommentLike(tid, cid, rid) {
     if (!target) return;
     target.liked = !target.liked;
     target.likes = (Number(target.likes) || 0) + (target.liked ? 1 : -1);
-    saveFeedData();
+    saveFeedDataDebounced();
     renderForumThread(tid);
 }
 
@@ -7020,7 +7021,7 @@ function deleteForumThread(id) {
     if (!confirm("ต้องการลบกระทู้นี้ใช่ไหม?")) return;
     const i = forum.indexOf(t);
     forum.splice(i, 1);
-    saveFeedData();
+    saveFeedDataDebounced();
     openForumList();
     updateChatInjection();
 }
@@ -7092,7 +7093,7 @@ async function generateForumThread(opts) {
             author, isAI: true, likes: randomInitialLikes(), liked: false, ts: Date.now(), comments: seeds,
         };
         getForum().unshift(thread);
-        saveFeedData();
+        saveFeedDataDebounced();
         if (currentApp === "forum" && !isForumThreadOpen()) renderForumList();
         updateChatInjection();
         if (opts.notify) showNotif(makeAnonAvatar(thread.room), thread.room, htmlToPlain(thread.title), "list", "forum");
@@ -7150,7 +7151,7 @@ async function loadForumComments(threadId, opts) {
             }
         }
         if (n) {
-            saveFeedData();
+            saveFeedDataDebounced();
             if (activeForumThread === threadId) renderForumThread(threadId);
             if (currentApp === "forum" && !isForumThreadOpen()) renderForumList();
             updateChatInjection();
@@ -7609,7 +7610,7 @@ async function proactiveDM() {
     reply = reply.replace(/^\[|\]$/g, "").trim();
     if (!reply) return;
     getThread(c.key).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
-    saveFeedData();
+    saveFeedDataDebounced();
     if (currentApp === "connect" && activeThread === c.key) renderThread();
     updateChatInjection();
     showNotif(makeAvatar(contactAvatarItem(c)), c.name, reply, "contact", "connect", c.key, c.name);
@@ -7640,7 +7641,7 @@ async function groupSelfChat(threadKey, opts) {
             .filter((c) => c.author.trim().toLowerCase() !== you.trim().toLowerCase());
         if (list.length) {
             for (const c of list.slice(0, 4)) getThread(threadKey).push({ from: "contact", author: c.author, text: c.text, ts: Date.now() });
-            saveFeedData();
+            saveFeedDataDebounced();
             updateChatInjection();
             if (opts.notify) showNotif(makeAnonAvatar(group.name), group.name,
                 list.slice(0, 4).map((c) => `${c.author}: ${htmlToPlain(c.text)}`).join(" · "),
@@ -7671,7 +7672,7 @@ function saveLastScreen() {
             thread: activeThread || null,
             forumThread: activeForumThread || null,
         };
-        saveFeedData();
+        saveFeedDataDebounced();
     } catch (e) { /* ไม่มีแชทเปิดอยู่ = ข้ามการจำหน้าจอ */ }
 }
 
@@ -8300,7 +8301,7 @@ jQuery(async () => {
             const url = prompt("วางลิงก์รูปกลุ่ม (เว้นว่าง = ลบรูป):", g.avatar || "");
             if (url === null) return;   // กดยกเลิก
             g.avatar = url.trim();
-            saveFeedData();
+            saveFeedDataDebounced();
             renderConnectList();
         });
         // ลบบับเบิลแชท
@@ -8850,7 +8851,7 @@ jQuery(async () => {
                 s.mainStreamer = value;
                 const mainName = getStreamer().name;
                 s.coHosts = (s.coHosts || []).filter((v) => v !== value && v !== mainName);   // กันซ้ำกับหลัก
-                saveFeedData();
+                saveFeedDataDebounced();
                 if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
             });
         });
@@ -8860,7 +8861,7 @@ jQuery(async () => {
             const val = String($(this).closest(".tinyfeed-stream-host").data("val"));
             const s = getStreamData();
             s.coHosts = (s.coHosts || []).filter((x) => String(x) !== val);
-            saveFeedData();
+            saveFeedDataDebounced();
             if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
         });
         // ปุ่ม + = เพิ่มตัวละคร/เราเอง มาไลฟ์ร่วม
@@ -8872,7 +8873,7 @@ jQuery(async () => {
                 if (value === POSTER_AUTO) return;
                 const st = getStreamData();
                 if (!st.coHosts.includes(value)) st.coHosts.push(value);
-                saveFeedData();
+                saveFeedDataDebounced();
                 if (currentApp === "stream") { renderStream(); maybeStartStreamTimer(); }
             });
         });
