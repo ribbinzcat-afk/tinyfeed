@@ -4,7 +4,7 @@ import { saveSettingsDebounced } from "../../../../script.js";
 // โมดูลย่อย (ดู CONVENTIONS.md บทที่ 7 — module layout)
 import {
     extensionName, extensionFolderPath,
-    defaultSettings, getFeedData, getGallery, getSetting, saveFeedData, saveFeedDataDebounced, saveGallery, setSetting,
+    defaultSettings, flushAllSaves, getFeedData, getGallery, getSetting, saveFeedDataDebounced, saveGallery, setSetting,
 } from "./src/store.js";
 import {
     displayTime, escapeAttr, escapeHtml, escapeText, findGalleryImage, htmlToPlain,
@@ -36,6 +36,7 @@ function loadSettings() {
     }
     migrateLegacyAvatars();   // ย้ายรูป override เก่าเข้าโปรไฟล์ persona/char
     migrateVerseScenes();     // ย้ายซีนเก่าจาก TinyVerse → TinyTheater (ครั้งเดียว)
+    cleanupLegacyGlobalScope();   // ล้าง shop/bankCurrency global เก่าที่ค้างจากก่อนย้าย scope (ครั้งเดียว)
     const enabled = extension_settings[extensionName].enabled;
     $("#tinyfeed-enabled").prop("checked", enabled);
     applyMenuVisibility(enabled);
@@ -1943,7 +1944,7 @@ function closePhone() {
     clearStreamTimer();   // ปิดเครื่อง = หยุด timer สตรีม
     clearHomeClock();     // หยุดนาฬิกาหน้าโฮม
     clearPetLiveTick();   // หยุด live tick เพ็ท (พื้นหลัง petTimer ยังเดินเพื่อ decay/แจ้งเตือน)
-    saveFeedData();        // flush ทันที — กันเซฟที่ debounce ค้างอยู่หายไปตอนปิดเครื่อง
+    flushAllSaves();       // flush ทันที (settings + chat metadata) — กันเซฟที่ debounce ค้างอยู่หายไปตอนปิดเครื่อง
     console.log(`[${extensionName}] Phone closed`);
 }
 
@@ -5202,6 +5203,19 @@ function migrateLegacyAvatars() {
     if (changed) saveSettingsDebounced();
 }
 
+// ล้างข้อมูล global เก่าที่ค้างจากตอนก่อนย้าย scope (ครั้งเดียว ตามที่ผู้ใช้ขอ 2026-08)
+// shop เดิมเคยเป็น global (ย้ายมา per-chat), bankCurrency/-After เดิมเคยเป็นค่าเดียวใช้ทุกการ์ด (ย้ายมาผูกการ์ด)
+// ทั้งสองยังเก็บไว้เป็น fallback/seed มาก่อน — รอบนี้ล้างทิ้งจริงตามคำขอ ไม่ใช่แค่เลิกใช้เฉยๆ
+function cleanupLegacyGlobalScope() {
+    const s = extension_settings[extensionName];
+    if (s.legacyGlobalCleaned) return;
+    s.shop = [];
+    s.bankCurrency = defaultSettings.bankCurrency;
+    s.bankCurrencyAfter = defaultSettings.bankCurrencyAfter;
+    s.legacyGlobalCleaned = true;
+    saveSettingsDebounced();
+}
+
 // ชื่อที่แอปใช้แสดง = username/alias ที่เลือกเป็นหลัก · ไม่ตั้ง = ชื่อดิบ
 function getUserName() {
     const p = getUserProfile();
@@ -6290,7 +6304,7 @@ async function generateCommentReply(postId) {
     isReplying = postId;
     openPostDetail(postId);   // โชว์ "กำลังพิมพ์…"
     try {
-        const raw = await tinyGenerate(q, 150, "feed");
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("commentTokens"), 10) || 300), "feed");
         const list = parseCommentLines(raw, charName);
         if (list.length) {
             post.comments.push(list[0]);
@@ -6322,7 +6336,7 @@ async function runInitialComments(post, mode) {
     const q = buildPrompt("feedInitialComments", {
         postText: htmlToPlain(post.text), author: post.author, roster: npcRosterLine(charName) + commentGuidanceLine(), count: countLine,
     });
-    const raw = await tinyGenerate(q, 300, "feed");
+    const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("commentTokens"), 10) || 300), "feed");
     const comments = parseCommentLines(raw, charName)
         .filter((c) => c.author.trim().toLowerCase() !== String(post.author).trim().toLowerCase());
     if (comments.length) {
@@ -7896,6 +7910,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-comment-mode").val(getSetting("commentReplyMode") || "instant");
     $("#tinyfeed-cfg-initcomment-mode").val(getSetting("initialCommentMode") || "none");
     $("#tinyfeed-cfg-initcomment-count").val(getSetting("initialCommentCount") || 2);
+    $("#tinyfeed-cfg-comment-tokens").val(getSetting("commentTokens") || 300);
 
     $("#tinyfeed-cfg-news-auto").prop("checked", Boolean(getSetting("newsAutoGenerate")));
     $("#tinyfeed-cfg-news-mode").val(getSetting("newsAutoMode") || "interval");
@@ -8159,6 +8174,12 @@ jQuery(async () => {
             if (currentApp === "memo") switchMemoTab(memoTab);   // กำหนดการ/โน้ตเปลี่ยนตามแชท
             if (currentApp === "forum") openForumList();   // กระทู้เปลี่ยนตามแชท
             console.log(`[${extensionName}] Chat changed, feed reloaded`);
+        });
+
+        // แท็บถูกซ่อน (สลับแอปบนมือถือ/สลับแท็บ) = โอกาสสุดท้ายที่จะเซฟก่อนเบราว์เซอร์แช่แข็ง/เคลียร์แท็บทิ้ง
+        // เซฟแบบ debounce ที่ค้างอยู่พอดี (ทั้ง settings + chat metadata) ถ้ายิงไม่ทันจะหายไปเลย ไม่มี error ให้เห็น
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "hidden") flushAllSaves();
         });
 
         // Stage 7: นับข้อความในแชทเพื่อ auto-generate
@@ -9135,6 +9156,11 @@ jQuery(async () => {
             let v = parseInt($(this).val(), 10);
             if (!Number.isFinite(v) || v < 1) v = 1;
             setSetting("initialCommentCount", v);
+        });
+        $(document).on("input", "#tinyfeed-cfg-comment-tokens", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v) || v < 1) v = 300;
+            setSetting("commentTokens", v);
         });
         // Stage 9: config ข่าว
         $(document).on("change", "#tinyfeed-cfg-news-auto", function () {

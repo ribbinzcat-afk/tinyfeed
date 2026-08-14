@@ -4,7 +4,7 @@
  * กติกาว่าอะไรควรอยู่ชั้นไหน ดู CONVENTIONS.md บทที่ 5
  * โมดูลนี้เป็น leaf — ห้าม import อะไรจาก index.js หรือ util.js (กัน circular) */
 import { extension_settings, getContext } from "../../../../extensions.js";
-import { saveSettingsDebounced } from "../../../../../script.js";
+import { saveSettings, saveSettingsDebounced } from "../../../../../script.js";
 
 export const extensionName = "tinyfeed";
 export const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
@@ -64,6 +64,7 @@ export const defaultSettings = {
     // Stage 8: คอมเมนต์ NPC ที่ติดมากับโพสต์ AI ใหม่
     initialCommentMode: "none",  // "none" | "ai" (AI เลือกจำนวน) | "fixed" (กำหนดจำนวน)
     initialCommentCount: 2,
+    commentTokens: 300,          // ความยาวคอมเมนต์สูงสุด (token) — ใช้ทั้งตอบคอมเมนต์เดี่ยวและคอมเมนต์ติดโพสต์ใหม่
     // Stage 9: ข่าวสาร
     newsAutoGenerate: false,
     newsAutoMode: "interval",    // "interval" | "ai"
@@ -289,4 +290,13 @@ export function saveFeedDataDebounced() {
     } else {
         saveFeedData();
     }
+}
+
+/* flush ทันที ข้าม debounce ทั้งสองฝั่ง (global settings + chat metadata)
+ * ใช้ตอนแท็บ/แอปกำลังจะถูกซ่อน (visibilitychange → hidden) — มือถือมักแช่แข็ง/เคลียร์แท็บที่อยู่เบื้องหลัง
+ * ถ้ามีเซฟแบบ debounce ค้างอยู่ตอนนั้นพอดี (ภายใน 1 วิ) แล้วแท็บถูกแช่แข็งก่อน timer จะยิง = เซฟนั้นหายไปเลย
+ * ไม่มี event "ก่อนถูกแช่แข็ง" ที่ดีกว่านี้ให้ hook — visibilitychange คือตัวที่เชื่อถือได้สุดข้ามเบราว์เซอร์/มือถือ */
+export function flushAllSaves() {
+    saveSettings();
+    saveFeedData();
 }
