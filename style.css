@@ -4788,7 +4788,19 @@
 .tinyfeed-rpg-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tinyfeed-rpg-tabbody { flex: 1; overflow-y: auto; padding: var(--tf-sp-4); min-height: 0; }
 .tinyfeed-rpg-head { display: flex; align-items: center; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-5); }
+.tinyfeed-rpg-head-empty { justify-content: flex-end; margin-bottom: 0; }
 .tinyfeed-rpg-headname { font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong); }
+/* ไอคอนเฟือง → หน้าตั้งค่าสเตตัส (รอบ ③ ย้ายออกจากแท็บ) อยู่มุมขวาสุดของหัวแท็บสถานะเสมอ */
+.tinyfeed-rpg-headgear {
+    margin-left: auto;
+    width: 30px; height: 30px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: var(--tf-r-pill);
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.tinyfeed-rpg-headgear:hover { background: var(--tf-border-soft); color: var(--tf-text-strong); }
 
 .tinyfeed-rpg-group { margin-bottom: var(--tf-sp-5); }
 .tinyfeed-rpg-group-title {
@@ -5036,6 +5048,113 @@
 /* ── วิดเจ็ตหน้าโฮม ── */
 .tinyfeed-widget-rpg { cursor: pointer; transition: transform 0.15s ease; }
 .tinyfeed-widget-rpg:active { transform: scale(0.98); }
+
+/* ── แท็บกระเป๋า (รอบ ③) — โครงเดียวกับ .tinyfeed-shop-grid/-item แต่ตั้งชื่อของตัวเอง ── */
+.tinyfeed-rpg-bag-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: var(--tf-sp-4); }
+.tinyfeed-rpg-bag-item {
+    display: flex; flex-direction: column; gap: 5px; cursor: pointer;
+    background: var(--tf-bg); border: 1px solid var(--tf-border); border-radius: var(--tf-r-md); padding: 8px;
+    transition: border-color 0.15s ease;
+}
+.tinyfeed-rpg-bag-item:hover { border-color: var(--tf-app-rpg); }
+.tinyfeed-rpg-bag-thumb-wrap { position: relative; width: 100%; aspect-ratio: 1 / 1; border-radius: var(--tf-r-sm); overflow: hidden; background: var(--tf-topbar); }
+.tinyfeed-rpg-bag-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tinyfeed-rpg-bag-emoji-thumb { display: flex; align-items: center; justify-content: center; font-size: 2.2em; }
+.tinyfeed-rpg-bag-noimg { display: flex; align-items: center; justify-content: center; color: var(--tf-text-muted); font-size: 1.4em; }
+.tinyfeed-rpg-bag-qty {
+    position: absolute; bottom: 4px; right: 4px;
+    background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 0.68em; font-weight: 700;
+    padding: 1px 7px; border-radius: var(--tf-r-pill);
+}
+.tinyfeed-rpg-bag-name { font-size: var(--tf-fs-sm); color: var(--tf-text); font-weight: 600; text-align: center; word-break: break-word; }
+
+/* ── ป๊อปรายละเอียดไอเทม (modal) ── */
+.tinyfeed-rpg-item-body { display: flex; flex-direction: column; gap: var(--tf-sp-3); align-items: center; text-align: center; }
+.tinyfeed-rpg-itemview-thumbwrap { width: 96px; height: 96px; border-radius: var(--tf-r-lg); overflow: hidden; background: var(--tf-topbar); }
+.tinyfeed-rpg-itemview-thumbwrap .tinyfeed-rpg-bag-thumb { width: 100%; height: 100%; }
+.tinyfeed-rpg-itemview-thumbwrap .tinyfeed-rpg-bag-emoji-thumb { font-size: 2.8em; }
+.tinyfeed-rpg-itemview-qty { font-size: var(--tf-fs-sm); color: var(--tf-text-muted); }
+.tinyfeed-rpg-itemview-desc { font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.5; }
+.tinyfeed-rpg-itemview-fx {
+    font-size: var(--tf-fs-xs); color: var(--tf-app-rpg);
+    background: color-mix(in srgb, var(--tf-app-rpg) 14%, transparent);
+    border-radius: var(--tf-r-pill); padding: 3px 10px;
+}
+.tinyfeed-rpg-itemview-btns { display: flex; gap: var(--tf-sp-3); width: 100%; margin-top: var(--tf-sp-2); }
+.tinyfeed-rpg-itemview-btns > button { flex: 1; }
+
+/* ── ป้ายเอฟเฟกต์บนการ์ดสินค้า TinyShop (รอบ ③) ── */
+.tinyfeed-shop-fx-tag {
+    align-self: flex-start; font-size: 0.66em; color: var(--tf-app-rpg);
+    background: color-mix(in srgb, var(--tf-app-rpg) 14%, transparent);
+    border-radius: 999px; padding: 1px 8px;
+}
+
+/* ── หมายเหตุคำเตือนในหน้าตั้งค่า (ใช้ร่วมกับ .tinyfeed-field-hint) ── */
+.tinyfeed-field-warn { color: var(--tf-warn); }
+
+/* ── แบนเนอร์ผลสแกนรอตรวจ (รอบ ④) — โผล่บนแท็บสถานะเมื่อมี rpgPending ค้าง ── */
+.tinyfeed-rpg-pending-banner {
+    display: flex; align-items: center; gap: var(--tf-sp-2);
+    font-size: var(--tf-fs-sm); color: var(--tf-warn);
+    background: color-mix(in srgb, var(--tf-warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tf-warn) 35%, transparent);
+    border-radius: var(--tf-r-md); padding: var(--tf-sp-3) var(--tf-sp-4);
+    margin-bottom: var(--tf-sp-4);
+}
+.tinyfeed-rpg-pending-banner #tinyfeed-rpg-pending-open {
+    margin-left: auto; text-decoration: underline; cursor: pointer; font-weight: 600; flex-shrink: 0;
+}
+
+/* ── แท็บเควส (รอบ ④) ── */
+.tinyfeed-rpg-quest-filterbar { display: flex; gap: var(--tf-sp-2); overflow-x: auto; margin-bottom: var(--tf-sp-4); padding-bottom: 2px; }
+.tinyfeed-rpg-quest-chip {
+    flex-shrink: 0; font-size: var(--tf-fs-sm); color: var(--tf-text-muted);
+    background: var(--tf-topbar); border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-pill); padding: 5px 14px; cursor: pointer; white-space: nowrap;
+}
+.tinyfeed-rpg-quest-chip-active { color: #fff; background: var(--tf-app-rpg); border-color: var(--tf-app-rpg); }
+.tinyfeed-rpg-quest-list { display: flex; flex-direction: column; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-4); }
+.tinyfeed-rpg-quest-card {
+    background: var(--tf-bg); border: 1px solid var(--tf-border); border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-4); display: flex; flex-direction: column; gap: var(--tf-sp-2);
+}
+.tinyfeed-rpg-quest-head { display: flex; align-items: center; gap: var(--tf-sp-2); flex-wrap: wrap; }
+.tinyfeed-rpg-quest-title { font-weight: 600; color: var(--tf-text-strong); flex: 1; min-width: 0; word-break: break-word; }
+.tinyfeed-rpg-quest-kind {
+    font-size: var(--tf-fs-xs); font-weight: 700; padding: 1px 8px; border-radius: var(--tf-r-pill);
+    background: color-mix(in srgb, var(--tf-app-rpg) 16%, transparent); color: var(--tf-app-rpg);
+}
+.tinyfeed-rpg-quest-kind-side { background: color-mix(in srgb, var(--tf-text-muted) 20%, transparent); color: var(--tf-text-muted); }
+.tinyfeed-rpg-quest-status { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); }
+.tinyfeed-rpg-quest-status-done { color: var(--tf-success); }
+.tinyfeed-rpg-quest-status-failed { color: var(--tf-danger); }
+.tinyfeed-rpg-quest-desc { font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.5; }
+.tinyfeed-rpg-quest-reward { font-size: var(--tf-fs-xs); color: var(--tf-warn); }
+.tinyfeed-rpg-quest-btns { display: flex; align-items: center; gap: var(--tf-sp-3); margin-top: 2px; }
+.tinyfeed-rpg-quest-act {
+    font-size: var(--tf-fs-xs); color: var(--tf-text-muted); cursor: pointer;
+    padding: 4px 10px; border: 1px solid var(--tf-border); border-radius: var(--tf-r-pill);
+}
+.tinyfeed-rpg-quest-act:hover { border-color: var(--tf-app-rpg); color: var(--tf-app-rpg); }
+.tinyfeed-rpg-quest-del { margin-left: auto; color: var(--tf-text-muted); cursor: pointer; padding: 4px; }
+.tinyfeed-rpg-quest-del:hover { color: var(--tf-danger); }
+
+/* ── modal รีวิวผลสแกน (รอบ ④) ── */
+.tinyfeed-rpg-review-body { display: flex; flex-direction: column; gap: var(--tf-sp-2); max-height: 45vh; overflow-y: auto; margin: var(--tf-sp-3) 0; }
+.tinyfeed-rpg-review-row {
+    display: flex; align-items: center; gap: var(--tf-sp-3);
+    padding: var(--tf-sp-3); border: 1px solid var(--tf-border); border-radius: var(--tf-r-sm); cursor: pointer;
+}
+.tinyfeed-rpg-review-row i { color: var(--tf-app-rpg); flex-shrink: 0; }
+.tinyfeed-rpg-review-label { flex: 1; font-size: var(--tf-fs-sm); color: var(--tf-text); word-break: break-word; }
+.tinyfeed-rpg-review-newtag {
+    flex-shrink: 0; font-size: 0.62em; font-weight: 700; color: var(--tf-success);
+    background: color-mix(in srgb, var(--tf-success) 16%, transparent);
+    border-radius: var(--tf-r-pill); padding: 1px 8px;
+}
+.tinyfeed-rpg-review-actions { display: flex; gap: var(--tf-sp-3); }
+.tinyfeed-rpg-review-actions > button { flex: 1; }
 
 /* ===== TinyQuest HUD: แถบสถานะเหนือช่องพิมพ์ในหน้าแชทหลักของ ST ===== */
 #tinyfeed-hud {

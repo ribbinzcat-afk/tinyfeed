@@ -139,6 +139,7 @@ export const defaultSettings = {
     shopCategories: ["เสื้อผ้า", "ของกิน", "ไอเทม/ของใช้", "ของแต่งบ้าน", "อื่นๆ"],  // หมวดสินค้า (แก้ในตั้งค่า)
     shopTokens: 400,              // ความยาวผลลัพธ์ตอน AI สร้างสินค้า
     shopExtraPrompt: "",          // คำสั่งเสริมตอน AI สร้างสินค้า
+    shopToInventory: true,        // ซื้อสินค้าที่มีเอฟเฟกต์แล้วเข้ากระเป๋า TinyQuest อัตโนมัติ (รอบ ③)
     // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
     donateTiers: [
         { min: 0, color: "#1d9bf0" },
@@ -217,6 +218,14 @@ export const defaultSettings = {
     hudEnabled: false,             // แถบ HUD เหนือช่องพิมพ์ในหน้าแชทหลักของ ST (ปิดโดยดีฟอลต์)
     hudCollapsed: false,           // จำสถานะพับ/กาง HUD
     widgetRpg: false,              // วิดเจ็ตสถานะบนหน้าโฮม
+    // รอบ ④: เควส + AI สแกนบท
+    rpgAutoScan: false,            // สแกนบทอัตโนมัติ (สเตตัส/ความสัมพันธ์/ไอเทม/เควส)
+    rpgAutoMode: "interval",       // "interval" | "ai" | "keyword"
+    rpgAutoInterval: 15,
+    rpgScanTokens: 400,            // ความยาวผลลัพธ์ตอนสแกนบท (คนละค่ากับ rpgTokens ที่ใช้ตอนเสนอสเตตัสครั้งแรก)
+    rpgScanExtraPrompt: "",        // คำสั่งเสริมตอนสแกนบท
+    rpgScanAutoApply: false,       // ข้ามหน้ารีวิว apply ผลสแกนทันที (ปิดโดยดีฟอลต์ — เชื่อ AI 100% เสี่ยงข้อมูลเพี้ยนสะสม)
+    rpgKeywords: "",               // คีย์เวิร์ดทริกเกอร์สแกน (โหมด keyword)
 };
 
 export function getSetting(key) {

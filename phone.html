@@ -817,6 +817,11 @@
                     <button id="tinyfeed-shop-cat-add" class="tinyfeed-btn-generate">
                         <i class="fa-solid fa-plus"></i> <span>เพิ่มหมวด</span>
                     </button>
+                    <label class="tinyfeed-field-row">
+                        <span>ซื้อของแล้วเข้ากระเป๋า TinyQuest อัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-shop-to-inventory" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">สินค้าที่ตั้งเอฟเฟกต์ต่อค่าสเตตัสไว้ (ในฟอร์มเพิ่ม/แก้สินค้า) จะกดใช้ในกระเป๋าได้จริง</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ความยาวผลลัพธ์ตอน AI สร้างสินค้า (token)</span>
                         <input id="tinyfeed-cfg-shop-tokens" type="number" min="1" />
@@ -888,7 +893,7 @@
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="rpg">
                     <div class="tinyfeed-settings-title">TinyQuest (RPG)</div>
-                    <small class="tinyfeed-field-hint">ชุดสเตตัส <b>ผูกกับตัวละคร</b> (การ์ดเดียวกันใช้ชุดเดียวกันทุกแชท) · ค่าที่เล่นจริง (ตัวเลข/ประวัติ) <b>ผูกกับแชทนี้</b> · แก้ชุดสเตตัสได้ในแอป TinyQuest แท็บ "ตั้งค่าสเตตัส"</small>
+                    <small class="tinyfeed-field-hint">ชุดสเตตัส <b>ผูกกับตัวละคร</b> (การ์ดเดียวกันใช้ชุดเดียวกันทุกแชท) · ค่าที่เล่นจริง (ตัวเลข/ประวัติ/เควส/ไอเทม) <b>ผูกกับแชทนี้</b> · แก้ชุดสเตตัสได้ในแอป TinyQuest แท็บสถานะ → ไอคอนเฟือง</small>
                     <label class="tinyfeed-field-row">
                         <span>แถบสถานะเหนือช่องพิมพ์ (HUD)</span>
                         <input id="tinyfeed-cfg-hud-enabled" type="checkbox" />
@@ -902,6 +907,35 @@
                         <span class="tinyfeed-field-label">คำสั่งเพิ่มเติมตอน AI เสนอสเตตัส (ไม่บังคับ)</span>
                         <textarea id="tinyfeed-cfg-rpg-extra" rows="2" placeholder="เช่น เน้นค่าพลังเวทมนตร์ ห้ามมีค่าเงิน..."></textarea>
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>สแกนบทหาการเปลี่ยนแปลงอัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-rpg-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-rpg-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สแกนทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-rpg-interval" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวผลลัพธ์ตอนสแกนบท (token)</span>
+                        <input id="tinyfeed-cfg-rpg-scan-tokens" type="number" min="50" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเพิ่มเติมตอนสแกนบท (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-rpg-scan-extra" rows="2" placeholder="เช่น เน้นเหตุการณ์ต่อสู้ ไม่ต้องสนใจบทสนทนาเบาๆ..."></textarea>
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ข้ามหน้ารีวิว รับผลสแกนทันที</span>
+                        <input id="tinyfeed-cfg-rpg-scan-autoapply" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint tinyfeed-field-warn">⚠️ ไม่แนะนำ — AI อาจอ่านบทผิดแล้วปรับค่าเพี้ยนสะสมไปเรื่อยๆ โดยไม่มีใครเห็น เปิดไว้เฉพาะกรณีเชื่อใจ AI มากจริงๆ</small>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="prompts">
@@ -1136,6 +1170,10 @@
                     <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ · ใช้แทนอิโมจิ)" />
                     <select id="tinyfeed-shop-cat"></select>
                     <input id="tinyfeed-shop-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <div class="tinyfeed-shop-addrow">
+                        <select id="tinyfeed-shop-fx-stat"></select>
+                        <input id="tinyfeed-shop-fx-amount" type="number" placeholder="จำนวนผล เช่น +20" />
+                    </div>
                     <div class="tinyfeed-shop-addbtns">
                         <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
                         <button id="tinyfeed-shop-generate" class="tinyfeed-btn-generate">
@@ -1166,6 +1204,73 @@
 
         <div id="tinyfeed-app-rpg" class="tinyfeed-app tinyfeed-hidden">
             <div id="tinyfeed-rpg-body" class="tinyfeed-rpg-body"></div>
+        </div>
+
+        <div id="tinyfeed-rpg-item-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span id="tinyfeed-rpg-item-title">ไอเทม</span>
+                    <span id="tinyfeed-rpg-item-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-rpg-item-body" class="tinyfeed-rpg-item-body"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-rpg-item-add-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>เพิ่มไอเทมเอง</span>
+                    <span id="tinyfeed-rpg-item-add-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-rpg-item-add-name" type="text" placeholder="ชื่อไอเทม" />
+                    <div class="tinyfeed-shop-addrow">
+                        <input id="tinyfeed-rpg-item-add-emoji" type="text" maxlength="4" placeholder="อิโมจิ 🗡️" />
+                        <input id="tinyfeed-rpg-item-add-qty" type="number" min="1" placeholder="จำนวน" />
+                    </div>
+                    <input id="tinyfeed-rpg-item-add-image" type="text" placeholder="ลิงก์รูป (ใช้แทนอิโมจิ)" />
+                    <input id="tinyfeed-rpg-item-add-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <div class="tinyfeed-shop-addrow">
+                        <select id="tinyfeed-rpg-item-add-fx-stat"></select>
+                        <input id="tinyfeed-rpg-item-add-fx-amount" type="number" placeholder="จำนวนผล เช่น +20" />
+                    </div>
+                    <button id="tinyfeed-rpg-item-add-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> เพิ่มเข้ากระเป๋า</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-rpg-quest-add-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>เพิ่มเควสเอง</span>
+                    <span id="tinyfeed-rpg-quest-add-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-rpg-quest-add-title" type="text" placeholder="ชื่อเควส" />
+                    <select id="tinyfeed-rpg-quest-add-kind">
+                        <option value="main">เควสหลัก</option>
+                        <option value="side">เควสรอง</option>
+                    </select>
+                    <input id="tinyfeed-rpg-quest-add-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <input id="tinyfeed-rpg-quest-add-reward" type="text" placeholder="รางวัล (ไม่บังคับ)" />
+                    <button id="tinyfeed-rpg-quest-add-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> เพิ่มเควส</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-rpg-review-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>ผลสแกนบท — ตรวจก่อนรับ</span>
+                    <span id="tinyfeed-rpg-review-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <small class="tinyfeed-field-hint">AI อาจอ่านบทผิดพลาดได้ ติ๊กเฉพาะรายการที่ถูกต้องก่อนกด "รับที่เลือก" · รายการที่มีป้าย "ใหม่" คือตัวละครที่ยังไม่มีในสมุด</small>
+                <div id="tinyfeed-rpg-review-body" class="tinyfeed-rpg-review-body"></div>
+                <div class="tinyfeed-rpg-review-actions">
+                    <button id="tinyfeed-rpg-review-accept" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> รับที่เลือก</button>
+                    <button id="tinyfeed-rpg-review-discard" class="tinyfeed-btn-ghost"><i class="fa-solid fa-xmark"></i> ปฏิเสธทั้งหมด</button>
+                </div>
+            </div>
         </div>
 
         <div id="tinyfeed-gallery-picker" class="tinyfeed-modal tinyfeed-hidden">
@@ -1333,6 +1438,10 @@
                     <input id="tinyfeed-shop-edit-image" type="text" placeholder="ลิงก์รูป (ใช้แทนอิโมจิ)" />
                     <select id="tinyfeed-shop-edit-cat"></select>
                     <input id="tinyfeed-shop-edit-desc" type="text" placeholder="รายละเอียด" />
+                    <div class="tinyfeed-shop-addrow">
+                        <select id="tinyfeed-shop-edit-fx-stat"></select>
+                        <input id="tinyfeed-shop-edit-fx-amount" type="number" placeholder="จำนวนผล เช่น +20" />
+                    </div>
                     <button id="tinyfeed-shop-edit-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> บันทึก</button>
                 </div>
             </div>

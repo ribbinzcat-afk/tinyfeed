@@ -9,8 +9,10 @@
 **ตัดสินใจไปแล้ว (ห้ามรื้อ):** รวมเป็นแอปที่ 13 ใน `tinyfeed/` ไม่แยก extension · หน้าตา 3 ชั้น (แอปเต็ม + HUD หน้าแชท ST +
 วิดเจ็ตโฮม) · **schema ผูกกับการ์ด / ค่าที่เล่นจริงผูกกับแชท** · ลำดับ ①สเตตัส → ②สมุด NPC → ③กระเป๋า → ④เควส
 
-> **รอบ ① เสร็จแล้ว (2026-08-17) — อย่าทำซ้ำ** ดูหัวข้อถัดไปว่ามีอะไรให้ใช้ต่อบ้าง
-> เอกสารอ้างอิงเชิงลึกอยู่ใน memory `tinyquest-app` · ภาพรวมโปรเจกต์อยู่ใน `tinyphone-status` + `tinyphone-extension`
+> **อัปเดต 2026-08-17 (Claude Sonnet 5, session ต่อจาก agent ก่อนหน้า):**
+> **ทำครบทั้ง 4 รอบแล้ว — TinyQuest เสร็จสมบูรณ์ตามแผนนี้** รอบ①② เสร็จแล้วจริง (ไฟล์นี้เขียนหัวข้อว่า "รอบ ① เสร็จแล้ว" ไว้ตอนแรก แต่ตรวจโค้ดจริงพบว่า agent ก่อนหน้าทำรอบ ② เสร็จไปด้วย) รอบ③ (กระเป๋าไอเทม) ทำต่อจนจบ ดูหัวข้อ "✅ สิ่งที่ทำในรอบ ③" และรอบ④ (เควส + AI สแกนบท) ทำต่อจนจบเช่นกัน ดูหัวข้อ "✅ สิ่งที่ทำในรอบ ④" ท้ายไฟล์นี้
+> **ถ้ามาอ่านไฟล์นี้ต่อ**: ไม่มีรอบไหนเหลือแล้วตามแผนเดิม — ถ้าผู้ใช้ขอฟีเจอร์เพิ่ม ให้ถือเป็นงานใหม่ ไม่ใช่การทำแผนนี้ต่อ
+> เอกสารอ้างอิงเชิงลึกอยู่ใน memory `tinyphone-status` (เซสชัน 2026-08-17) — ไฟล์ `tinyquest-app` ที่อ้างถึงเดิมไม่มีอยู่จริงในเครื่องนี้ (คนละ session/เครื่องกับที่เขียนไฟล์นี้)
 
 ---
 
@@ -141,6 +143,42 @@ rpg.inventory = [{ id, name, emoji, image, desc, qty, fx:{stat,amount}, src:"sho
 
 ---
 
+## ✅ สิ่งที่ทำในรอบ ③ (เสร็จแล้ว 2026-08-17 — อย่าทำซ้ำ)
+
+ถามผู้ใช้เรื่องแท็บล้นแล้ว **เลือก "ย้ายตั้งค่าออกเป็นไอคอนเฟือง"** (ตัวเลือกแนะนำ) — เหลือ 3 แท็บเนื้อหา: สถานะ/กระเป๋า/สมุด
+
+**โครงสร้างที่เปลี่ยน:**
+- `rpgTab` เหลือ 3 ค่า: `"status" | "bag" | "npc"` (เอา `"schema"` ออกจาก tab enum)
+- ตัวแปรใหม่ `rpgSchemaOpen` (boolean) — หน้าตั้งค่าสเตตัสกลายเป็นสกรีนเต็มจอแยก ไม่ใช่แท็บ เปิดผ่าน `openRpgSchema()`/`closeRpgSchema()` (โชว์/ซ่อน `#tinyfeed-back` แบบเดียวกับที่ `openVersePost()`/`closeVersePost()` ทำ) — ปุ่มเข้าคือไอคอนเฟือง `#tinyfeed-rpg-schema-gear` มุมขวาบนของแท็บสถานะ (โผล่ทั้งตอนมี/ไม่มีสเตตัสแล้ว — ตอนว่างมี `.tinyfeed-rpg-head-empty` ให้กดเข้าไปเลือก preset ได้)
+- `APPS` entry "rpg" → `back()` เช็ค `rpgSchemaOpen` ก่อนเช็ค `rpgNpcView` เดิม
+
+**ข้อมูล — เพิ่มใน `getRpg()` (per-chat, lazy-create เหมือนเดิม):**
+```js
+rpg.inventory = [{ id, name, emoji, image, desc, qty, fx:{stat,amount}, src:"shop"|"manual", ts }]
+```
+`fx.stat` ว่าง (`""`) = ไม่มีผล — ไม่ใช้ `null`/`undefined` กัน error ตอนเช็ค `it.fx.stat` ตรงๆ
+
+**ฟังก์ชันใหม่ (ทั้งหมดอยู่ต่อจาก `rpgNpcApplyDelta` ใน `index.js`):**
+`rpgAvailableStatIdsLine()` (รายชื่อ statId number/bar ของการ์ดนี้ ต่อ prompt ให้ AI เลือก) · `getRpgInventory()` ·
+`rpgItemId()` · `rpgAddItem(item)` (ชื่อซ้ำไม่สนตัวพิมพ์ → บวก qty) · `rpgRemoveItem(id,n)` ·
+`rpgUseItem(id)` (apply `fx` ผ่าน `rpgApplyDelta` ที่มีอยู่แล้ว แล้วลด qty — `rpgApplyDelta` คืน `false` เองถ้า statId ไม่มีในschema ปัจจุบัน ใช้ผลนั้นตัดสินใจ toast ไม่ต้องเช็ค `rpgStatDef` ซ้ำ) · `rpgItemEffectText(fx)`
+
+**UI ใหม่:** `renderRpgBag()` + `rpgItemThumbHtml()` (กริด 3 คอลัมน์ รูป/อิโมจิ/ไอคอนกล่อง) · modal `#tinyfeed-rpg-item-modal`
+(ป๊อปรายละเอียด + ปุ่มใช้/ทิ้ง) · modal `#tinyfeed-rpg-item-add-modal` (เพิ่มไอเทมเอง) — ทั้งสอง modal ลงทะเบียนใน `OVERLAYS` แล้ว
+
+**ฝั่ง TinyShop ที่แตะ:**
+- item เพิ่ม field `fx:{stat,amount}` — ฟอร์มเพิ่ม/แก้สินค้ามี `<select>` (เติมจาก `fillRpgStatSelect()`, เดิมชื่อ `fillShopFxStatSelect` เปลี่ยนชื่อให้เป็นกลางเพราะกระเป๋าก็ใช้ตัวเดียวกัน) + ช่องจำนวน (`rpgFxFromForm()`, เดิมชื่อ `shopFxFromForm`)
+- `PROMPT_DEFS.shopItems` เพิ่ม token `{{stats}}` + format ต่อท้าย `| <statId หรือ -> | <จำนวนผล>` — `parseShopItems()` ทิ้งเอฟเฟกต์เงียบๆ ถ้า statId ไม่อยู่ใน schema ปัจจุบัน (ไม่ทิ้งสินค้า)
+- `buyShopItem()` เรียก `rpgAddItem()` ถ้า setting `shopToInventory` (default `true`) เปิดอยู่ — ยังหัก `bankDeduct` เหมือนเดิมทุกอย่าง
+- การ์ดสินค้าโชว์ป้าย `.tinyfeed-shop-fx-tag` ถ้ามีเอฟเฟกต์
+
+**Inject:** เติมบรรทัด `ไอเทมในกระเป๋า: <ชื่อ>×<qty>, ...` ในบล็อก `if (want.rpg)` เดิม (ไม่ได้แยก sub-toggle ใหม่ ตามที่ระบุในสเปครอบ ③ เดิม)
+
+**Verify แล้วใน ST จริงครบ:** ตั้งสเตตัสจาก preset → เพิ่มไอเทมเองพร้อม fx → ใช้ไอเทม → สเตตัสขึ้นจริง + qty ลดจนหาย + ประวัติบันทึกถูก → เพิ่มสินค้าใน TinyShop พร้อม fx → ซื้อ → เข้ากระเป๋าอัตโนมัติพร้อมป้าย "ซื้อจากร้าน" → ทิ้งไอเทมได้ → **reload หน้าเว็บยืนยันทุกอย่าง (`rpgValues`, `inventory`, `shop[].fx`) อยู่ครบ** · ปุ่มย้อนกลับจากหน้าตั้งค่าสเตตัสกลับแท็บสถานะถูกต้อง · แท็บสมุด (รอบ ②) ยังทำงานปกติหลังรีแฟกเตอร์ · ไม่มี console error ตลอดทุกขั้นตอน
+**ยังไม่ได้ทดสอบ:** AI สร้างสินค้าจริงผ่าน "ให้ AI สร้างสินค้า" (ต้องมี API เชื่อมต่อจริง) — logic การ parse/guard ตรวจด้วยการอ่านโค้ดเท่านั้น ยังไม่เห็นผลลัพธ์จริงจาก AI
+
+---
+
 ## รอบ ④ เควส + AI สแกนบท (ก้อนใหญ่สุด ทำท้ายสุด)
 
 ### เควส
@@ -216,3 +254,29 @@ QUEST+: <ชื่อ> | <รายละเอียด>   QUESTDONE: <หม�
 4. **CSS harness** (ตามข้อ 1 ของกติกา): ทุกหน้าจอใหม่ต้อง `scrollWidth === clientWidth` ที่กว้าง **320px**
 5. **บอกผู้ใช้ตรงๆ ว่าต้องเทสใน ST จริงเอง:** การเจนของ AI ทุกจุด, persist ข้ามการรีโหลด, สลับแชท/สลับการ์ดแล้วข้อมูลถูกชุด,
    auto-trigger ยิงจริงตอน RP, แจ้งเตือน/รีวิวตอนปิดโทรศัพท์
+
+---
+
+## ✅ สิ่งที่ทำในรอบ ④ (เสร็จแล้ว 2026-08-17 — อย่าทำซ้ำ)
+
+ทำตามสเปคเดิมของไฟล์นี้เกือบทั้งหมด มีจุดที่ตัดสินใจต่างจากสเปคเล็กน้อยเพื่อความง่าย/เชื่อถือได้ — บันทึกไว้ให้รู้เหตุผล:
+
+**เควส**: `getRpgQuests()`/`rpgAddQuest()`/`rpgSetQuestStatus()`/`rpgDeleteQuest()` ตรงสเปค 100% — `rpg.quests[]` เพิ่มใน `getRpg()` (lazy-create) แท็บ "เควส" (4 แท็บแล้ว: สถานะ/กระเป๋า/สมุด/เควส) filter ด้วย chip กำลังทำ/สำเร็จ/ล้มเหลว/ทั้งหมด (module var `rpgQuestFilter`) เติมบรรทัดเควส active เข้าบล็อก inject เดิม
+
+**AI สแกนบท**: `PROMPT_DEFS.rpgScan` (marker `STAT:`, token `stats/npcs/fields/items/quests/extra/context`) → `parseRpgScanLines(raw)` loop ทีละบรรทัดตรงสเปค → `rpgBuildPending(parsed, activeQuestsSnapshot)` เป็นจุดที่ต่างจากสเปคนิดหน่อย: **แปลงผล parse ดิบเป็นรายการรีวิวที่ validate/resolve เสร็จสรรพทันทีหลัง parse** (ไม่ใช่ตอน apply) เพราะ:
+- guard ทุกจุดทำตอนนี้ทีเดียว: statId ไม่มีจริง / fieldLabel ไม่ตรงของจริง (match ด้วย label ไม่ใช่ raw fieldId เพราะ AI ตอบเป็นชื่อช่องภาษาไทยที่มนุษย์อ่านได้ ไม่รู้จัก format `extra:xxx` ภายใน) / ไอเทมไม่มีอยู่จริง / เควสเลขเกินขอบ → ทุกอย่างที่เข้า `rpgPending` การันตีว่า apply ได้จริงไม่พังกลางทาง
+- `rpgPending = [{key,type,label,meta,isNew}]` — `isNew` เช็คจาก `rpgNpcList()` ตอน build (NPC ที่ยังไม่มีในสมุด = สร้างให้ได้แต่ติดป้าย "ใหม่")
+
+**modal รีวิว**: `#tinyfeed-rpg-review-modal` (ลงทะเบียน OVERLAYS แล้ว) ก๊อปโครง `rpgProposed` จากรอบ① จริงๆ (checkbox ต่อรายการ + "รับที่เลือก"/"ปฏิเสธทั้งหมด") — `rpgAcceptPending(keys)` / `rpgDiscardPending()` / `rpgApplyPendingItem(item)` (switch ตาม type)
+
+**setting `rpgScanAutoApply`**: ถ้าเปิด → `rpgScan()` apply ทุกรายการทันทีไม่เปิด modal (ยังคง build ผ่าน guard เดิมทุกจุด แค่ข้ามขั้นติ๊กเลือก)
+
+**🔴 "ค้างได้ข้ามเปิด/ปิดโทรศัพท์"**: `rpgPending` เป็น module var ธรรมดา ไม่ reset เวลาเปิด/ปิดแอป — ถ้า auto-scan ยิงตอนไม่ได้อยู่แอป TinyQuest จะไม่เปิด modal ทันที (กันเด้งรบกวน) แต่จะโชว์ **แบนเนอร์เตือนสีเหลืองที่หัวแท็บสถานะ** (`renderRpgStatus()`) + `showNotif(...,"rpg","rpg")` — แตะแบนเนอร์หรือแจ้งเตือนแล้วพาไปเปิด modal ตรงๆ (`routeFromNotif` เพิ่ม branch `e.app === "rpg"`)
+**เพิ่มเติมนอกสเปค (พบบั๊กระหว่างทำแล้วแก้เลย)**: `rpgPending` ที่ค้างอยู่อ้างอิง NPC/เควส/ไอเทมของ**แชทเดิม** — ถ้าสลับแชทระหว่างที่ยังไม่ได้รีวิว ผลสแกนจะ apply ผิดที่ทันทีที่กด "รับที่เลือก" เพราะ meta เก็บ id ของแชทเก่า → เพิ่ม `rpgPending = []` + `closeRpgReviewModal()` ใน `CHAT_CHANGED` handler (ทิ้งเงียบๆ ตอนสลับแชทเท่านั้น ไม่ใช่ตอนปิดโทรศัพท์ — งานที่ยังทำอยู่ในแชทเดิมยังปลอดภัย)
+
+**auto-trigger**: `apps[]` ของ `onChatMessage()` เพิ่ม entry ที่ 6 ตรงสเปคเป๊ะ (`on:"rpgAutoScan"`) · `aiDecidesRpg()` ก๊อป `aiDecidesMemo` · `autoRpgCount` + reset ใน `CHAT_CHANGED` · `KEYWORD_DEFS`/`KEYWORD_SETTING`/`kwCooldownAt` เพิ่ม `rpg` ครบ
+
+**Setting ใหม่ทั้งหมด** (ใน `defaultSettings`): `rpgAutoScan`(false) `rpgAutoMode`("interval") `rpgAutoInterval`(15) `rpgScanTokens`(400 — แยกจาก `rpgTokens` เดิมที่ใช้ตอนเสนอสเตตัสครั้งแรก) `rpgScanExtraPrompt`("") `rpgScanAutoApply`(false) `rpgKeywords`("") — settings group `data-group="rpg"` เดิมขยายเพิ่มฟิลด์ครบ ไม่ต้องสร้างกลุ่มใหม่
+
+**Verify แล้วใน ST จริงด้วย AI ตัวจริง (ไม่ใช่ mock)**: กดปุ่มแว่นขยายสแกนบท → AI ตอบจริง → parse ถูก 2 รายการ (AFFECT + NPCINFO) → modal รีวิวเปิดอัตโนมัติพร้อม checkbox → กด "รับที่เลือก" → affection ขึ้นจริง (+5, มี event log) + field "บทบาท/อาชีพ" ถูกเปิดเผยจริง (ยิง toast "ปลดล็อกข้อมูลใหม่" ของรอบ② ด้วย ยืนยันว่าเชื่อมกับของเดิมถูก) → **reload หน้าเว็บยืนยันทั้งหมดอยู่ครบ** · เพิ่ม/เปลี่ยนสถานะ/ลบเควสด้วยมือทำงานถูก + filter chip ถูก · หน้าตั้งค่าเรนเดอร์/เซฟค่าใหม่ทุกช่องถูก (ทดสอบ toggle auto-scan) · `KEYWORD_DEFS` โชว์ TinyQuest ในหน้าคีย์เวิร์ดถูก · regression 13 แอปผ่านหมด ไม่มี console error ตลอดทุกขั้นตอน
+**ยังไม่ได้ทดสอบ**: โหมด auto-trigger จริง (ต้องรอให้ RP เดินหลายข้อความ), โหมด keyword trigger, `rpgScanAutoApply` เปิดจริง, กรณี `rpgPending` ค้างข้ามการสลับแชทจริง (แก้โค้ดแล้วแต่ไม่ได้จำลองสถานการณ์สลับแชทกลางที่มี pending ค้าง)

@@ -178,6 +178,7 @@ const APPS = [
         panel: "#tinyfeed-app-rpg", home: true, remember: true,
         open() { openRpg(); },
         back() {
+            if (rpgSchemaOpen) { closeRpgSchema(); return true; }   // หน้าตั้งค่าสเตตัส (รอบ ③ ย้ายออกจากแท็บ) → กลับแท็บสถานะ
             if (rpgTab === "npc" && rpgNpcView) { rpgNpcView = null; rpgFieldEditing = null; renderRpg(); return true; }
             return false;
         },
@@ -203,6 +204,10 @@ const OVERLAYS = [
     { sel: "#tinyfeed-pet-item-modal", close: closePetItemModal },
     { sel: "#tinyfeed-pet-topup-modal", close: closePetTopup },
     { sel: "#tinyfeed-pet-game-modal", close: closePetGame },
+    { sel: "#tinyfeed-rpg-item-modal", close: closeRpgItemModal },
+    { sel: "#tinyfeed-rpg-item-add-modal", close: closeRpgItemAddModal },
+    { sel: "#tinyfeed-rpg-quest-add-modal", close: closeRpgQuestAddModal },
+    { sel: "#tinyfeed-rpg-review-modal", close: closeRpgReviewModal },
 ];
 
 function anyOverlayOpen() {
@@ -1019,6 +1024,13 @@ function fillShopCatSelect($sel, keep) {
     $sel.html(`<option value="">— ไม่ระบุหมวด —</option>` + cats.map((c) => `<option value="${escapeAttr(c)}">${escapeText(c)}</option>`).join(""));
     if (cur && cats.includes(cur)) $sel.val(cur);
 }
+// เติม <select> ค่าสเตตัสที่สินค้ามีผลได้ (เฉพาะ number/bar — รอบ ③) ผูกกับ schema ของการ์ดนี้
+function fillRpgStatSelect($sel, keep) {
+    const stats = getRpgSchema().stats.filter((d) => d.type === "number" || d.type === "bar");
+    const cur = keep != null ? keep : $sel.val();
+    $sel.html(`<option value="">— ไม่มีผลกับสเตตัส —</option>` + stats.map((d) => `<option value="${escapeAttr(d.id)}">${escapeText(d.label)}</option>`).join(""));
+    if (cur && stats.some((d) => d.id === cur)) $sel.val(cur);
+}
 // thumbnail: รูป > อิโมจิ > ไอคอนกล่อง
 function shopThumbHtml(it) {
     if (it.image) return `<img class="tinyfeed-shop-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
@@ -1029,6 +1041,7 @@ function shopThumbHtml(it) {
 function renderShop() {
     $("#tinyfeed-shop-balance").text(formatMoney(getBankData().balance));
     fillShopCatSelect($("#tinyfeed-shop-cat"));
+    fillRpgStatSelect($("#tinyfeed-shop-fx-stat"));
     // กรองหมวดที่หายไปแล้ว
     if (shopFilterCat !== "__all__" && !shopCatsClean().includes(shopFilterCat)) shopFilterCat = "__all__";
     renderShopCatBar();
@@ -1042,6 +1055,7 @@ function renderShop() {
     }
     $("#tinyfeed-shop-grid").html(items.map((it) => {
         const n = owned[it.id] || 0;
+        const fxText = rpgItemEffectText(it.fx);
         return `<div class="tinyfeed-shop-item" data-id="${escapeAttr(it.id)}">
             <div class="tinyfeed-shop-thumb-wrap">
                 ${shopThumbHtml(it)}
@@ -1052,11 +1066,17 @@ function renderShop() {
             <div class="tinyfeed-shop-name">${escapeText(it.name)}</div>
             ${it.cat ? `<div class="tinyfeed-shop-cat-tag">${escapeText(it.cat)}</div>` : ""}
             ${it.desc ? `<div class="tinyfeed-shop-desc">${escapeText(it.desc)}</div>` : ""}
+            ${fxText ? `<div class="tinyfeed-shop-fx-tag"><i class="fa-solid fa-bolt"></i> ${escapeText(fxText)}</div>` : ""}
             <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
         </div>`;
     }).join(""));
 }
 
+function rpgFxFromForm(statSel, amountSel) {
+    const stat = String($(statSel).val() || "").trim();
+    const amount = parseInt($(amountSel).val(), 10) || 0;
+    return stat ? { stat, amount } : { stat: "", amount: 0 };
+}
 function addShopItem() {
     const name = String($("#tinyfeed-shop-name").val() || "").trim();
     const price = parseInt($("#tinyfeed-shop-price").val(), 10);
@@ -1064,11 +1084,13 @@ function addShopItem() {
     const emoji = String($("#tinyfeed-shop-emoji").val() || "").trim().slice(0, 4);
     const desc = String($("#tinyfeed-shop-desc").val() || "").trim();
     const cat = String($("#tinyfeed-shop-cat").val() || "").trim();
+    const fx = rpgFxFromForm("#tinyfeed-shop-fx-stat", "#tinyfeed-shop-fx-amount");
     if (!name) { toastr.info("ตั้งชื่อสินค้าก่อนนะ", "TinyShop"); return; }
     if (!Number.isFinite(price) || price <= 0) { toastr.info("ใส่ราคาสินค้าก่อนนะ", "TinyShop"); return; }
-    getShop().push({ id: shopId(), name, price, image, emoji, desc, cat });
+    getShop().push({ id: shopId(), name, price, image, emoji, desc, cat, fx });
     saveShop();
-    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-emoji, #tinyfeed-shop-desc").val("");
+    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-emoji, #tinyfeed-shop-desc, #tinyfeed-shop-fx-amount").val("");
+    $("#tinyfeed-shop-fx-stat").val("");
     renderShop();
     toastr.success(`เพิ่มสินค้า "${name}" แล้ว`, "TinyShop");
 }
@@ -1083,6 +1105,8 @@ function openShopEdit(id) {
     $("#tinyfeed-shop-edit-emoji").val(it.emoji || "");
     fillShopCatSelect($("#tinyfeed-shop-edit-cat"), it.cat || "");
     $("#tinyfeed-shop-edit-desc").val(it.desc || "");
+    fillRpgStatSelect($("#tinyfeed-shop-edit-fx-stat"), it.fx && it.fx.stat);
+    $("#tinyfeed-shop-edit-fx-amount").val(it.fx && it.fx.amount ? it.fx.amount : "");
     $("#tinyfeed-shop-edit-modal").removeClass("tinyfeed-hidden");
 }
 function closeShopEditModal() { $("#tinyfeed-shop-edit-modal").addClass("tinyfeed-hidden"); shopEditId = null; }
@@ -1099,6 +1123,7 @@ function saveShopEdit() {
     it.emoji = String($("#tinyfeed-shop-edit-emoji").val() || "").trim().slice(0, 4);
     it.cat = String($("#tinyfeed-shop-edit-cat").val() || "").trim();
     it.desc = String($("#tinyfeed-shop-edit-desc").val() || "").trim();
+    it.fx = rpgFxFromForm("#tinyfeed-shop-edit-fx-stat", "#tinyfeed-shop-edit-fx-amount");
     saveShop();
     closeShopEditModal();
     renderShop();
@@ -1119,6 +1144,7 @@ async function generateShopItems(opts) {
         const extra = String(getSetting("shopExtraPrompt") || "").trim();
         const q = buildPrompt("shopItems", {
             cats: cats.join(", "),
+            stats: rpgAvailableStatIdsLine(),
             extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
             context: crossAppContext("shop"),
         });
@@ -1136,10 +1162,11 @@ async function generateShopItems(opts) {
         btn.removeClass("tinyfeed-generating").prop("disabled", false);
     }
 }
-// ITEM: ชื่อ | ราคา | หมวด | อิโมจิ | รายละเอียด  (คืนจำนวนที่เพิ่ม)
+// ITEM: ชื่อ | ราคา | หมวด | อิโมจิ | รายละเอียด | statId หรือ - | จำนวนผล  (คืนจำนวนที่เพิ่ม)
 function parseShopItems(raw, cats) {
     const s = stripReasoning(raw);
     const lowerCats = cats.map((c) => c.toLowerCase());
+    const validStatIds = new Set(getRpgSchema().stats.filter((d) => d.type === "number" || d.type === "bar").map((d) => d.id));
     const re = /ITEM:\s*(.+)/gi;
     let m, count = 0;
     while ((m = re.exec(s)) !== null) {
@@ -1149,9 +1176,14 @@ function parseShopItems(raw, cats) {
         let cat = (parts[2] || "").trim();
         const emoji = (parts[3] || "").trim().slice(0, 4);
         const desc = (parts[4] || "").trim();
+        const fxStatRaw = (parts[5] || "").trim();
+        const fxAmount = Math.round(parseFloat(String(parts[6] || "").replace(/[^\d.-]/g, "")) || 0);
         if (!name || !price) continue;
         if (!lowerCats.includes(cat.toLowerCase())) cat = cats[0] || "";
-        getShop().push({ id: shopId(), name, price, image: "", emoji, desc, food: 0, cat });
+        // statId ที่ AI ใส่มาไม่มีในschema (การ์ดคนละใบ/AI มั่ว) → ทิ้งเอฟเฟกต์ ไม่ทิ้งสินค้า
+        const fx = (fxStatRaw && fxStatRaw !== "-" && validStatIds.has(fxStatRaw) && fxAmount)
+            ? { stat: fxStatRaw, amount: fxAmount } : { stat: "", amount: 0 };
+        getShop().push({ id: shopId(), name, price, image: "", emoji, desc, food: 0, cat, fx });
         count++;
     }
     return count;
@@ -1170,6 +1202,9 @@ function buyShopItem(id) {
     if (!bankDeduct(it.price, `ซื้อ ${it.name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
     const owned = getShopOwned();
     owned[id] = (owned[id] || 0) + 1;
+    if (getSetting("shopToInventory")) {
+        rpgAddItem({ name: it.name, emoji: it.emoji, image: it.image, desc: it.desc, fx: it.fx, src: "shop" });
+    }
     saveFeedDataDebounced();
     renderShop();
     toastr.success(`ซื้อ "${it.name}" แล้ว`, "TinyShop");
@@ -3955,6 +3990,8 @@ function getRpg() {
     if (!data.rpg.max || typeof data.rpg.max !== "object") data.rpg.max = {};
     if (!Array.isArray(data.rpg.log)) data.rpg.log = [];
     if (!data.rpg.npc || typeof data.rpg.npc !== "object") data.rpg.npc = {};
+    if (!Array.isArray(data.rpg.inventory)) data.rpg.inventory = [];   // รอบ ③ — กระเป๋าไอเทม
+    if (!Array.isArray(data.rpg.quests)) data.rpg.quests = [];         // รอบ ④ — เควส
     return data.rpg;
 }
 function saveRpg() { saveFeedDataDebounced(); updateRpgHud(); }
@@ -4104,6 +4141,93 @@ function rpgNpcApplyDelta(npcKey, id, deltaStr, why) {
     const next = p.sign === "+" ? cur + p.n : p.sign === "-" ? cur - p.n : p.n;
     rpgNpcSetStat(npcKey, id, next, why);
     return true;
+}
+
+// ── กระเป๋าไอเทม (รอบ ③) — src: "shop"|"manual"|"ai" ──
+// รายชื่อ statId (number/bar) ที่มีในการ์ดนี้ ใช้แนบ prompt ให้ AI เลือกตอนสร้างสินค้า (ไม่มี = บอกตรงๆ ว่าไม่มี)
+function rpgAvailableStatIdsLine() {
+    const ids = getRpgSchema().stats.filter((d) => d.type === "number" || d.type === "bar").map((d) => d.id);
+    return ids.length ? ids.join(", ") : "(การ์ดนี้ยังไม่มีค่าสเตตัส — ใส่ - เสมอ)";
+}
+function getRpgInventory() { return getRpg().inventory; }
+function rpgItemId() { return "ri" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+// ชื่อซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) → บวก qty แทนสร้างรายการใหม่
+function rpgAddItem(item) {
+    const name = String(item.name || "").trim();
+    if (!name) return;
+    const inv = getRpgInventory();
+    const qty = Math.max(1, parseInt(item.qty, 10) || 1);
+    const existing = inv.find((it) => it.name.trim().toLowerCase() === name.toLowerCase());
+    const fx = (item.fx && item.fx.stat) ? { stat: String(item.fx.stat), amount: Number(item.fx.amount) || 0 } : { stat: "", amount: 0 };
+    if (existing) {
+        existing.qty = (Number(existing.qty) || 0) + qty;
+    } else {
+        inv.push({
+            id: rpgItemId(), name, emoji: String(item.emoji || "").trim(), image: String(item.image || "").trim(),
+            desc: String(item.desc || "").trim(), qty, fx, src: item.src || "manual", ts: Date.now(),
+        });
+    }
+    saveRpg();
+}
+function rpgRemoveItem(id, n) {
+    const inv = getRpgInventory();
+    const idx = inv.findIndex((it) => it.id === id);
+    if (idx < 0) return;
+    inv[idx].qty -= Math.max(1, Number(n) || 1);
+    if (inv[idx].qty <= 0) inv.splice(idx, 1);
+    saveRpg();
+}
+// ใช้ 1 ชิ้น: มีเอฟเฟกต์ก็ apply เข้าสเตตัส (การ์ดคนละใบ/statId ไม่มีในschema = ใช้ได้แต่ไม่มีผล + toast บอกเหตุผล) แล้วลด qty
+function rpgUseItem(id) {
+    const inv = getRpgInventory();
+    const it = inv.find((x) => x.id === id);
+    if (!it) return;
+    if (it.fx && it.fx.stat) {
+        const amt = Number(it.fx.amount) || 0;
+        const ok = rpgApplyDelta(it.fx.stat, (amt >= 0 ? "+" : "") + amt, "ใช้ " + it.name);
+        if (!ok) toastr.info(`"${it.name}" ไม่มีผลกับสเตตัสชุดนี้ (การ์ดนี้ไม่มีค่านี้)`, "TinyQuest");
+    }
+    it.qty = (Number(it.qty) || 1) - 1;
+    if (it.qty <= 0) inv.splice(inv.indexOf(it), 1);
+    saveRpg();
+    toastr.success(`ใช้ "${it.name}" แล้ว`, "TinyQuest");
+}
+function rpgItemEffectText(fx) {
+    if (!fx || !fx.stat) return "";
+    const def = rpgStatDef(fx.stat);
+    const label = def ? def.label : fx.stat;
+    const amt = Number(fx.amount) || 0;
+    return `${label} ${amt >= 0 ? "+" : ""}${amt}`;
+}
+
+// ── เควส (รอบ ④) — CRUD ธรรมดา ──
+function getRpgQuests() { return getRpg().quests; }
+function rpgQuestId() { return "rq" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+function rpgAddQuest({ title, desc, kind, reward }) {
+    const t = String(title || "").trim();
+    if (!t) return null;
+    const q = {
+        id: rpgQuestId(), title: t, desc: String(desc || "").trim(),
+        kind: kind === "side" ? "side" : "main", status: "active",
+        reward: String(reward || "").trim(), ts: Date.now(), doneTs: null,
+    };
+    getRpgQuests().push(q);
+    saveRpg();
+    return q;
+}
+function rpgSetQuestStatus(id, status) {
+    const q = getRpgQuests().find((x) => x.id === id);
+    if (!q) return;
+    q.status = ["active", "done", "failed"].includes(status) ? status : "active";
+    q.doneTs = q.status === "active" ? null : Date.now();
+    saveRpg();
+}
+function rpgDeleteQuest(id) {
+    const quests = getRpgQuests();
+    const i = quests.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    quests.splice(i, 1);
+    saveRpg();
 }
 
 // ── เพิ่ม/ลบ/จัดเรียง/แก้ไข statDef ──
@@ -4471,27 +4595,50 @@ function rpgSetAffection(key, val, why) {
     saveRpg();
 }
 
-// ── หน้าจอแอป: แท็บสถานะ / ตั้งค่าสเตตัส (ใช้ .tinyfeed-tabs กลางเหมือน TinyVerse) ──
-let rpgTab = "status";   // status | npc | schema
+// ── หน้าจอแอป: แท็บสถานะ / กระเป๋า / สมุด (ใช้ .tinyfeed-tabs กลางเหมือน TinyVerse) ──
+// รอบ ③: ย้าย "ตั้งค่าสเตตัส" ออกจากแท็บ (แท็บจะล้นที่ 320px เมื่อเพิ่มกระเป๋า) ไปเป็นหน้าจอแยกที่เปิดจากไอคอนเฟืองในแท็บสถานะแทน
+let rpgTab = "status";   // status | bag | npc
+let rpgSchemaOpen = false;   // true = กำลังเปิดหน้าตั้งค่าสเตตัสแบบเต็มจอ (ไม่ใช่แท็บ)
 let rpgNpcView = null;   // npcKey ที่กางดูรายละเอียดอยู่ในแท็บสมุด (null = หน้ารายการ) — รอบ ②
 let rpgFieldEditing = null;   // {key, field} — ช่องข้อมูล ??? ที่กำลังแตะกรอกอยู่ (รอบ ②)
 
-function openRpg() { renderRpg(); }
+function openRpg() { rpgSchemaOpen = false; renderRpg(); }
+
+// หน้าตั้งค่าสเตตัส — ทำตัวเหมือนหน้ารายละเอียดของแอปอื่น (โชว์ปุ่มย้อนกลับ ซ่อนโฮม/เฟือง) ดูแพตเทิร์นที่ openVersePost ใช้
+function openRpgSchema() {
+    rpgSchemaOpen = true;
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
+    $("#tinyfeed-back").removeClass("tinyfeed-hidden");
+    renderRpg();
+}
+function closeRpgSchema() {
+    rpgSchemaOpen = false;
+    $("#tinyfeed-back").addClass("tinyfeed-hidden");
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
+    renderRpg();
+}
 
 function renderRpg() {
     const body = $("#tinyfeed-rpg-body");
     if (!body.length) return;
+    if (rpgSchemaOpen) {
+        body.html(`<div id="tinyfeed-rpg-tabbody" class="tinyfeed-rpg-tabbody"></div>`);
+        renderRpgSchemaEditor();
+        return;
+    }
     body.html(`
         <div class="tinyfeed-tabs">
             <div class="tinyfeed-tab${rpgTab === "status" ? " tinyfeed-tab-active" : ""}" data-rtab="status"><i class="fa-solid fa-chart-simple"></i> สถานะ</div>
+            <div class="tinyfeed-tab${rpgTab === "bag" ? " tinyfeed-tab-active" : ""}" data-rtab="bag"><i class="fa-solid fa-bag-shopping"></i> กระเป๋า</div>
             <div class="tinyfeed-tab${rpgTab === "npc" ? " tinyfeed-tab-active" : ""}" data-rtab="npc"><i class="fa-solid fa-address-book"></i> สมุด</div>
-            <div class="tinyfeed-tab${rpgTab === "schema" ? " tinyfeed-tab-active" : ""}" data-rtab="schema"><i class="fa-solid fa-sliders"></i> ตั้งค่าสเตตัส</div>
+            <div class="tinyfeed-tab${rpgTab === "quest" ? " tinyfeed-tab-active" : ""}" data-rtab="quest"><i class="fa-solid fa-scroll"></i> เควส</div>
         </div>
         <div id="tinyfeed-rpg-tabbody" class="tinyfeed-rpg-tabbody"></div>
     `);
     if (rpgTab === "status") renderRpgStatus();
-    else if (rpgTab === "npc") renderRpgNpcTab();
-    else renderRpgSchemaEditor();
+    else if (rpgTab === "bag") renderRpgBag();
+    else if (rpgTab === "quest") renderRpgQuests();
+    else renderRpgNpcTab();
 }
 
 function rpgGroupStats(defs) {
@@ -4551,8 +4698,17 @@ function renderRpgStatus() {
     const body = $("#tinyfeed-rpg-tabbody");
     if (!body.length) return;
     const schema = getRpgSchema();
+    const gearHtml = `<span id="tinyfeed-rpg-schema-gear" class="tinyfeed-rpg-headgear" title="ตั้งค่าสเตตัส"><i class="fa-solid fa-gear"></i></span>`;
+    // มีผลสแกนค้างรอตรวจ (รอบ ④) — ค้างได้ข้ามการเปิด/ปิดโทรศัพท์ ต้องมีทางกลับมาดูเสมอ ไม่ใช่แค่ตอนแจ้งเตือนโผล่
+    const pendingBanner = rpgPending.length
+        ? `<div id="tinyfeed-rpg-pending-banner" class="tinyfeed-rpg-pending-banner"><i class="fa-solid fa-triangle-exclamation"></i> มีผลสแกนรอตรวจ ${rpgPending.length} รายการ <span id="tinyfeed-rpg-pending-open">ดูเลย</span></div>`
+        : "";
     if (!schema.stats.length) {
-        body.html(emptyStateHtml("fa-dice-d20", "ยังไม่มีสเตตัส", 'ไปที่แท็บ "ตั้งค่าสเตตัส" เพื่อเลือกชุดสำเร็จรูป หรือให้ AI เสนอให้'));
+        body.html(`
+            <div class="tinyfeed-rpg-head tinyfeed-rpg-head-empty">${gearHtml}</div>
+            ${pendingBanner}
+            ${emptyStateHtml("fa-dice-d20", "ยังไม่มีสเตตัส", "แตะไอคอนเฟืองด้านบนเพื่อเลือกชุดสำเร็จรูป หรือให้ AI เสนอให้")}
+        `);
         return;
     }
     const r = getRpg();
@@ -4570,13 +4726,339 @@ function renderRpgStatus() {
         <div class="tinyfeed-rpg-head">
             ${makeAvatar({ isUser: true, author: getUserName() })}
             <div class="tinyfeed-rpg-headname">${escapeText(getUserName())}</div>
+            <span id="tinyfeed-rpg-scan-btn" class="tinyfeed-rpg-headgear" title="สแกนบทหาการเปลี่ยนแปลง"><i class="fa-solid fa-magnifying-glass"></i></span>
+            ${gearHtml}
         </div>
+        ${pendingBanner}
         ${groupsHtml}
         <div class="tinyfeed-rpg-logbox">
             <div class="tinyfeed-rpg-group-title">ประวัติ</div>
             ${logHtml}
         </div>
     `);
+}
+
+// ── แท็บกระเป๋า (รอบ ③): กริดไอเทม + ป๊อปรายละเอียด (ใช้/ทิ้ง) + เพิ่มเอง ──
+let rpgItemModalId = null;   // id ไอเทมที่กางป๊อปรายละเอียดอยู่ (null = ปิด)
+// thumbnail: รูป > อิโมจิ > ไอคอนกล่อง (แพตเทิร์นเดียวกับ shopThumbHtml)
+function rpgItemThumbHtml(it) {
+    if (it.image) return `<img class="tinyfeed-rpg-bag-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
+    if (it.emoji) return `<div class="tinyfeed-rpg-bag-thumb tinyfeed-rpg-bag-emoji-thumb">${escapeText(it.emoji)}</div>`;
+    return `<div class="tinyfeed-rpg-bag-thumb tinyfeed-rpg-bag-noimg"><i class="fa-solid fa-cube"></i></div>`;
+}
+function renderRpgBag() {
+    const body = $("#tinyfeed-rpg-tabbody");
+    if (!body.length) return;
+    const inv = getRpgInventory();
+    const addBtn = `<button id="tinyfeed-rpg-item-add-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มไอเทมเอง</span></button>`;
+    if (!inv.length) {
+        body.html(`${emptyStateHtml("fa-bag-shopping", "กระเป๋าว่างเปล่า", 'ซื้อของจาก TinyShop หรือกด "เพิ่มไอเทมเอง" ด้านล่าง')}${addBtn}`);
+        return;
+    }
+    body.html(`
+        <div class="tinyfeed-rpg-bag-grid">
+            ${inv.map((it) => `
+                <div class="tinyfeed-rpg-bag-item" data-id="${escapeAttr(it.id)}">
+                    <div class="tinyfeed-rpg-bag-thumb-wrap">
+                        ${rpgItemThumbHtml(it)}
+                        <span class="tinyfeed-rpg-bag-qty">×${it.qty}</span>
+                    </div>
+                    <div class="tinyfeed-rpg-bag-name">${escapeText(it.name)}</div>
+                </div>`).join("")}
+        </div>
+        ${addBtn}
+    `);
+}
+function openRpgItemModal(id) {
+    const it = getRpgInventory().find((x) => String(x.id) === String(id));
+    if (!it) return;
+    rpgItemModalId = id;
+    const fxText = rpgItemEffectText(it.fx);
+    $("#tinyfeed-rpg-item-title").text(it.name);
+    $("#tinyfeed-rpg-item-body").html(`
+        <div class="tinyfeed-rpg-itemview-thumbwrap">${rpgItemThumbHtml(it)}</div>
+        <div class="tinyfeed-rpg-itemview-qty">มี ${it.qty} ชิ้น${it.src === "shop" ? " · ซื้อจากร้าน" : it.src === "ai" ? " · ได้รับในเรื่อง" : ""}</div>
+        ${it.desc ? `<div class="tinyfeed-rpg-itemview-desc">${escapeText(it.desc)}</div>` : ""}
+        ${fxText ? `<div class="tinyfeed-rpg-itemview-fx"><i class="fa-solid fa-bolt"></i> ${escapeText(fxText)}</div>` : ""}
+        <div class="tinyfeed-rpg-itemview-btns">
+            <button id="tinyfeed-rpg-item-use" class="tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}"><i class="fa-solid fa-hand-sparkles"></i> ใช้</button>
+            <button id="tinyfeed-rpg-item-drop" class="tinyfeed-btn-ghost" data-id="${escapeAttr(it.id)}"><i class="fa-solid fa-trash"></i> ทิ้ง</button>
+        </div>
+    `);
+    $("#tinyfeed-rpg-item-modal").removeClass("tinyfeed-hidden");
+}
+function closeRpgItemModal() { $("#tinyfeed-rpg-item-modal").addClass("tinyfeed-hidden"); rpgItemModalId = null; }
+function openRpgItemAddModal() {
+    $("#tinyfeed-rpg-item-add-name, #tinyfeed-rpg-item-add-emoji, #tinyfeed-rpg-item-add-image, #tinyfeed-rpg-item-add-desc, #tinyfeed-rpg-item-add-fx-amount").val("");
+    $("#tinyfeed-rpg-item-add-qty").val(1);
+    fillRpgStatSelect($("#tinyfeed-rpg-item-add-fx-stat"));
+    $("#tinyfeed-rpg-item-add-modal").removeClass("tinyfeed-hidden");
+}
+function closeRpgItemAddModal() { $("#tinyfeed-rpg-item-add-modal").addClass("tinyfeed-hidden"); }
+function saveRpgItemAdd() {
+    const name = String($("#tinyfeed-rpg-item-add-name").val() || "").trim();
+    if (!name) { toastr.info("ตั้งชื่อไอเทมก่อนนะ", "TinyQuest"); return; }
+    const qty = Math.max(1, parseInt($("#tinyfeed-rpg-item-add-qty").val(), 10) || 1);
+    const fx = rpgFxFromForm("#tinyfeed-rpg-item-add-fx-stat", "#tinyfeed-rpg-item-add-fx-amount");
+    rpgAddItem({
+        name,
+        emoji: String($("#tinyfeed-rpg-item-add-emoji").val() || "").trim(),
+        image: String($("#tinyfeed-rpg-item-add-image").val() || "").trim(),
+        desc: String($("#tinyfeed-rpg-item-add-desc").val() || "").trim(),
+        qty, fx, src: "manual",
+    });
+    closeRpgItemAddModal();
+    renderRpgBag();
+    toastr.success(`เพิ่ม "${name}" แล้ว`, "TinyQuest");
+}
+
+// ── แท็บเควส (รอบ ④): filter ตามสถานะ + CRUD ──
+let rpgQuestFilter = "active";   // "active" | "done" | "failed" | "all"
+const RPG_QUEST_STATUS_LABEL = { active: "กำลังทำ", done: "สำเร็จ", failed: "ล้มเหลว" };
+function renderRpgQuests() {
+    const body = $("#tinyfeed-rpg-tabbody");
+    if (!body.length) return;
+    const quests = getRpgQuests();
+    const filtered = rpgQuestFilter === "all" ? quests : quests.filter((q) => q.status === rpgQuestFilter);
+    const chip = (val, label) => `<div class="tinyfeed-rpg-quest-chip${rpgQuestFilter === val ? " tinyfeed-rpg-quest-chip-active" : ""}" data-qf="${val}">${escapeText(label)}</div>`;
+    const chipsHtml = `<div class="tinyfeed-rpg-quest-filterbar">${chip("active", "กำลังทำ")}${chip("done", "สำเร็จ")}${chip("failed", "ล้มเหลว")}${chip("all", "ทั้งหมด")}</div>`;
+    const addBtn = `<button id="tinyfeed-rpg-quest-add-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มเควสเอง</span></button>`;
+    if (!filtered.length) {
+        body.html(`${chipsHtml}${emptyStateHtml("fa-scroll", "ยังไม่มีเควส", rpgQuestFilter === "active" ? 'เพิ่มเอง หรือให้ AI สแกนบทจากหน้าสถานะ' : "ไม่มีเควสในหมวดนี้")}${addBtn}`);
+        return;
+    }
+    const rows = filtered.slice().sort((a, b) => b.ts - a.ts).map((q) => `
+        <div class="tinyfeed-rpg-quest-card" data-id="${escapeAttr(q.id)}">
+            <div class="tinyfeed-rpg-quest-head">
+                <span class="tinyfeed-rpg-quest-kind tinyfeed-rpg-quest-kind-${escapeAttr(q.kind)}">${q.kind === "main" ? "หลัก" : "รอง"}</span>
+                <span class="tinyfeed-rpg-quest-title">${escapeText(q.title)}</span>
+                <span class="tinyfeed-rpg-quest-status tinyfeed-rpg-quest-status-${escapeAttr(q.status)}">${RPG_QUEST_STATUS_LABEL[q.status] || q.status}</span>
+            </div>
+            ${q.desc ? `<div class="tinyfeed-rpg-quest-desc">${escapeText(q.desc)}</div>` : ""}
+            ${q.reward ? `<div class="tinyfeed-rpg-quest-reward"><i class="fa-solid fa-gift"></i> ${escapeText(q.reward)}</div>` : ""}
+            <div class="tinyfeed-rpg-quest-btns">
+                ${q.status !== "active"
+                    ? `<span class="tinyfeed-rpg-quest-act" data-id="${escapeAttr(q.id)}" data-status="active"><i class="fa-solid fa-rotate-left"></i> เปิดใหม่</span>`
+                    : `<span class="tinyfeed-rpg-quest-act" data-id="${escapeAttr(q.id)}" data-status="done"><i class="fa-solid fa-check"></i> สำเร็จ</span>
+                       <span class="tinyfeed-rpg-quest-act" data-id="${escapeAttr(q.id)}" data-status="failed"><i class="fa-solid fa-xmark"></i> ล้มเหลว</span>`}
+                <span class="tinyfeed-rpg-quest-del" data-id="${escapeAttr(q.id)}"><i class="fa-solid fa-trash"></i></span>
+            </div>
+        </div>`).join("");
+    body.html(`${chipsHtml}<div class="tinyfeed-rpg-quest-list">${rows}</div>${addBtn}`);
+}
+function openRpgQuestAddModal() {
+    $("#tinyfeed-rpg-quest-add-title, #tinyfeed-rpg-quest-add-desc, #tinyfeed-rpg-quest-add-reward").val("");
+    $("#tinyfeed-rpg-quest-add-kind").val("main");
+    $("#tinyfeed-rpg-quest-add-modal").removeClass("tinyfeed-hidden");
+}
+function closeRpgQuestAddModal() { $("#tinyfeed-rpg-quest-add-modal").addClass("tinyfeed-hidden"); }
+function saveRpgQuestAdd() {
+    const title = String($("#tinyfeed-rpg-quest-add-title").val() || "").trim();
+    if (!title) { toastr.info("ตั้งชื่อเควสก่อนนะ", "TinyQuest"); return; }
+    rpgAddQuest({
+        title,
+        desc: String($("#tinyfeed-rpg-quest-add-desc").val() || "").trim(),
+        kind: $("#tinyfeed-rpg-quest-add-kind").val(),
+        reward: String($("#tinyfeed-rpg-quest-add-reward").val() || "").trim(),
+    });
+    closeRpgQuestAddModal();
+    renderRpgQuests();
+    toastr.success(`เพิ่มเควส "${title}" แล้ว`, "TinyQuest");
+}
+
+// ── AI สแกนบท (รอบ ④) — แม่แบบคือ scanMemo()/parseMemoLines() แต่ต้องผ่านรีวิวก่อน apply เสมอ (กันโมเดลมั่วสะสม) ──
+let isRpgScanBusy = false;
+let rpgPending = [];   // [{key,type,label,meta,isNew}] — ผลสแกนที่รอตรวจสอบ (ค้างได้ข้ามการเปิด/ปิดโทรศัพท์จนกว่าจะ apply/ปฏิเสธ)
+
+function rpgNotifAvatar() {
+    return `<div class="tinyfeed-avatar tinyfeed-avatar-anon" style="background:linear-gradient(135deg,#f43f5e,#be123c)"><i class="fa-solid fa-dice-d20"></i></div>`;
+}
+
+// loop ทีละบรรทัดแบบ parseMemoLines (ไม่ใช่ regex ก้อนเดียว) — ทนบรรทัดขยะ/ฟิลด์ขาด
+function parseRpgScanLines(raw) {
+    const text = stripReasoning(raw);
+    const out = { stats: [], affects: [], npcInfos: [], itemAdds: [], itemRemoves: [], questAdds: [], questDones: [], questFails: [] };
+    for (const line of text.split("\n")) {
+        const l = line.trim();
+        if (!l) continue;
+        let m;
+        if ((m = l.match(/^STAT:\s*(.+)$/i))) {
+            const p = m[1].split("|").map((x) => x.trim());
+            if (p[0] && p[1]) out.stats.push({ id: p[0], delta: p[1] });
+        } else if ((m = l.match(/^AFFECT:\s*(.+)$/i))) {
+            const p = m[1].split("|").map((x) => x.trim());
+            if (p[0] && p[1]) out.affects.push({ name: p[0], delta: p[1], why: (p[2] || "").trim() });
+        } else if ((m = l.match(/^NPCINFO:\s*(.+)$/i))) {
+            const p = m[1].split("|").map((x) => x.trim());
+            if (p[0] && p[1] && p[2]) out.npcInfos.push({ name: p[0], fieldLabel: p[1], value: p[2] });
+        } else if ((m = l.match(/^ITEM\+:\s*(.+)$/i))) {
+            const p = m[1].split("|").map((x) => x.trim());
+            if (p[0]) out.itemAdds.push({ name: p[0], qty: Math.max(1, parseInt(p[1], 10) || 1) });
+        } else if ((m = l.match(/^ITEM-:\s*(.+)$/i))) {
+            const p = m[1].split("|").map((x) => x.trim());
+            if (p[0]) out.itemRemoves.push({ name: p[0], qty: Math.max(1, parseInt(p[1], 10) || 1) });
+        } else if ((m = l.match(/^QUEST\+:\s*(.+)$/i))) {
+            const p = m[1].split("|").map((x) => x.trim());
+            if (p[0]) out.questAdds.push({ title: p[0], desc: (p[1] || "").trim() });
+        } else if ((m = l.match(/^QUESTDONE:\s*(\d+)/i))) {
+            out.questDones.push(parseInt(m[1], 10));
+        } else if ((m = l.match(/^QUESTFAIL:\s*(\d+)/i))) {
+            out.questFails.push(parseInt(m[1], 10));
+        }
+    }
+    return out;
+}
+
+// แปลงผล parse ดิบ → รายการรีวิว พร้อม guard ทุกจุด (statId/fieldLabel ไม่ตรงจริง = ข้าม, ไอเทมไม่มีจริง = ข้าม,
+// หมายเลขเควสเกินขอบ = ข้าม) — NPC ที่ยังไม่มีในสมุด สร้างให้ได้ (เจอตัวใหม่จากบทเป็นเรื่องดี) แต่ติดป้าย "ใหม่" ให้ผู้ใช้เห็นตอนรีวิว
+function rpgBuildPending(parsed, activeQuestsSnapshot) {
+    const pending = [];
+    const schema = getRpgSchema();
+    const knownNpcKeys = new Set(rpgNpcList().map((n) => n.key));
+    const fields = rpgActiveNpcFields();
+    let i = 0;
+
+    for (const s of parsed.stats) {
+        const def = schema.stats.find((d) => d.id === s.id);
+        if (!def || (def.type !== "number" && def.type !== "bar")) continue;
+        if (!rpgParseDeltaStr(s.delta)) continue;
+        pending.push({ key: "p" + (i++), type: "stat", label: `${def.label} ${s.delta}`, meta: { id: s.id, deltaStr: s.delta }, isNew: false });
+    }
+    for (const a of parsed.affects) {
+        const key = rpgNpcKey(a.name);
+        if (!key || !Number.isFinite(Number(a.delta))) continue;
+        const isNew = !knownNpcKeys.has(key);
+        pending.push({ key: "p" + (i++), type: "affect", label: `${a.name} ${a.delta}${a.why ? " (" + a.why + ")" : ""}`, meta: { name: a.name, key, delta: a.delta, why: a.why }, isNew });
+    }
+    for (const n of parsed.npcInfos) {
+        const field = fields.find((f) => f.label.trim().toLowerCase() === n.fieldLabel.trim().toLowerCase());
+        if (!field) continue;   // ชื่อช่องไม่ตรงกับที่มีจริง (การ์ดนี้อาจซ่อน/ไม่มีช่องนี้) → ข้าม
+        const key = rpgNpcKey(n.name);
+        if (!key) continue;
+        const isNew = !knownNpcKeys.has(key);
+        pending.push({ key: "p" + (i++), type: "npcinfo", label: `${n.name} · ${field.label}: ${n.value}`, meta: { name: n.name, key, fieldId: field.id, value: n.value }, isNew });
+    }
+    for (const it of parsed.itemAdds) {
+        pending.push({ key: "p" + (i++), type: "itemadd", label: `+ ${it.name} ×${it.qty}`, meta: it, isNew: false });
+    }
+    for (const it of parsed.itemRemoves) {
+        const owned = getRpgInventory().find((x) => x.name.trim().toLowerCase() === it.name.trim().toLowerCase());
+        if (!owned) continue;   // ไอเทมนี้ไม่มีอยู่จริง (AI มั่วชื่อ) → ข้าม
+        const qty = Math.min(it.qty, owned.qty);
+        pending.push({ key: "p" + (i++), type: "itemrm", label: `− ${it.name} ×${qty}`, meta: { name: it.name, qty }, isNew: false });
+    }
+    for (const q2 of parsed.questAdds) {
+        pending.push({ key: "p" + (i++), type: "questadd", label: `+ เควส: ${q2.title}`, meta: q2, isNew: false });
+    }
+    for (const n of parsed.questDones) {
+        const q2 = activeQuestsSnapshot[n - 1];
+        if (!q2) continue;   // อ้างหมายเลขเกินขอบลิสต์ที่ส่งไป → ข้าม
+        pending.push({ key: "p" + (i++), type: "qdone", label: `สำเร็จ: ${q2.title}`, meta: { id: q2.id }, isNew: false });
+    }
+    for (const n of parsed.questFails) {
+        const q2 = activeQuestsSnapshot[n - 1];
+        if (!q2) continue;
+        pending.push({ key: "p" + (i++), type: "qfail", label: `ล้มเหลว: ${q2.title}`, meta: { id: q2.id }, isNew: false });
+    }
+    return pending;
+}
+
+function rpgInventoryIdByName(name) {
+    const it = getRpgInventory().find((x) => x.name.trim().toLowerCase() === String(name).trim().toLowerCase());
+    return it ? it.id : null;
+}
+function rpgApplyPendingItem(item) {
+    switch (item.type) {
+        case "stat": rpgApplyDelta(item.meta.id, item.meta.deltaStr, "จากการสแกนบท"); break;
+        case "affect": rpgEnsureNpcInfo(item.meta.name); rpgAffectionAdd(item.meta.key, item.meta.delta, item.meta.why || "จากการสแกนบท"); break;
+        case "npcinfo": rpgEnsureNpcInfo(item.meta.name); rpgRevealField(item.meta.key, item.meta.fieldId, item.meta.value); break;
+        case "itemadd": rpgAddItem({ name: item.meta.name, qty: item.meta.qty, src: "manual" }); break;
+        case "itemrm": { const id = rpgInventoryIdByName(item.meta.name); if (id) rpgRemoveItem(id, item.meta.qty); break; }
+        case "questadd": rpgAddQuest({ title: item.meta.title, desc: item.meta.desc, kind: "side" }); break;
+        case "qdone": rpgSetQuestStatus(item.meta.id, "done"); break;
+        case "qfail": rpgSetQuestStatus(item.meta.id, "failed"); break;
+    }
+}
+
+async function rpgScan(opts) {
+    opts = opts || {};
+    if (isRpgScanBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") { if (!opts.silent) toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyQuest"); return; }
+    if (!getCurrentCharacter()) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyQuest"); return; }
+    const schema = getRpgSchema();
+    if (!schema.stats.length) { if (!opts.silent) toastr.info("ยังไม่มีสเตตัสให้สแกน ไปตั้งค่าก่อนนะ (ไอคอนเฟือง)", "TinyQuest"); return; }
+    isRpgScanBusy = true;
+    const btn = $("#tinyfeed-rpg-scan-btn");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const statIds = schema.stats.filter((d) => d.type === "number" || d.type === "bar").map((d) => d.id).join(", ") || "(ยังไม่มี)";
+        const npcNames = rpgNpcList().map((n) => n.name).join(", ") || "(ยังไม่มี)";
+        const fieldLabels = rpgActiveNpcFields().map((f) => f.label).join(", ") || "(ไม่มี)";
+        const itemNames = getRpgInventory().map((it) => it.name).join(", ") || "(ยังไม่มี)";
+        const activeQuestsSnapshot = getRpgQuests().filter((q) => q.status === "active");
+        const questLines = activeQuestsSnapshot.length
+            ? activeQuestsSnapshot.map((q, idx) => `[${idx + 1}] ${q.title}`).join("\n") : "(ยังไม่มี)";
+        const extra = String(getSetting("rpgScanExtraPrompt") || "").trim();
+        const q = buildPrompt("rpgScan", {
+            stats: statIds, npcs: npcNames, fields: fieldLabels, items: itemNames,
+            quests: questLines, extra: extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "",
+            context: crossAppContext("rpg"),
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("rpgScanTokens"), 10) || 400), "rpg");
+        const parsed = parseRpgScanLines(raw);
+        const pending = rpgBuildPending(parsed, activeQuestsSnapshot);
+        if (!pending.length) { if (opts.manual && !opts.silent) toastr.info("รอบนี้ยังไม่มีอะไรใหม่จากบท", "TinyQuest"); return; }
+        if (getSetting("rpgScanAutoApply")) {
+            pending.forEach(rpgApplyPendingItem);
+            if (currentApp === "rpg") renderRpg();
+            if (opts.notify) showNotif(rpgNotifAvatar(), "TinyQuest", `อัปเดตอัตโนมัติ ${pending.length} รายการจากบท`, "rpg", "rpg");
+        } else {
+            // 🔴 ต้องผ่านรีวิวก่อน apply เสมอ — เก็บไว้ใน rpgPending จนกว่าผู้ใช้จะตรวจ ไม่ apply เงียบๆ ไม่ทิ้งเงียบๆ
+            rpgPending = pending;
+            if (currentApp === "rpg") { rpgTab = "status"; renderRpg(); openRpgReviewModal(); }
+            if (opts.notify) showNotif(rpgNotifAvatar(), "TinyQuest", `พบ ${pending.length} รายการรอตรวจสอบจากบท`, "rpg", "rpg");
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] rpgScan failed:`, e);
+        if (!opts.silent) toastr.error("สแกนไม่สำเร็จ ลองใหม่นะ", "TinyQuest");
+    } finally {
+        isRpgScanBusy = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+// ── modal รีวิวผลสแกน (ก๊อป flow rpgProposed/renderRpgProposalsHtml/rpgAcceptProposals จากรอบ ①) ──
+const RPG_PENDING_TYPE_ICON = { stat: "fa-chart-simple", affect: "fa-heart", npcinfo: "fa-address-book", itemadd: "fa-plus", itemrm: "fa-minus", questadd: "fa-scroll", qdone: "fa-check", qfail: "fa-xmark" };
+function renderRpgReviewModal() {
+    const rows = rpgPending.map((p) => `
+        <label class="tinyfeed-rpg-review-row">
+            <input type="checkbox" class="tinyfeed-rpg-review-check" data-key="${escapeAttr(p.key)}" checked />
+            <i class="fa-solid ${RPG_PENDING_TYPE_ICON[p.type] || "fa-circle"}"></i>
+            <span class="tinyfeed-rpg-review-label">${escapeText(p.label)}</span>
+            ${p.isNew ? `<span class="tinyfeed-rpg-review-newtag">ใหม่</span>` : ""}
+        </label>`).join("");
+    $("#tinyfeed-rpg-review-body").html(rows || emptyInlineHtml("ไม่มีรายการ"));
+}
+function openRpgReviewModal() {
+    if (!rpgPending.length) return;
+    renderRpgReviewModal();
+    $("#tinyfeed-rpg-review-modal").removeClass("tinyfeed-hidden");
+}
+function closeRpgReviewModal() { $("#tinyfeed-rpg-review-modal").addClass("tinyfeed-hidden"); }
+function rpgAcceptPending(selectedKeys) {
+    const toApply = rpgPending.filter((p) => selectedKeys.includes(p.key));
+    toApply.forEach(rpgApplyPendingItem);
+    rpgPending = [];
+    closeRpgReviewModal();
+    if (currentApp === "rpg") renderRpg();
+    if (toApply.length) toastr.success(`รับ ${toApply.length} รายการแล้ว`, "TinyQuest");
+}
+function rpgDiscardPending() {
+    rpgPending = [];
+    closeRpgReviewModal();
+    if (currentApp === "rpg") renderRpg();
+    toastr.info("ปฏิเสธผลสแกนแล้ว", "TinyQuest");
 }
 
 // ── แท็บสมุด (รอบ ②): หน้ารายการ / หน้ารายละเอียด ──
@@ -6432,6 +6914,12 @@ function buildAppBlocks(want) {
             const line = stats.map(rpgStatDisplay).join(" · ");
             if (line) parts.push(`สถานะผู้เล่น: ${line}`);
         }
+        // ไอเทมในกระเป๋า (รอบ ③)
+        const inv = getRpgInventory();
+        if (inv.length) parts.push(`ไอเทมในกระเป๋า: ${inv.map((it) => `${it.name}×${it.qty}`).join(", ")}`);
+        // เควสที่ยัง active (รอบ ④)
+        const activeQuests = getRpgQuests().filter((q) => q.status === "active");
+        if (activeQuests.length) parts.push(`เควสที่กำลังทำ: ${activeQuests.map((q) => q.title).join(", ")}`);
         // ความสัมพันธ์ NPC (รอบ ②) — sub-toggle แยก เพราะเป็นข้อมูลที่ยาวขึ้นเรื่อยๆ ตามจำนวน NPC
         if (want.rpgNpc) {
             const r = getRpg();
@@ -6909,10 +7397,10 @@ const PROMPT_DEFS = {
             `ตอบตามรูปแบบนี้เท่านั้น (บรรทัดละ 1 รายการ):\nEPTITLE: <ชื่อตอน>\nNARRATION: <คำบรรยาย>\nLINE: <ชื่อตัวละคร> | <บทพูด>`,
     },
     shopItems: {
-        label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "extra", "context"],
+        label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "stats", "extra", "context"],
         default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งรายการสินค้า 3-5 ชิ้นที่น่าจะมีขายในร้านค้าของโลกในเนื้อเรื่องนี้ ให้เข้ากับบรรยากาศ/ยุคสมัย/ธีมของเรื่อง ตั้งราคาสมเหตุสมผล เลือกหมวดจากรายการนี้เท่านั้น: {{cats}}. เลือกอิโมจิ 1 ตัวที่สื่อถึงสินค้า ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
-            `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อสินค้า> | <ราคาเป็นตัวเลข> | <หมวด> | <อิโมจิ> | <รายละเอียดสั้น>`,
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งรายการสินค้า 3-5 ชิ้นที่น่าจะมีขายในร้านค้าของโลกในเนื้อเรื่องนี้ ให้เข้ากับบรรยากาศ/ยุคสมัย/ธีมของเรื่อง ตั้งราคาสมเหตุสมผล เลือกหมวดจากรายการนี้เท่านั้น: {{cats}}. เลือกอิโมจิ 1 ตัวที่สื่อถึงสินค้า ถ้าสินค้าควรมีผลกับค่าสเตตัสตอนใช้ (เช่นยา/ของกิน/อาวุธ) เลือก id จากรายการนี้: {{stats}} (ใส่ - ถ้าไม่มีผล) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
+            `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อสินค้า> | <ราคาเป็นตัวเลข> | <หมวด> | <อิโมจิ> | <รายละเอียดสั้น> | <statId หรือ -> | <จำนวนผล>`,
     },
     petShopItems: {
         label: "สร้างไอเทมร้านเพ็ท (TinyPet)", marker: "ITEM:", tokens: ["petName", "types", "context"],
@@ -6926,6 +7414,21 @@ const PROMPT_DEFS = {
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] อ่านข้อมูลตัวละคร "{{charName}}" แล้วออกแบบชุดค่าสเตตัสที่เหมาะกับโลก/แนวเรื่องนี้ (RPG/สายเลือด/พลัง/ทักษะ ฯลฯ ตามที่เข้ากับบริบท) สำหรับให้ผู้เล่นใช้ติดตามตัวเอง เสนอ 5-10 ค่า อย่าเกิน 10\nข้อมูลตัวละคร: {{bio}}\n{{extra}}` +
             `ชนิดค่าเลือกจาก: bar (มีเพดาน เช่น HP/MP), number (ตัวเลขไม่มีเพดานตายตัว เช่น เลเวล/พลังโจมตี), text (ข้อความสั้น เช่น คลาส/ตำแหน่ง), tag (รายการคำ เช่น สกิล)\n` +
             `ตอบบรรทัดละ 1 ค่าในรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\nSTAT: <id ภาษาอังกฤษล้วน ไม่มีเว้นวรรค> | <ชื่อที่แสดง> | <bar/number/text/tag> | <ค่าต่ำสุด> | <ค่าสูงสุด> | <ค่าเริ่มต้น> | <กลุ่ม>`,
+    },
+    rpgScan: {
+        label: "สแกนบท (TinyQuest)", marker: "STAT:", tokens: ["stats", "npcs", "fields", "items", "quests", "extra", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] อ่านเนื้อเรื่องล่าสุดแล้วสรุปการเปลี่ยนแปลงที่ควรบันทึกลงระบบ RP ทำเท่าที่มีจริงในบทเท่านั้น ห้ามมั่ว ถ้าไม่มีอะไรเปลี่ยนก็ไม่ต้องตอบเลย:\n` +
+            `1) ค่าสเตตัสที่เปลี่ยนไปจริงในบท (statId ที่มี: {{stats}}) ใช้ STAT\n` +
+            `2) ความสัมพันธ์กับตัวละครที่เปลี่ยนไปจากเหตุการณ์ในบท (ที่รู้จักแล้ว: {{npcs}} หรือตัวละครใหม่ที่เพิ่งเจอก็ได้) ใช้ AFFECT\n` +
+            `3) ข้อมูลตัวตนของตัวละครที่เพิ่งรู้จากบท (ชื่อช่องต้องตรงกับที่มี: {{fields}}) ใช้ NPCINFO\n` +
+            `4) ไอเทมที่ได้รับ/เสียไปในบท (ที่มีอยู่แล้ว: {{items}}) ใช้ ITEM+/ITEM-\n` +
+            `5) เควสใหม่ที่ได้รับในบท หรือเควสที่ค้างอยู่ (มีหมายเลข):\n{{quests}}\nที่สำเร็จ/ล้มเหลวแล้วในบท ใช้ QUEST+/QUESTDONE/QUESTFAIL (อ้างด้วยหมายเลข)\n` +
+            `{{extra}}{{context}}\n` +
+            `ตอบบรรทัดละ 1 รายการในรูปแบบนี้เท่านั้น (ตอบเฉพาะที่มีจริง ไม่มีก็ไม่ต้องตอบบรรทัดนั้นเลย):\n` +
+            `STAT: <statId> | <+5 หรือ -3 หรือ =42>\nAFFECT: <ชื่อตัวละคร> | <+3 หรือ -3> | <เหตุผลสั้นๆ>\n` +
+            `NPCINFO: <ชื่อตัวละคร> | <ชื่อช่อง> | <ค่า>\nITEM+: <ชื่อไอเทม> | <จำนวน>\nITEM-: <ชื่อไอเทม> | <จำนวน>\n` +
+            `QUEST+: <ชื่อเควส> | <รายละเอียดสั้น>\nQUESTDONE: <หมายเลข>\nQUESTFAIL: <หมายเลข>`,
     },
 };
 
@@ -6979,6 +7482,7 @@ const KEYWORD_DEFS = [
     { app: "news", label: "ข่าวสาร", setting: "newsKeywords" },
     { app: "memo", label: "TinyMemo (โน้ต/กำหนดการ)", setting: "memoKeywords" },
     { app: "forum", label: "TinyForum (กระทู้)", setting: "forumKeywords" },
+    { app: "rpg", label: "TinyQuest (สแกนสเตตัส/เควส)", setting: "rpgKeywords" },
 ];
 function renderKeywordEditors() {
     const html = KEYWORD_DEFS.map((d) => {
@@ -7639,6 +8143,24 @@ async function aiDecidesMemo() {
     }
 }
 
+// ตัดสินใจว่าควรสแกนบทหา TinyQuest ตอนนี้ไหม (โหมด "ai" ของ TinyQuest auto — รอบ ④)
+async function aiDecidesRpg() {
+    try {
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `พิจารณาเนื้อเรื่องล่าสุด: มีการเปลี่ยนแปลงที่ควรบันทึก (ค่าสเตตัส, ความสัมพันธ์กับตัวละคร, ไอเทม, เควส) ไหม ` +
+            `ถ้ามีตอบ YES ถ้ายังไม่มีตอบ NO ตอบคำเดียว: YES หรือ NO`;
+        const res = await tinyGenerate(q, 120, "rpg");
+        const s = stripReasoning(res).toLowerCase();
+        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
+        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("มี")) return true;
+        return false;
+    } catch (e) {
+        console.error(`[${extensionName}] aiDecidesRpg failed:`, e);
+        return false;
+    }
+}
+
 function parseMemoLines(raw) {
     const text = stripReasoning(raw);
     const out = { adds: [], dones: [], cancels: [], notes: [] };
@@ -8194,6 +8716,7 @@ let autoMsgCount = 0;    // ตัวนับข้อความสำหร�
 let autoNewsCount = 0;   // ตัวนับข้อความสำหรับข่าว
 let autoMemoCount = 0;   // ตัวนับข้อความสำหรับ TinyMemo
 let autoForumCount = 0;  // ตัวนับข้อความสำหรับ TinyForum
+let autoRpgCount = 0;    // ตัวนับข้อความสำหรับ TinyQuest (รอบ ④)
 let autoConnectCount = 0; // ตัวนับข้อความสำหรับ TinyConnect (คู่แชททักเอง)
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
@@ -8221,8 +8744,8 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 // ── ทริกเกอร์ด้วยคีย์เวิร์ด ──
-const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords" };
-const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0 };
+const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", rpg: "rpgKeywords" };
+const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, rpg: 0 };
 
 function keywordListFor(app) {
     return String(getSetting(KEYWORD_SETTING[app]) || "")
@@ -8300,6 +8823,9 @@ async function onChatMessage() {
         { on: "newsAutoGenerate", mode: "newsAutoMode", interval: "newsAutoInterval", defInt: 20, kw: "news",
             bump: () => ++autoNewsCount, get: () => autoNewsCount, reset: () => { autoNewsCount = 0; },
             decide: aiDecidesToPost, run: () => generateNews({ notify: true, silent: true }) },
+        { on: "rpgAutoScan", mode: "rpgAutoMode", interval: "rpgAutoInterval", defInt: 15, kw: "rpg",
+            bump: () => ++autoRpgCount, get: () => autoRpgCount, reset: () => { autoRpgCount = 0; },
+            decide: aiDecidesRpg, run: () => rpgScan({ notify: true, silent: true }) },
     ];
 
     // นับตัวนับก่อน (เฉพาะโหมด interval/ai) — คงพฤติกรรมเดิมที่ทุกแอปนับทุกข้อความ
@@ -8501,6 +9027,10 @@ function routeFromNotif(e) {
         if (e.key) openThread(e.key, e.name || e.author);
     } else if (e.app === "pet") {
         openApp("pet");
+    } else if (e.app === "rpg") {
+        rpgTab = "status";
+        openApp("rpg");
+        if (rpgPending.length) openRpgReviewModal();   // ผลสแกนรอตรวจ (รอบ ④) → พาไปตรวจตรงๆ
     } else {
         openApp("feed");
         switchTab(e.tab || "feed");
@@ -8997,6 +9527,7 @@ function populateSettings() {
     renderShopCats();
     $("#tinyfeed-cfg-shop-tokens").val(getSetting("shopTokens"));
     $("#tinyfeed-cfg-shop-extra").val(getSetting("shopExtraPrompt"));
+    $("#tinyfeed-cfg-shop-to-inventory").prop("checked", Boolean(getSetting("shopToInventory")));
     $("#tinyfeed-cfg-kw-scope").val(getSetting("keywordScope") || "both");
     $("#tinyfeed-cfg-kw-cooldown").val(getSetting("keywordCooldownSec"));
     renderKeywordEditors();
@@ -9043,6 +9574,12 @@ function populateSettings() {
     $("#tinyfeed-cfg-hud-enabled").prop("checked", Boolean(getSetting("hudEnabled")));
     $("#tinyfeed-cfg-rpg-tokens").val(getSetting("rpgTokens"));
     $("#tinyfeed-cfg-rpg-extra").val(getSetting("rpgExtraPrompt"));
+    $("#tinyfeed-cfg-rpg-auto").prop("checked", Boolean(getSetting("rpgAutoScan")));
+    $("#tinyfeed-cfg-rpg-mode").val(getSetting("rpgAutoMode") || "interval");
+    $("#tinyfeed-cfg-rpg-interval").val(getSetting("rpgAutoInterval") || 15);
+    $("#tinyfeed-cfg-rpg-scan-tokens").val(getSetting("rpgScanTokens"));
+    $("#tinyfeed-cfg-rpg-scan-extra").val(getSetting("rpgScanExtraPrompt"));
+    $("#tinyfeed-cfg-rpg-scan-autoapply").prop("checked", Boolean(getSetting("rpgScanAutoApply")));
 }
 
 // เติมรายชื่อ connection profile ลง dropdown (จาก Connection Manager ของ ST)
@@ -9182,6 +9719,9 @@ jQuery(async () => {
             autoMemoCount = 0;
             autoForumCount = 0;
             autoConnectCount = 0;
+            autoRpgCount = 0;
+            rpgPending = [];   // ผลสแกนค้างอ้างอิง NPC/เควส/ไอเทมของแชทเดิม สลับแชทแล้วต้องทิ้ง กัน apply ผิดที่
+            closeRpgReviewModal();
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
@@ -10683,6 +11223,9 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-shop-extra", function () {
             setSetting("shopExtraPrompt", $(this).val());
         });
+        $(document).on("change", "#tinyfeed-cfg-shop-to-inventory", function () {
+            setSetting("shopToInventory", $(this).prop("checked"));
+        });
 
         // ===== TinyQuest (RPG): แท็บ, สถานะ, ตั้งค่าสเตตัส, HUD, วิดเจ็ต =====
         $(document).on("change", "#tinyfeed-cfg-inject-rpg", function () {
@@ -10711,11 +11254,78 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-rpg-extra", function () {
             setSetting("rpgExtraPrompt", $(this).val());
         });
+        $(document).on("change", "#tinyfeed-cfg-rpg-auto", function () {
+            setSetting("rpgAutoScan", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-rpg-mode", function () {
+            setSetting("rpgAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-rpg-interval", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("rpgAutoInterval", Number.isFinite(v) && v > 0 ? v : 15);
+        });
+        $(document).on("input", "#tinyfeed-cfg-rpg-scan-tokens", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("rpgScanTokens", Number.isFinite(v) && v > 0 ? v : 400);
+        });
+        $(document).on("input", "#tinyfeed-cfg-rpg-scan-extra", function () {
+            setSetting("rpgScanExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-rpg-scan-autoapply", function () {
+            setSetting("rpgScanAutoApply", $(this).prop("checked"));
+        });
         $(document).on("click", "#tinyfeed-widget-rpg", function () { openApp("rpg"); });
         $(document).on("click", ".tinyfeed-tab[data-rtab]", function () {
             const t = $(this).data("rtab");
             if (t && t !== rpgTab) { rpgTab = t; renderRpg(); }
         });
+        // รอบ ③: ไอคอนเฟืองในแท็บสถานะ → หน้าตั้งค่าสเตตัสแบบเต็มจอ (ย้ายออกจากแท็บ กันแท็บล้นตอนเพิ่มกระเป๋า)
+        $(document).on("click", "#tinyfeed-rpg-schema-gear", openRpgSchema);
+        // แท็บกระเป๋า: แตะการ์ด = เปิดป๊อปรายละเอียด
+        $(document).on("click", ".tinyfeed-rpg-bag-item", function () { openRpgItemModal(String($(this).data("id"))); });
+        $(document).on("click", "#tinyfeed-rpg-item-close", closeRpgItemModal);
+        $(document).on("click", "#tinyfeed-rpg-item-modal", function (e) { if (e.target === this) closeRpgItemModal(); });
+        $(document).on("click", "#tinyfeed-rpg-item-use", function () {
+            rpgUseItem(String($(this).data("id")));
+            closeRpgItemModal();
+            renderRpgBag();
+        });
+        $(document).on("click", "#tinyfeed-rpg-item-drop", function () {
+            rpgRemoveItem(String($(this).data("id")), 1);
+            closeRpgItemModal();
+            renderRpgBag();
+        });
+        $(document).on("click", "#tinyfeed-rpg-item-add-btn", openRpgItemAddModal);
+        $(document).on("click", "#tinyfeed-rpg-item-add-close", closeRpgItemAddModal);
+        $(document).on("click", "#tinyfeed-rpg-item-add-modal", function (e) { if (e.target === this) closeRpgItemAddModal(); });
+        $(document).on("click", "#tinyfeed-rpg-item-add-save", saveRpgItemAdd);
+        // แท็บเควส (รอบ ④): filter chip / เปลี่ยนสถานะ / ลบ / เพิ่มเอง
+        $(document).on("click", ".tinyfeed-rpg-quest-chip", function () {
+            const f = $(this).data("qf");
+            if (f && f !== rpgQuestFilter) { rpgQuestFilter = f; renderRpgQuests(); }
+        });
+        $(document).on("click", ".tinyfeed-rpg-quest-act", function () {
+            rpgSetQuestStatus(String($(this).data("id")), String($(this).data("status")));
+            renderRpgQuests();
+        });
+        $(document).on("click", ".tinyfeed-rpg-quest-del", function () {
+            rpgDeleteQuest(String($(this).data("id")));
+            renderRpgQuests();
+        });
+        $(document).on("click", "#tinyfeed-rpg-quest-add-btn", openRpgQuestAddModal);
+        $(document).on("click", "#tinyfeed-rpg-quest-add-close", closeRpgQuestAddModal);
+        $(document).on("click", "#tinyfeed-rpg-quest-add-modal", function (e) { if (e.target === this) closeRpgQuestAddModal(); });
+        $(document).on("click", "#tinyfeed-rpg-quest-add-save", saveRpgQuestAdd);
+        // AI สแกนบท (รอบ ④): ปุ่มแว่นขยายในแท็บสถานะ + แบนเนอร์ผลรอตรวจ + modal รีวิว
+        $(document).on("click", "#tinyfeed-rpg-scan-btn", function () { rpgScan({ manual: true }); });
+        $(document).on("click", "#tinyfeed-rpg-pending-open", openRpgReviewModal);
+        $(document).on("click", "#tinyfeed-rpg-review-close", closeRpgReviewModal);
+        $(document).on("click", "#tinyfeed-rpg-review-modal", function (e) { if (e.target === this) closeRpgReviewModal(); });
+        $(document).on("click", "#tinyfeed-rpg-review-accept", function () {
+            const keys = $(".tinyfeed-rpg-review-check:checked").map(function () { return $(this).data("key"); }).get();
+            rpgAcceptPending(keys);
+        });
+        $(document).on("click", "#tinyfeed-rpg-review-discard", rpgDiscardPending);
         // สถานะ: ปุ่ม +/- ของ number/bar — data-npc มีค่า = แก้สเตตัสของ NPC ตัวนั้นแทนผู้เล่น (รอบ ②)
         function rpgRefreshStatScreen(npcKey) { if (npcKey) renderRpgNpcProfile(npcKey); else renderRpgStatus(); }
         $(document).on("click", ".tinyfeed-rpg-stat-plus, .tinyfeed-rpg-stat-minus", function () {
