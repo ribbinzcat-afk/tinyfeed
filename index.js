@@ -177,6 +177,10 @@ const APPS = [
         id: "rpg", name: "TinyQuest", icon: "fa-dice-d20", a: "#f43f5e", b: "#be123c",
         panel: "#tinyfeed-app-rpg", home: true, remember: true,
         open() { openRpg(); },
+        back() {
+            if (rpgTab === "npc" && rpgNpcView) { rpgNpcView = null; rpgFieldEditing = null; renderRpg(); return true; }
+            return false;
+        },
     },
 ];
 
@@ -2263,6 +2267,7 @@ function injectWant() {
         comments: ["posts_comments", "posts_comments_news"].includes(mode),
         news: ["news", "posts_comments_news", "both"].includes(mode),
         forumComments: Boolean(getSetting("injectForumComments")),
+        rpgNpc: Boolean(getSetting("injectRpgNpc")),
         count: Math.max(1, parseInt(getSetting("injectCount"), 10) || 5),
     };
     for (const src of INJECT_SOURCES) {
@@ -3919,7 +3924,7 @@ const RPG_PRESETS = {
     blank: { name: "เริ่มจากศูนย์", stats: [] },
 };
 
-function defaultRpgSchema() { return { stats: [], stages: [] }; }
+function defaultRpgSchema() { return { stats: [], stages: [], npcStats: [], npcFields: [], npcFieldsHidden: [] }; }
 
 function getRpgSchemaStore() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
@@ -3936,6 +3941,9 @@ function getRpgSchema() {
     if (!s || typeof s !== "object") { s = defaultRpgSchema(); store[key] = s; }
     if (!Array.isArray(s.stats)) s.stats = [];
     if (!Array.isArray(s.stages)) s.stages = [];
+    if (!Array.isArray(s.npcStats)) s.npcStats = [];
+    if (!Array.isArray(s.npcFields)) s.npcFields = [];
+    if (!Array.isArray(s.npcFieldsHidden)) s.npcFieldsHidden = [];
     return s;
 }
 function saveRpgSchema() { saveSettingsDebounced(); updateRpgHud(); }
@@ -3946,6 +3954,7 @@ function getRpg() {
     if (!data.rpg.values || typeof data.rpg.values !== "object") data.rpg.values = {};
     if (!data.rpg.max || typeof data.rpg.max !== "object") data.rpg.max = {};
     if (!Array.isArray(data.rpg.log)) data.rpg.log = [];
+    if (!data.rpg.npc || typeof data.rpg.npc !== "object") data.rpg.npc = {};
     return data.rpg;
 }
 function saveRpg() { saveFeedDataDebounced(); updateRpgHud(); }
@@ -4009,18 +4018,23 @@ function rpgSetTags(id, tags) {
     r.values[id] = Array.isArray(tags) ? tags.slice() : [];
     saveRpg();
 }
-// parser ของ delta: "+5" (บวก) / "-3" (ลบ) / "=42" หรือเลขเปล่า (ตั้งค่าตรงๆ) — คืน false ถ้า parse ไม่ได้
+// parser ล้วนของ delta: "+5" (บวก) / "-3" (ลบ) / "=42" หรือเลขเปล่า (ตั้งค่าตรงๆ) — คืน null ถ้า parse ไม่ได้
+// แยกออกมาเป็นฟังก์ชันกลาง เพราะ NPC (รอบ ②) ก็ใช้ตรรกะเดิมทุกตัวอักษร ต่างแค่ที่เก็บค่า
+function rpgParseDeltaStr(deltaStr) {
+    const s = String(deltaStr == null ? "" : deltaStr).trim();
+    const m = s.match(/^([+\-=]?)\s*(-?\d+(?:\.\d+)?)$/);
+    if (!m) return null;
+    const n = parseFloat(m[2]);
+    if (!Number.isFinite(n)) return null;
+    return { sign: m[1], n };
+}
 function rpgApplyDelta(id, deltaStr, why) {
     const def = rpgStatDef(id);
     if (!def || (def.type !== "number" && def.type !== "bar")) return false;
-    const s = String(deltaStr == null ? "" : deltaStr).trim();
-    const m = s.match(/^([+\-=]?)\s*(-?\d+(?:\.\d+)?)$/);
-    if (!m) return false;
-    const sign = m[1];
-    const n = parseFloat(m[2]);
-    if (!Number.isFinite(n)) return false;
+    const p = rpgParseDeltaStr(deltaStr);
+    if (!p) return false;
     const cur = Number(rpgVal(id)) || 0;
-    const next = sign === "+" ? cur + n : sign === "-" ? cur - n : n;
+    const next = p.sign === "+" ? cur + p.n : p.sign === "-" ? cur - p.n : p.n;
     rpgSetStat(id, next, why);
     return true;
 }
@@ -4037,43 +4051,114 @@ function rpgStatDisplay(def) {
     return (def.type === "text" || def.type === "tag") ? `${def.label}: ${val}` : `${def.label} ${val}`;
 }
 
+// ===== TinyQuest (รอบ ②): สเตตัสของ NPC — schema.npcStats + ค่าต่อแชทใน rpg.npc[key].stats
+// เก็บแยกจากฝั่งผู้เล่นเพราะ NPC ไม่มี "max override" ต่อแชท (ไม่จำเป็นเท่าผู้เล่น) และ id ผูกกับ npcKey ไม่ใช่ค่าเดี่ยว
+function rpgNpcStatDef(id) { return getRpgSchema().npcStats.find((d) => d.id === id) || null; }
+function rpgNpcVal(npcKey, id) {
+    const def = rpgNpcStatDef(id);
+    if (!def) return "";
+    const n = getRpgNpc(npcKey);
+    const v = n.stats[id];
+    if (v !== undefined) return v;
+    if (def.type === "tag") return [];
+    if (def.type === "number" || def.type === "bar") {
+        const x = parseFloat(def.def);
+        return Number.isFinite(x) ? x : 0;
+    }
+    return def.def != null ? String(def.def) : "";
+}
+function rpgNpcClamp(def, val) {
+    if (!def) return val;
+    if (def.type === "number" || def.type === "bar") {
+        let x = parseFloat(val);
+        if (!Number.isFinite(x)) x = 0;
+        const lo = Number.isFinite(parseFloat(def.min)) ? parseFloat(def.min) : -Infinity;
+        const hi = Number.isFinite(parseFloat(def.max)) ? parseFloat(def.max) : Infinity;
+        return Math.min(hi, Math.max(lo, x));
+    }
+    return val;
+}
+function rpgNpcSetStat(npcKey, id, val, why) {
+    const def = rpgNpcStatDef(id);
+    if (!def) return;
+    const n = getRpgNpc(npcKey);
+    let to = val;
+    if (def.type === "number" || def.type === "bar") to = rpgNpcClamp(def, val);
+    else if (def.type === "text") to = String(val == null ? "" : val);
+    n.stats[id] = to;
+    saveRpg();
+}
+function rpgNpcSetTags(npcKey, id, tags) {
+    const def = rpgNpcStatDef(id);
+    if (!def || def.type !== "tag") return;
+    const n = getRpgNpc(npcKey);
+    n.stats[id] = Array.isArray(tags) ? tags.slice() : [];
+    saveRpg();
+}
+function rpgNpcApplyDelta(npcKey, id, deltaStr, why) {
+    const def = rpgNpcStatDef(id);
+    if (!def || (def.type !== "number" && def.type !== "bar")) return false;
+    const p = rpgParseDeltaStr(deltaStr);
+    if (!p) return false;
+    const cur = Number(rpgNpcVal(npcKey, id)) || 0;
+    const next = p.sign === "+" ? cur + p.n : p.sign === "-" ? cur - p.n : p.n;
+    rpgNpcSetStat(npcKey, id, next, why);
+    return true;
+}
+
 // ── เพิ่ม/ลบ/จัดเรียง/แก้ไข statDef ──
-function rpgGenId(base) {
-    let id = String(base || "stat").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20) || "stat";
+// which = "player" (schema.stats) | "npc" (schema.npcStats) — เพิ่มในรอบ ② ให้ตัวแก้ schema เดิมใช้ร่วมกับสเตตัส NPC ได้
+function rpgStatList(which) {
     const schema = getRpgSchema();
+    return which === "npc" ? schema.npcStats : schema.stats;
+}
+function rpgFindStatDef(which, id) {
+    return rpgStatList(which).find((d) => d.id === id) || null;
+}
+function rpgGenId(which, base) {
+    let id = String(base || "stat").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20) || "stat";
+    const list = rpgStatList(which);
     let out = id, n = 1;
-    while (schema.stats.some((d) => d.id === out)) { out = `${id}${++n}`; }
+    while (list.some((d) => d.id === out)) { out = `${id}${++n}`; }
     return out;
 }
-function rpgAddStat() {
-    const schema = getRpgSchema();
-    schema.stats.push({
-        id: rpgGenId("stat" + (schema.stats.length + 1)), label: "ค่าใหม่", type: "number",
+// เหมือน rpgGenId แต่กันชนกับ id ของ schema.npcFields (คนละ namespace จาก stat id) — ใช้ตอนเพิ่มช่องข้อมูลตัวตนเอง
+function rpgGenFieldId(base) {
+    let id = String(base || "field").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20) || "field";
+    const fields = getRpgSchema().npcFields || [];
+    let out = id, n = 1;
+    while (fields.some((f) => f.id === out)) { out = `${id}${++n}`; }
+    return out;
+}
+function rpgAddStat(which) {
+    const list = rpgStatList(which);
+    list.push({
+        id: rpgGenId(which, "stat" + (list.length + 1)), label: "ค่าใหม่", type: "number",
         min: 0, max: 100, def: 0, color: "#8b5cf6", icon: "fa-star", group: "ทั่วไป", hud: false, inject: true,
     });
     saveRpgSchema();
     renderRpgSchemaEditor();
 }
-function rpgDeleteStat(id) {
-    const schema = getRpgSchema();
-    const i = schema.stats.findIndex((d) => d.id === id);
+function rpgDeleteStat(which, id) {
+    const list = rpgStatList(which);
+    const i = list.findIndex((d) => d.id === id);
     if (i < 0) return;
-    schema.stats.splice(i, 1);
+    list.splice(i, 1);
     saveRpgSchema();
     renderRpgSchemaEditor();
 }
-function rpgMoveStat(id, dir) {
-    const schema = getRpgSchema();
-    const i = schema.stats.findIndex((d) => d.id === id);
+function rpgMoveStat(which, id, dir) {
+    const list = rpgStatList(which);
+    const i = list.findIndex((d) => d.id === id);
     if (i < 0) return;
     const j = i + dir;
-    if (j < 0 || j >= schema.stats.length) return;
-    const tmp = schema.stats[i]; schema.stats[i] = schema.stats[j]; schema.stats[j] = tmp;
+    if (j < 0 || j >= list.length) return;
+    const tmp = list[i]; list[i] = list[j]; list[j] = tmp;
     saveRpgSchema();
     renderRpgSchemaEditor();
 }
-function rpgSaveStatField(id, field, val) {
-    const def = rpgStatDef(id);
+function rpgSaveStatField(which, id, field, val) {
+    const def = rpgFindStatDef(which, id);
     if (!def) return;
     if (field === "min" || field === "max") {
         const n = parseFloat(val);
@@ -4087,16 +4172,16 @@ function rpgSaveStatField(id, field, val) {
     }
     saveRpgSchema();
 }
-function rpgApplyPreset(key) {
+function rpgApplyPreset(which, key) {
     const preset = RPG_PRESETS[key];
     if (!preset) return;
-    const schema = getRpgSchema();
-    const existingIds = new Set(schema.stats.map((d) => d.id));
+    const list = rpgStatList(which);
+    const existingIds = new Set(list.map((d) => d.id));
     for (const s of preset.stats) {
         let id = s.id, n = 1;
         while (existingIds.has(id)) id = `${s.id}${++n}`;
         existingIds.add(id);
-        schema.stats.push(Object.assign({}, s, { id }));
+        list.push(Object.assign({}, s, { id }));
     }
     saveRpgSchema();
     renderRpgSchemaEditor();
@@ -4191,8 +4276,205 @@ function rpgAcceptProposals(ids) {
 }
 function rpgDiscardProposals() { rpgProposed = []; renderRpgSchemaEditor(); }
 
+// ===== TinyQuest (รอบ ②): สมุดรายชื่อ NPC + ความสัมพันธ์ =====
+// ใครอยู่ในสมุด = ตัวหลักของแชท + NPC ของการ์ดนี้ (getNpcs() เดิม) + ที่เพิ่มเองใน TinyQuest — ไม่ดึง roster ข้ามการ์ดจาก TinyVerse
+// ตัวตน NPC (วันเกิด/ของที่ชอบ ฯลฯ) ผูกกับการ์ด (รู้แล้วรู้เลย ข้ามแชทได้) ส่วนความสัมพันธ์ (affection/log) ผูกกับแชทนี้
+// ช่องข้อมูลตายตัวต้องเป็นกลางกับทุกฉาก (ไม่ใช่ทุกเรื่องเป็นโรงเรียน) — "ชมรม"/"เผ่าพันธุ์" ฯลฯ ให้ผู้ใช้เพิ่มเองต่อการ์ดแทน
+const RPG_NPC_FIELDS = [
+    { id: "birthday", label: "วันเกิด" }, { id: "age", label: "อายุ" }, { id: "height", label: "ส่วนสูง" },
+    { id: "role", label: "บทบาท/อาชีพ" }, { id: "likes", label: "ของที่ชอบ" },
+    { id: "dislikes", label: "ของที่ไม่ชอบ" }, { id: "note", label: "โน้ต" },
+];
+const RPG_DEFAULT_STAGES = [
+    { at: 0, label: "คนแปลกหน้า" }, { at: 20, label: "รู้จักกัน" }, { at: 45, label: "สนิท" },
+    { at: 70, label: "พิเศษ" }, { at: 90, label: "คนสำคัญ" },
+];
+
+function rpgNpcKey(name) { return String(name || "").trim().toLowerCase(); }
+
+function getRpgNpcInfoStore() {
+    extension_settings[extensionName] = extension_settings[extensionName] || {};
+    if (!extension_settings[extensionName].rpgNpcInfo || typeof extension_settings[extensionName].rpgNpcInfo !== "object") {
+        extension_settings[extensionName].rpgNpcInfo = {};
+    }
+    return extension_settings[extensionName].rpgNpcInfo;
+}
+// ตัวตน NPC ทั้งหมดของการ์ดปัจจุบัน — { <npcKey>: {name,avatar,birthday,...,extra,known} }
+function getRpgNpcInfoAll() {
+    const store = getRpgNpcInfoStore();
+    const charKey = getCharKey() || "__nochar__";
+    if (!store[charKey] || typeof store[charKey] !== "object") store[charKey] = {};
+    return store[charKey];
+}
+function defaultRpgNpcInfo(name, avatar) {
+    return {
+        name: String(name || ""), avatar: String(avatar || ""), birthday: "", age: "", height: "",
+        role: "", likes: "", dislikes: "", note: "", extra: {}, known: {},
+    };
+}
+// สร้างรายการถ้ายังไม่มี (ใช้ตอนดึง NPC จากการ์ด/เพิ่มเอง) — ไม่ทับข้อมูลเดิมถ้ามีอยู่แล้ว
+function rpgEnsureNpcInfo(name, avatar) {
+    const key = rpgNpcKey(name);
+    if (!key) return null;
+    const all = getRpgNpcInfoAll();
+    if (!all[key]) { all[key] = defaultRpgNpcInfo(name, avatar); saveRpgNpcInfo(); }
+    else if (avatar && !all[key].avatar) { all[key].avatar = avatar; saveRpgNpcInfo(); }
+    return all[key];
+}
+// อ่านอย่างเดียว — คืน object ว่างถ้ายังไม่มี (ไม่สร้าง/ไม่เซฟ กันโดน render เรียกพร่ำเพรื่อ)
+function getRpgNpcInfo(key) {
+    const all = getRpgNpcInfoAll();
+    const info = all[key];
+    if (!info) return defaultRpgNpcInfo("");
+    if (!info.extra || typeof info.extra !== "object") info.extra = {};
+    if (!info.known || typeof info.known !== "object") info.known = {};
+    return info;
+}
+function saveRpgNpcInfo() { saveSettingsDebounced(); }
+
+// รวมรายชื่อทั้งหมดในสมุด — dedupe ด้วย npcKey (ตัวหลักมาก่อน, แล้ว NPC การ์ด, แล้วที่เพิ่มเองใน TinyQuest)
+function rpgNpcList() {
+    const seen = new Set();
+    const out = [];
+    const mainName = getCharName();
+    if (mainName) {
+        const k = rpgNpcKey(mainName);
+        if (k && !seen.has(k)) { seen.add(k); out.push({ key: k, name: mainName, avatar: getCharacterAvatar(), isMain: true }); }
+    }
+    for (const n of getNpcs()) {
+        const k = rpgNpcKey(n.name);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push({ key: k, name: n.name, avatar: n.avatar || "", isMain: false });
+    }
+    const all = getRpgNpcInfoAll();
+    for (const k of Object.keys(all)) {
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push({ key: k, name: all[k].name || k, avatar: all[k].avatar || "", isMain: false, isCustom: true });
+    }
+    return out;
+}
+// ดึง NPC ใหม่จากการ์ด (getNpcs) เข้าสมุด — ไม่ทับของเดิมที่มีอยู่แล้ว
+function rpgSyncNpcs() {
+    let added = 0;
+    for (const n of getNpcs()) {
+        const key = rpgNpcKey(n.name);
+        if (!key) continue;
+        if (!getRpgNpcInfoAll()[key]) { rpgEnsureNpcInfo(n.name, n.avatar || ""); added++; }
+    }
+    renderRpgNpcList();
+    toastr.info(added ? `เพิ่ม NPC ใหม่ ${added} คน` : "ไม่มี NPC ใหม่จากการ์ด", "TinyQuest");
+}
+function rpgAddCustomNpc(name, avatar) {
+    const key = rpgNpcKey(name);
+    if (!key) { toastr.info("ใส่ชื่อก่อนนะ", "TinyQuest"); return null; }
+    if (key === rpgNpcKey(getCharName()) || getRpgNpcInfoAll()[key]) { toastr.info("มีชื่อนี้อยู่แล้ว", "TinyQuest"); return null; }
+    rpgEnsureNpcInfo(name, avatar || "");
+    return key;
+}
+function rpgDeleteNpc(key) {
+    const all = getRpgNpcInfoAll();
+    delete all[key];
+    saveRpgNpcInfo();
+    const r = getRpg();
+    if (r.npc && r.npc[key]) { delete r.npc[key]; saveRpg(); }
+}
+
+// ── ระดับความสัมพันธ์ — ตั้งชื่อ/คะแนนขั้นต่ำเองได้ต่อการ์ด (schema.stages) ──
+function rpgStageList() {
+    const schema = getRpgSchema();
+    return (schema.stages && schema.stages.length) ? schema.stages : RPG_DEFAULT_STAGES;
+}
+// ใช้ตอนจะ "แก้" รายการระดับ (ต่างจาก rpgStageList ตรงที่ materialize ค่า default ลง schema จริงก่อน ไม่ใช่แค่ fallback ตอนอ่าน)
+function rpgEnsureStages() {
+    const schema = getRpgSchema();
+    if (!schema.stages || !schema.stages.length) schema.stages = RPG_DEFAULT_STAGES.map((s) => Object.assign({}, s));
+    return schema.stages;
+}
+function rpgStageFor(aff) {
+    const stages = rpgStageList().slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
+    let cur = stages[0] || { at: 0, label: "" };
+    for (const s of stages) { if ((Number(aff) || 0) >= (Number(s.at) || 0)) cur = s; }
+    return cur;
+}
+function rpgHearts(aff) { return Math.max(0, Math.min(5, Math.round((Number(aff) || 0) / 20))); }
+
+// ── ช่องข้อมูลตัวตนที่ใช้งานอยู่จริง (ตายตัวที่ไม่ถูกซ่อน + ที่เพิ่มเอง) ──
+// custom field คั่นด้วย prefix "extra:" กันชนกับ id ของช่องตายตัว (เก็บค่าจริงแยกใน info.extra ไม่ใช่ flat property)
+function rpgActiveNpcFields() {
+    const schema = getRpgSchema();
+    const hidden = new Set(schema.npcFieldsHidden || []);
+    const fixed = RPG_NPC_FIELDS.filter((f) => !hidden.has(f.id));
+    const custom = (schema.npcFields || []).map((f) => ({ id: "extra:" + f.id, label: f.label }));
+    return fixed.concat(custom);
+}
+function rpgFieldLabelFor(fieldId) {
+    if (String(fieldId).startsWith("extra:")) {
+        const rawId = fieldId.slice(6);
+        const f = (getRpgSchema().npcFields || []).find((x) => x.id === rawId);
+        return f ? f.label : rawId;
+    }
+    const f = RPG_NPC_FIELDS.find((x) => x.id === fieldId);
+    return f ? f.label : fieldId;
+}
+function rpgFieldValue(npcKey, fieldId) {
+    const info = getRpgNpcInfo(npcKey);
+    if (String(fieldId).startsWith("extra:")) {
+        const rawId = fieldId.slice(6);
+        return (info.extra && info.extra[rawId] != null) ? info.extra[rawId] : "";
+    }
+    return info[fieldId] != null ? info[fieldId] : "";
+}
+function rpgFieldKnown(npcKey, fieldId) {
+    const info = getRpgNpcInfo(npcKey);
+    return !!(info.known && info.known[fieldId]);
+}
+// เซ็ตค่า + ปลดล็อก (known=true) — แจ้งเตือนเฉพาะตอนปลดล็อกครั้งแรก (แก้ไขค่าที่รู้แล้วไม่ยิงซ้ำ)
+function rpgRevealField(npcKey, fieldId, value) {
+    const key = rpgNpcKey(npcKey);
+    const all = getRpgNpcInfoAll();
+    if (!all[key]) all[key] = defaultRpgNpcInfo(npcKey);
+    const info = all[key];
+    if (!info.extra || typeof info.extra !== "object") info.extra = {};
+    if (!info.known || typeof info.known !== "object") info.known = {};
+    if (String(fieldId).startsWith("extra:")) info.extra[fieldId.slice(6)] = value;
+    else info[fieldId] = value;
+    const wasKnown = !!info.known[fieldId];
+    info.known[fieldId] = true;
+    saveRpgNpcInfo();
+    if (!wasKnown) {
+        const label = rpgFieldLabelFor(fieldId);
+        showNotif(makeAvatar({ avatar: info.avatar || "", author: info.name || npcKey }), info.name || npcKey, `ปลดล็อกข้อมูลใหม่: ${label}`, "rpg", "rpg");
+    }
+}
+
+// ── ความสัมพันธ์ต่อแชท (ความรู้สึก/ไทม์ไลน์) — ผูกกับ getRpg() เดิม คีย์ npcKey ──
+function getRpgNpc(key) {
+    const r = getRpg();
+    if (!r.npc[key] || typeof r.npc[key] !== "object") {
+        r.npc[key] = { affection: 0, stats: {}, events: [], firstMetTs: Date.now() };
+    }
+    if (!r.npc[key].stats || typeof r.npc[key].stats !== "object") r.npc[key].stats = {};
+    if (!Array.isArray(r.npc[key].events)) r.npc[key].events = [];
+    return r.npc[key];
+}
+function rpgAffectionAdd(key, delta, why) { rpgSetAffection(key, (getRpgNpc(key).affection || 0) + (Number(delta) || 0), why); }
+function rpgSetAffection(key, val, why) {
+    const n = getRpgNpc(key);
+    const from = n.affection;
+    n.affection = Math.max(0, Math.min(100, Number(val) || 0));
+    if (n.affection !== from) {
+        n.events.unshift({ ts: Date.now(), delta: n.affection - from, text: why || "" });
+        if (n.events.length > 50) n.events.length = 50;
+    }
+    saveRpg();
+}
+
 // ── หน้าจอแอป: แท็บสถานะ / ตั้งค่าสเตตัส (ใช้ .tinyfeed-tabs กลางเหมือน TinyVerse) ──
-let rpgTab = "status";   // status | schema
+let rpgTab = "status";   // status | npc | schema
+let rpgNpcView = null;   // npcKey ที่กางดูรายละเอียดอยู่ในแท็บสมุด (null = หน้ารายการ) — รอบ ②
+let rpgFieldEditing = null;   // {key, field} — ช่องข้อมูล ??? ที่กำลังแตะกรอกอยู่ (รอบ ②)
 
 function openRpg() { renderRpg(); }
 
@@ -4202,11 +4484,14 @@ function renderRpg() {
     body.html(`
         <div class="tinyfeed-tabs">
             <div class="tinyfeed-tab${rpgTab === "status" ? " tinyfeed-tab-active" : ""}" data-rtab="status"><i class="fa-solid fa-chart-simple"></i> สถานะ</div>
+            <div class="tinyfeed-tab${rpgTab === "npc" ? " tinyfeed-tab-active" : ""}" data-rtab="npc"><i class="fa-solid fa-address-book"></i> สมุด</div>
             <div class="tinyfeed-tab${rpgTab === "schema" ? " tinyfeed-tab-active" : ""}" data-rtab="schema"><i class="fa-solid fa-sliders"></i> ตั้งค่าสเตตัส</div>
         </div>
         <div id="tinyfeed-rpg-tabbody" class="tinyfeed-rpg-tabbody"></div>
     `);
-    if (rpgTab === "status") renderRpgStatus(); else renderRpgSchemaEditor();
+    if (rpgTab === "status") renderRpgStatus();
+    else if (rpgTab === "npc") renderRpgNpcTab();
+    else renderRpgSchemaEditor();
 }
 
 function rpgGroupStats(defs) {
@@ -4220,42 +4505,45 @@ function rpgGroupStats(defs) {
     return groups.map((g) => ({ group: g, defs: byGroup[g] }));
 }
 
-function rpgStatRowHtml(def) {
-    const v = rpgVal(def.id);
+// npcKey ว่าง/undefined = สเตตัสของผู้เล่น (ค่าเดิม) · มีค่า = สเตตัสของ NPC ตัวนั้น (รอบ ②)
+// data-npc ติดไปกับทุกปุ่ม/ช่องกรอก ให้ handler ที่ผูกไว้ครั้งเดียวรู้ว่าจะแก้ค่าฝั่งไหน
+function rpgStatRowHtml(def, npcKey) {
+    const v = npcKey ? rpgNpcVal(npcKey, def.id) : rpgVal(def.id);
     const icon = def.icon ? `<i class="fa-solid ${escapeAttr(def.icon)}"></i> ` : "";
+    const npcAttr = npcKey ? ` data-npc="${escapeAttr(npcKey)}"` : "";
     if (def.type === "bar") {
-        const max = rpgMax(def.id) || 1;
+        const max = (npcKey ? (Number(def.max) || 0) : rpgMax(def.id)) || 1;
         const pct = Math.max(0, Math.min(100, (Number(v) / max) * 100));
-        return `<div class="tinyfeed-rpg-stat" data-id="${escapeAttr(def.id)}">
+        return `<div class="tinyfeed-rpg-stat" data-id="${escapeAttr(def.id)}"${npcAttr}>
             <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
             <span class="tinyfeed-rpg-stat-bar"><span style="width:${pct}%;background:${escapeAttr(def.color || "#8b5cf6")}"></span></span>
             <span class="tinyfeed-rpg-stat-num">${Math.round(Number(v) || 0)}/${Math.round(max)}</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-minus" data-id="${escapeAttr(def.id)}" data-step="-1">−</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-plus" data-id="${escapeAttr(def.id)}" data-step="1">+</span>
+            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-minus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="-1">−</span>
+            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-plus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="1">+</span>
         </div>`;
     }
     if (def.type === "number") {
-        return `<div class="tinyfeed-rpg-stat" data-id="${escapeAttr(def.id)}">
+        return `<div class="tinyfeed-rpg-stat" data-id="${escapeAttr(def.id)}"${npcAttr}>
             <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
             <span class="tinyfeed-rpg-stat-num tinyfeed-rpg-stat-numval">${escapeText(String(v))}</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-minus" data-id="${escapeAttr(def.id)}" data-step="-1">−</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-plus" data-id="${escapeAttr(def.id)}" data-step="1">+</span>
+            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-minus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="-1">−</span>
+            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-plus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="1">+</span>
         </div>`;
     }
     if (def.type === "tag") {
         const tags = Array.isArray(v) ? v : [];
-        return `<div class="tinyfeed-rpg-stat tinyfeed-rpg-stat-tagrow" data-id="${escapeAttr(def.id)}">
+        return `<div class="tinyfeed-rpg-stat tinyfeed-rpg-stat-tagrow" data-id="${escapeAttr(def.id)}"${npcAttr}>
             <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
             <div class="tinyfeed-rpg-tags">
-                ${tags.map((t, i) => `<span class="tinyfeed-rpg-tag">${escapeText(t)}<i class="fa-solid fa-xmark tinyfeed-rpg-tag-del" data-id="${escapeAttr(def.id)}" data-idx="${i}"></i></span>`).join("")}
-                <input class="tinyfeed-rpg-tag-input" data-id="${escapeAttr(def.id)}" type="text" placeholder="+ เพิ่ม" />
+                ${tags.map((t, i) => `<span class="tinyfeed-rpg-tag">${escapeText(t)}<i class="fa-solid fa-xmark tinyfeed-rpg-tag-del" data-id="${escapeAttr(def.id)}"${npcAttr} data-idx="${i}"></i></span>`).join("")}
+                <input class="tinyfeed-rpg-tag-input" data-id="${escapeAttr(def.id)}"${npcAttr} type="text" placeholder="+ เพิ่ม" />
             </div>
         </div>`;
     }
     // text
-    return `<div class="tinyfeed-rpg-stat tinyfeed-rpg-stat-textrow" data-id="${escapeAttr(def.id)}">
+    return `<div class="tinyfeed-rpg-stat tinyfeed-rpg-stat-textrow" data-id="${escapeAttr(def.id)}"${npcAttr}>
         <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
-        <input class="tinyfeed-rpg-stat-textinput" data-id="${escapeAttr(def.id)}" type="text" value="${escapeAttr(String(v))}" />
+        <input class="tinyfeed-rpg-stat-textinput" data-id="${escapeAttr(def.id)}"${npcAttr} type="text" value="${escapeAttr(String(v))}" />
     </div>`;
 }
 
@@ -4272,7 +4560,7 @@ function renderRpgStatus() {
     const groupsHtml = groups.map((g) => `
         <div class="tinyfeed-rpg-group">
             <div class="tinyfeed-rpg-group-title">${escapeText(g.group)}</div>
-            ${g.defs.map(rpgStatRowHtml).join("")}
+            ${g.defs.map((d) => rpgStatRowHtml(d)).join("")}
         </div>`).join("");
     const log = (r.log || []).slice(0, 20);
     const logHtml = log.length
@@ -4289,6 +4577,98 @@ function renderRpgStatus() {
             ${logHtml}
         </div>
     `);
+}
+
+// ── แท็บสมุด (รอบ ②): หน้ารายการ / หน้ารายละเอียด ──
+function renderRpgNpcTab() {
+    if (rpgNpcView) renderRpgNpcProfile(rpgNpcView);
+    else renderRpgNpcList();
+}
+function npcHeartsHtml(aff) {
+    const hearts = rpgHearts(aff);
+    return Array.from({ length: 5 }, (_, i) => `<i class="fa-solid fa-heart${i < hearts ? "" : " tinyfeed-rpg-heart-empty"}"></i>`).join("");
+}
+function renderRpgNpcList() {
+    const body = $("#tinyfeed-rpg-tabbody");
+    if (!body.length) return;
+    const list = rpgNpcList();
+    const r = getRpg();
+    const cards = list.map((n) => {
+        const aff = (r.npc && r.npc[n.key]) ? (r.npc[n.key].affection || 0) : 0;
+        return `<div class="tinyfeed-rpg-npc-card" data-key="${escapeAttr(n.key)}">
+            ${makeAvatar({ avatar: n.avatar || "", author: n.name })}
+            <span class="tinyfeed-rpg-npc-name">${escapeText(n.name)}${n.isMain ? ` <small>(ตัวเอง)</small>` : ""}</span>
+            <span class="tinyfeed-rpg-npc-hearts">${npcHeartsHtml(aff)}</span>
+        </div>`;
+    }).join("");
+    body.html(`
+        <div class="tinyfeed-rpg-npc-bar">
+            <span class="tinyfeed-rpg-npc-count">ทั้งหมด ${list.length} คน</span>
+            <button id="tinyfeed-rpg-npc-sync" class="tinyfeed-btn-ghost"><i class="fa-solid fa-rotate"></i> ดึงจากการ์ด</button>
+        </div>
+        <div class="tinyfeed-rpg-npc-addform">
+            <input id="tinyfeed-rpg-npc-addname" type="text" placeholder="ชื่อ NPC ใหม่..." />
+            <button id="tinyfeed-rpg-npc-addbtn" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i></button>
+        </div>
+        ${list.length ? `<div class="tinyfeed-rpg-npc-grid">${cards}</div>` : emptyStateHtml("fa-address-book", "ยังไม่มีใครในสมุด", 'กด "ดึงจากการ์ด" หรือเพิ่มเอง')}
+    `);
+}
+function renderRpgNpcProfile(key) {
+    const body = $("#tinyfeed-rpg-tabbody");
+    if (!body.length) return;
+    const meta = rpgNpcList().find((n) => n.key === key);
+    if (!meta) { rpgNpcView = null; renderRpgNpcList(); return; }
+    const info = getRpgNpcInfo(key);
+    const n = getRpgNpc(key);
+    const aff = n.affection || 0;
+    const stage = rpgStageFor(aff);
+    const fields = rpgActiveNpcFields();
+    const fieldsHtml = fields.map((f) => {
+        const known = rpgFieldKnown(key, f.id);
+        const isEditing = rpgFieldEditing && rpgFieldEditing.key === key && rpgFieldEditing.field === f.id;
+        let control;
+        if (known) {
+            control = `<input class="tinyfeed-rpg-npcfield-input" type="text" value="${escapeAttr(rpgFieldValue(key, f.id))}" data-key="${escapeAttr(key)}" data-field="${escapeAttr(f.id)}" />`;
+        } else if (isEditing) {
+            control = `<input class="tinyfeed-rpg-npcfield-reveal" type="text" placeholder="กรอกแล้วกด Enter" data-key="${escapeAttr(key)}" data-field="${escapeAttr(f.id)}" />`;
+        } else {
+            control = `<span class="tinyfeed-rpg-npcfield-unknown" data-key="${escapeAttr(key)}" data-field="${escapeAttr(f.id)}" title="แตะเพื่อกรอก">???</span>`;
+        }
+        return `<div class="tinyfeed-rpg-npcfield">
+            <span class="tinyfeed-rpg-npcfield-label">${escapeText(f.label)}</span>
+            ${control}
+        </div>`;
+    }).join("");
+    const npcStats = getRpgSchema().npcStats || [];
+    const statsHtml = npcStats.length
+        ? `<div class="tinyfeed-rpg-group"><div class="tinyfeed-rpg-group-title">สเตตัส</div>${npcStats.map((d) => rpgStatRowHtml(d, key)).join("")}</div>`
+        : "";
+    const events = (n.events || []).slice(0, 20);
+    const eventsHtml = events.length
+        ? events.map((e) => `<div class="tinyfeed-rpg-log-item"><span class="tinyfeed-rpg-log-time">${timeAgo(e.ts)}</span> ${e.delta >= 0 ? "+" : ""}${e.delta}${e.text ? ` <span class="tinyfeed-rpg-log-why">(${escapeText(e.text)})</span>` : ""}</div>`).join("")
+        : `<div class="tinyfeed-rpg-log-empty">ยังไม่มีความเคลื่อนไหว</div>`;
+    body.html(`
+        <div class="tinyfeed-rpg-npc-profile-head">
+            ${makeAvatar({ avatar: info.avatar || meta.avatar || "", author: meta.name })}
+            <div class="tinyfeed-rpg-npc-profile-name">${escapeText(meta.name)}</div>
+            <div class="tinyfeed-rpg-npc-profile-stage">${escapeText(stage.label)}</div>
+            <div class="tinyfeed-rpg-npc-profile-hearts">${npcHeartsHtml(aff)} <span class="tinyfeed-rpg-npc-aff-num">(${Math.round(aff)})</span></div>
+            <div class="tinyfeed-rpg-npc-affbar"><span style="width:${Math.max(0, Math.min(100, aff))}%"></span></div>
+            <div class="tinyfeed-rpg-npc-affbtns">
+                <span class="tinyfeed-rpg-aff-btn" data-key="${escapeAttr(key)}" data-step="-5">−5</span>
+                <span class="tinyfeed-rpg-aff-btn" data-key="${escapeAttr(key)}" data-step="5">+5</span>
+            </div>
+            <span class="tinyfeed-rpg-npc-viewfull" data-name="${escapeAttr(meta.name)}">ดูโปรไฟล์เต็ม</span>
+        </div>
+        <div class="tinyfeed-rpg-npcfields-list">${fieldsHtml}</div>
+        ${statsHtml}
+        <div class="tinyfeed-rpg-logbox">
+            <div class="tinyfeed-rpg-group-title">ไทม์ไลน์</div>
+            ${eventsHtml}
+        </div>
+        ${meta.isMain ? "" : `<button id="tinyfeed-rpg-npc-delete" class="tinyfeed-btn-ghost tinyfeed-rpg-npc-delbtn" data-key="${escapeAttr(key)}"><i class="fa-solid fa-trash"></i> ลบออกจากสมุด</button>`}
+    `);
+    if (rpgFieldEditing && rpgFieldEditing.key === key) $(".tinyfeed-rpg-npcfield-reveal").trigger("focus");
 }
 
 function rpgSchemaRowHtml(def, idx, total) {
@@ -4333,24 +4713,66 @@ function renderRpgProposalsHtml() {
     </div>`;
 }
 
+let rpgSchemaWhich = "player";   // "player" | "npc" — สลับว่ากำลังแก้ schema สเตตัสของฝั่งไหน (รอบ ②)
+
 function renderRpgSchemaEditor() {
     const body = $("#tinyfeed-rpg-tabbody");
     if (!body.length) return;
-    const schema = getRpgSchema();
+    const list = rpgStatList(rpgSchemaWhich);
     const presetOptions = Object.keys(RPG_PRESETS).map((k) => `<option value="${k}">${escapeText(RPG_PRESETS[k].name)}</option>`).join("");
-    const rows = schema.stats.map((d, i) => rpgSchemaRowHtml(d, i, schema.stats.length)).join("");
-    const proposalsHtml = rpgProposed.length ? renderRpgProposalsHtml() : "";
+    const rows = list.map((d, i) => rpgSchemaRowHtml(d, i, list.length)).join("");
+    const proposalsHtml = (rpgSchemaWhich === "player" && rpgProposed.length) ? renderRpgProposalsHtml() : "";
+    const npcExtrasHtml = rpgSchemaWhich === "npc" ? renderRpgNpcFieldsEditorHtml() : "";
     body.html(`
         <div class="tinyfeed-field-hint">ชุดสเตตัสนี้ผูกกับตัวละคร: <b>${escapeText(getCharName())}</b> (การ์ดอื่นมีชุดของตัวเอง)</div>
+        <div class="tinyfeed-rpg-schema-switch">
+            <span class="tinyfeed-rpg-schema-switch-btn${rpgSchemaWhich === "player" ? " tinyfeed-rpg-schema-switch-active" : ""}" data-which="player">สเตตัสผู้เล่น</span>
+            <span class="tinyfeed-rpg-schema-switch-btn${rpgSchemaWhich === "npc" ? " tinyfeed-rpg-schema-switch-active" : ""}" data-which="npc">สเตตัส NPC</span>
+        </div>
         <div class="tinyfeed-rpg-schema-toolbar">
             <select id="tinyfeed-rpg-preset-pick">${presetOptions}</select>
             <button id="tinyfeed-rpg-preset-apply" class="tinyfeed-btn-generate"><i class="fa-solid fa-layer-group"></i> <span>ใช้ชุดนี้</span></button>
-            <button id="tinyfeed-rpg-suggest" class="tinyfeed-btn-generate"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI เสนอสเตตัส</span></button>
+            ${rpgSchemaWhich === "player" ? `<button id="tinyfeed-rpg-suggest" class="tinyfeed-btn-generate"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI เสนอสเตตัส</span></button>` : ""}
         </div>
         <div id="tinyfeed-rpg-proposals">${proposalsHtml}</div>
         <div id="tinyfeed-rpg-schema-list">${rows || emptyInlineHtml("ยังไม่มีสเตตัส<br><small>เลือกชุดสำเร็จรูปด้านบน หรือเพิ่มเอง</small>")}</div>
         <button id="tinyfeed-rpg-add-stat" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มค่าเอง</span></button>
+        ${npcExtrasHtml}
     `);
+}
+
+// ── ตัวจัดการช่องข้อมูลตัวตน NPC (ตายตัว/เพิ่มเอง) + ระดับความสัมพันธ์ — โผล่เฉพาะตอนแก้ schema ฝั่ง NPC ──
+function renderRpgNpcFieldsEditorHtml() {
+    const schema = getRpgSchema();
+    const hidden = new Set(schema.npcFieldsHidden || []);
+    const stages = rpgStageList();
+    const fixedRows = RPG_NPC_FIELDS.map((f) => `
+        <label class="tinyfeed-rpg-fieldtoggle">
+            <input type="checkbox" class="tinyfeed-rpg-fieldhide" data-field="${escapeAttr(f.id)}" ${hidden.has(f.id) ? "" : "checked"} />
+            <span>${escapeText(f.label)}</span>
+        </label>`).join("");
+    const customRows = (schema.npcFields || []).map((f, i) => `
+        <div class="tinyfeed-rpg-customfield-row" data-idx="${i}">
+            <input class="tinyfeed-rpg-customfield-label" type="text" value="${escapeAttr(f.label)}" placeholder="ชื่อช่อง เช่น ชมรม" />
+            <span class="tinyfeed-rpg-customfield-del" data-idx="${i}"><i class="fa-solid fa-trash"></i></span>
+        </div>`).join("");
+    const stageRows = stages.map((s, i) => `
+        <div class="tinyfeed-rpg-stage-row" data-idx="${i}">
+            <input class="tinyfeed-rpg-stage-at" type="number" min="0" max="100" value="${s.at}" placeholder="คะแนนขั้นต่ำ" />
+            <input class="tinyfeed-rpg-stage-label" type="text" value="${escapeAttr(s.label)}" placeholder="ชื่อระดับ" />
+            <span class="tinyfeed-rpg-stage-del" data-idx="${i}"><i class="fa-solid fa-trash"></i></span>
+        </div>`).join("");
+    return `
+        <div class="tinyfeed-rpg-npcfields-box">
+            <div class="tinyfeed-rpg-group-title">ช่องข้อมูลตัวตน (ตายตัว) — ซ่อนช่องที่ไม่เกี่ยวกับเรื่องนี้ได้</div>
+            ${fixedRows}
+            <div class="tinyfeed-rpg-group-title" style="margin-top:var(--tf-sp-4)">ช่องข้อมูลที่เพิ่มเอง (เช่น ชมรม, เผ่าพันธุ์, สังกัด)</div>
+            <div id="tinyfeed-rpg-customfield-list">${customRows}</div>
+            <button id="tinyfeed-rpg-customfield-add" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มช่อง</span></button>
+            <div class="tinyfeed-rpg-group-title" style="margin-top:var(--tf-sp-4)">ระดับความสัมพันธ์ (คะแนนขั้นต่ำ → ชื่อระดับ)</div>
+            <div id="tinyfeed-rpg-stage-list">${stageRows}</div>
+            <button id="tinyfeed-rpg-stage-add" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มระดับ</span></button>
+        </div>`;
 }
 
 // ===== TinyQuest HUD: แถบสถานะเหนือช่องพิมพ์ในหน้าแชทหลักของ ST (นอก #tinyfeed-phone — ต้องใส่ธีมเอง) =====
@@ -6004,11 +6426,26 @@ function buildAppBlocks(want) {
     }
     if (want.rpg) {
         // ต่อแชท — เอาเฉพาะค่าที่ผู้ใช้ติ๊ก "ส่งเข้า RP" ไว้ในหน้าตั้งค่าสเตตัส
+        const parts = [];
         const stats = (getRpgSchema().stats || []).filter((d) => d.inject);
         if (stats.length) {
             const line = stats.map(rpgStatDisplay).join(" · ");
-            if (line) blocks.push(`สถานะผู้เล่นในแอป TinyQuest:\n${line}`);
+            if (line) parts.push(`สถานะผู้เล่น: ${line}`);
         }
+        // ความสัมพันธ์ NPC (รอบ ②) — sub-toggle แยก เพราะเป็นข้อมูลที่ยาวขึ้นเรื่อยๆ ตามจำนวน NPC
+        if (want.rpgNpc) {
+            const r = getRpg();
+            const relLines = rpgNpcList().filter((n) => !n.isMain).map((n) => {
+                const rec = r.npc && r.npc[n.key];
+                const aff = rec ? (rec.affection || 0) : 0;
+                if (!aff) return "";   // ยังไม่เคยมีความสัมพันธ์เลย ไม่ต้องแนบให้รก
+                const hearts = rpgHearts(aff);
+                const heartStr = "♥".repeat(hearts) + "♡".repeat(5 - hearts);
+                return `${n.name} ${heartStr} (${Math.round(aff)}) ${rpgStageFor(aff).label}`;
+            }).filter(Boolean);
+            if (relLines.length) parts.push(`ความสัมพันธ์: ${relLines.join(" · ")}`);
+        }
+        if (parts.length) blocks.push(`สถานะผู้เล่นในแอป TinyQuest:\n${parts.join("\n")}`);
     }
     if (want.pet) {
         // เพ็ทเป็น global (ตัวเดียวข้ามแชท) — สถานะสดตอนนี้ ให้ตัวละครอ้างถึงได้
@@ -8542,6 +8979,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-theater").prop("checked", Boolean(getSetting("injectTheater")));
     $("#tinyfeed-cfg-inject-novel").prop("checked", Boolean(getSetting("injectNovel")));
     $("#tinyfeed-cfg-inject-rpg").prop("checked", Boolean(getSetting("injectRpg")));
+    $("#tinyfeed-cfg-inject-rpg-npc").prop("checked", Boolean(getSetting("injectRpgNpc")));
 
     $("#tinyfeed-cfg-memo-auto").prop("checked", Boolean(getSetting("memoAutoGenerate")));
     $("#tinyfeed-cfg-memo-mode").val(getSetting("memoAutoMode") || "interval");
@@ -10251,6 +10689,10 @@ jQuery(async () => {
             setSetting("injectRpg", $(this).prop("checked"));
             updateChatInjection();
         });
+        $(document).on("change", "#tinyfeed-cfg-inject-rpg-npc", function () {
+            setSetting("injectRpgNpc", $(this).prop("checked"));
+            updateChatInjection();
+        });
         $(document).on("change", "#tinyfeed-cfg-crossapp-rpg", function () {
             setSetting("crossAppRpg", $(this).prop("checked"));
         });
@@ -10274,58 +10716,83 @@ jQuery(async () => {
             const t = $(this).data("rtab");
             if (t && t !== rpgTab) { rpgTab = t; renderRpg(); }
         });
-        // สถานะ: ปุ่ม +/- ของ number/bar
+        // สถานะ: ปุ่ม +/- ของ number/bar — data-npc มีค่า = แก้สเตตัสของ NPC ตัวนั้นแทนผู้เล่น (รอบ ②)
+        function rpgRefreshStatScreen(npcKey) { if (npcKey) renderRpgNpcProfile(npcKey); else renderRpgStatus(); }
         $(document).on("click", ".tinyfeed-rpg-stat-plus, .tinyfeed-rpg-stat-minus", function () {
             const id = $(this).data("id");
+            const npc = $(this).data("npc");
             const step = parseFloat($(this).data("step")) || 1;
-            rpgApplyDelta(id, (step > 0 ? "+" : "") + step, "ปรับด้วยตนเอง");
-            renderRpgStatus();
+            const deltaStr = (step > 0 ? "+" : "") + step;
+            if (npc) rpgNpcApplyDelta(npc, id, deltaStr, "ปรับด้วยตนเอง");
+            else rpgApplyDelta(id, deltaStr, "ปรับด้วยตนเอง");
+            rpgRefreshStatScreen(npc);
         });
         // สถานะ: แก้ข้อความ (text) — บันทึกตอนพิมพ์เสร็จ (change) กันประวัติรก
         $(document).on("change", ".tinyfeed-rpg-stat-textinput", function () {
             const id = $(this).data("id");
-            rpgSetStat(id, $(this).val(), "แก้ไขเอง");
+            const npc = $(this).data("npc");
+            if (npc) rpgNpcSetStat(npc, id, $(this).val(), "แก้ไขเอง");
+            else rpgSetStat(id, $(this).val(), "แก้ไขเอง");
         });
         // สถานะ: เพิ่ม/ลบแท็ก
         $(document).on("keydown", ".tinyfeed-rpg-tag-input", function (e) {
             if (e.key !== "Enter") return;
             e.preventDefault();
             const id = $(this).data("id");
+            const npc = $(this).data("npc");
             const val = String($(this).val() || "").trim();
             if (!val) return;
-            const cur = Array.isArray(rpgVal(id)) ? rpgVal(id).slice() : [];
-            cur.push(val);
-            rpgSetTags(id, cur);
-            rpgLogPush({ id, label: (rpgStatDef(id) || {}).label || id, from: "", to: val, why: "เพิ่มแท็ก" });
-            saveRpg();
-            renderRpgStatus();
+            if (npc) {
+                const cur = Array.isArray(rpgNpcVal(npc, id)) ? rpgNpcVal(npc, id).slice() : [];
+                cur.push(val);
+                rpgNpcSetTags(npc, id, cur);
+            } else {
+                const cur = Array.isArray(rpgVal(id)) ? rpgVal(id).slice() : [];
+                cur.push(val);
+                rpgSetTags(id, cur);
+                rpgLogPush({ id, label: (rpgStatDef(id) || {}).label || id, from: "", to: val, why: "เพิ่มแท็ก" });
+                saveRpg();
+            }
+            rpgRefreshStatScreen(npc);
         });
         $(document).on("click", ".tinyfeed-rpg-tag-del", function () {
             const id = $(this).data("id");
+            const npc = $(this).data("npc");
             const idx = parseInt($(this).data("idx"), 10);
-            const cur = Array.isArray(rpgVal(id)) ? rpgVal(id).slice() : [];
-            if (idx < 0 || idx >= cur.length) return;
-            const removed = cur.splice(idx, 1)[0];
-            rpgSetTags(id, cur);
-            rpgLogPush({ id, label: (rpgStatDef(id) || {}).label || id, from: removed, to: "", why: "ลบแท็ก" });
-            saveRpg();
-            renderRpgStatus();
+            if (npc) {
+                const cur = Array.isArray(rpgNpcVal(npc, id)) ? rpgNpcVal(npc, id).slice() : [];
+                if (idx < 0 || idx >= cur.length) return;
+                cur.splice(idx, 1);
+                rpgNpcSetTags(npc, id, cur);
+            } else {
+                const cur = Array.isArray(rpgVal(id)) ? rpgVal(id).slice() : [];
+                if (idx < 0 || idx >= cur.length) return;
+                const removed = cur.splice(idx, 1)[0];
+                rpgSetTags(id, cur);
+                rpgLogPush({ id, label: (rpgStatDef(id) || {}).label || id, from: removed, to: "", why: "ลบแท็ก" });
+                saveRpg();
+            }
+            rpgRefreshStatScreen(npc);
         });
-        // ตั้งค่าสเตตัส: preset / AI เสนอ / เพิ่มเอง
+        // ตั้งค่าสเตตัส: สลับผู้เล่น/NPC + preset / AI เสนอ / เพิ่มเอง — ทุกตัวใช้ rpgSchemaWhich ปัจจุบัน (มีแค่ตัวแก้เดียวเปิดอยู่ในจอ)
+        $(document).on("click", ".tinyfeed-rpg-schema-switch-btn", function () {
+            const w = $(this).data("which");
+            if (w && w !== rpgSchemaWhich) { rpgSchemaWhich = w; renderRpgSchemaEditor(); }
+        });
         $(document).on("click", "#tinyfeed-rpg-preset-apply", function () {
-            rpgApplyPreset($("#tinyfeed-rpg-preset-pick").val());
+            rpgApplyPreset(rpgSchemaWhich, $("#tinyfeed-rpg-preset-pick").val());
         });
         $(document).on("click", "#tinyfeed-rpg-suggest", function () { rpgSuggestSchema(); });
-        $(document).on("click", "#tinyfeed-rpg-add-stat", function () { rpgAddStat(); });
-        $(document).on("click", ".tinyfeed-rpg-schema-del", function () { rpgDeleteStat($(this).data("id")); });
-        $(document).on("click", ".tinyfeed-rpg-schema-up", function () { rpgMoveStat($(this).data("id"), -1); });
-        $(document).on("click", ".tinyfeed-rpg-schema-down", function () { rpgMoveStat($(this).data("id"), 1); });
+        $(document).on("click", "#tinyfeed-rpg-add-stat", function () { rpgAddStat(rpgSchemaWhich); });
+        $(document).on("click", ".tinyfeed-rpg-schema-del", function () { rpgDeleteStat(rpgSchemaWhich, $(this).data("id")); });
+        $(document).on("click", ".tinyfeed-rpg-schema-up", function () { rpgMoveStat(rpgSchemaWhich, $(this).data("id"), -1); });
+        $(document).on("click", ".tinyfeed-rpg-schema-down", function () { rpgMoveStat(rpgSchemaWhich, $(this).data("id"), 1); });
         $(document).on("input change", ".tinyfeed-rpg-sf", function () {
             const row = $(this).closest(".tinyfeed-rpg-schema-row");
             const id = row.data("id");
             const field = $(this).data("field");
             const val = $(this).is(":checkbox") ? $(this).prop("checked") : $(this).val();
-            rpgSaveStatField(id, field, val);
+            rpgSaveStatField(rpgSchemaWhich, id, field, val);
             if (field === "type") renderRpgSchemaEditor();   // ชนิดเปลี่ยน → โชว์/ซ่อนช่อง min-max ใหม่
         });
         $(document).on("click", "#tinyfeed-rpg-proposal-accept", function () {
@@ -10333,6 +10800,111 @@ jQuery(async () => {
             rpgAcceptProposals(ids);
         });
         $(document).on("click", "#tinyfeed-rpg-proposal-discard", function () { rpgDiscardProposals(); });
+        // ตั้งค่าสเตตัส (โหมด NPC): ช่องข้อมูลตัวตน + ระดับความสัมพันธ์
+        $(document).on("change", ".tinyfeed-rpg-fieldhide", function () {
+            const schema = getRpgSchema();
+            const fid = $(this).data("field");
+            const hidden = new Set(schema.npcFieldsHidden || []);
+            if ($(this).prop("checked")) hidden.delete(fid); else hidden.add(fid);
+            schema.npcFieldsHidden = Array.from(hidden);
+            saveRpgSchema();
+        });
+        $(document).on("click", "#tinyfeed-rpg-customfield-add", function () {
+            const schema = getRpgSchema();
+            schema.npcFields.push({ id: rpgGenFieldId("field" + (schema.npcFields.length + 1)), label: "ช่องใหม่" });
+            saveRpgSchema();
+            renderRpgSchemaEditor();
+        });
+        $(document).on("input", ".tinyfeed-rpg-customfield-label", function () {
+            const i = $(this).closest(".tinyfeed-rpg-customfield-row").data("idx");
+            const schema = getRpgSchema();
+            if (schema.npcFields[i]) { schema.npcFields[i].label = $(this).val(); saveRpgSchema(); }
+        });
+        $(document).on("click", ".tinyfeed-rpg-customfield-del", function () {
+            const i = $(this).data("idx");
+            const schema = getRpgSchema();
+            schema.npcFields.splice(i, 1);
+            saveRpgSchema();
+            renderRpgSchemaEditor();
+        });
+        $(document).on("click", "#tinyfeed-rpg-stage-add", function () {
+            const stages = rpgEnsureStages();
+            stages.push({ at: 0, label: "ระดับใหม่" });
+            saveRpgSchema();
+            renderRpgSchemaEditor();
+        });
+        $(document).on("input", ".tinyfeed-rpg-stage-at", function () {
+            const i = $(this).closest(".tinyfeed-rpg-stage-row").data("idx");
+            const stages = rpgEnsureStages();
+            const n = parseInt($(this).val(), 10);
+            if (stages[i]) { stages[i].at = Number.isFinite(n) ? n : 0; saveRpgSchema(); }
+        });
+        $(document).on("input", ".tinyfeed-rpg-stage-label", function () {
+            const i = $(this).closest(".tinyfeed-rpg-stage-row").data("idx");
+            const stages = rpgEnsureStages();
+            if (stages[i]) { stages[i].label = $(this).val(); saveRpgSchema(); }
+        });
+        $(document).on("click", ".tinyfeed-rpg-stage-del", function () {
+            const i = $(this).data("idx");
+            const stages = rpgEnsureStages();
+            stages.splice(i, 1);
+            saveRpgSchema();
+            renderRpgSchemaEditor();
+        });
+        // สมุด NPC: หน้ารายการ
+        $(document).on("click", ".tinyfeed-rpg-npc-card", function () {
+            rpgNpcView = $(this).data("key");
+            rpgFieldEditing = null;
+            renderRpgNpcTab();
+        });
+        $(document).on("click", "#tinyfeed-rpg-npc-sync", function () { rpgSyncNpcs(); });
+        $(document).on("click", "#tinyfeed-rpg-npc-addbtn", function () {
+            const name = String($("#tinyfeed-rpg-npc-addname").val() || "").trim();
+            const key = rpgAddCustomNpc(name, "");
+            if (key) { $("#tinyfeed-rpg-npc-addname").val(""); renderRpgNpcList(); }
+        });
+        $(document).on("keydown", "#tinyfeed-rpg-npc-addname", function (e) {
+            if (e.key === "Enter") { e.preventDefault(); $("#tinyfeed-rpg-npc-addbtn").trigger("click"); }
+        });
+        // สมุด NPC: หน้ารายละเอียด
+        $(document).on("click", ".tinyfeed-rpg-aff-btn", function () {
+            const key = $(this).data("key");
+            const step = parseFloat($(this).data("step")) || 0;
+            rpgAffectionAdd(key, step, "ปรับด้วยตนเอง");
+            renderRpgNpcProfile(key);
+        });
+        $(document).on("click", ".tinyfeed-rpg-npcfield-unknown", function () {
+            rpgFieldEditing = { key: $(this).data("key"), field: $(this).data("field") };
+            renderRpgNpcProfile(rpgFieldEditing.key);
+        });
+        $(document).on("keydown", ".tinyfeed-rpg-npcfield-reveal", function (e) {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            const key = $(this).data("key");
+            const field = $(this).data("field");
+            const val = String($(this).val() || "").trim();
+            rpgFieldEditing = null;
+            if (val) rpgRevealField(key, field, val);
+            renderRpgNpcProfile(key);
+        });
+        $(document).on("blur", ".tinyfeed-rpg-npcfield-reveal", function () {
+            if (!rpgFieldEditing) return;   // ถูก commit ไปแล้วจาก Enter (กันบันทึกซ้ำตอน blur ตามมา)
+            const key = $(this).data("key");
+            const field = $(this).data("field");
+            const val = String($(this).val() || "").trim();
+            rpgFieldEditing = null;
+            if (val) rpgRevealField(key, field, val);
+            renderRpgNpcProfile(key);
+        });
+        $(document).on("change", ".tinyfeed-rpg-npcfield-input", function () {
+            rpgRevealField($(this).data("key"), $(this).data("field"), $(this).val());
+        });
+        $(document).on("click", ".tinyfeed-rpg-npc-viewfull", function () { openCharProfile($(this).data("name")); });
+        $(document).on("click", "#tinyfeed-rpg-npc-delete", function () {
+            rpgDeleteNpc($(this).data("key"));
+            rpgNpcView = null;
+            renderRpgNpcList();
+        });
         // HUD ในหน้าแชทหลัก
         $(document).on("click", ".tinyfeed-hud-open", function () { openPhone(); openApp("rpg"); });
         $(document).on("click", "#tinyfeed-hud-toggle", function (e) {

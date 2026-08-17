@@ -209,7 +209,9 @@ export const defaultSettings = {
     // TinyQuest (แอปที่ 13): สเตตัส/schema RPG ที่ตั้งเองได้ต่อการ์ด
     rpgSchemas: {},                // { <charFile>: { stats:[statDef], stages:[] } } — schema ผูกกับการ์ด
     injectRpg: false,              // แทรกสถานะผู้เล่นเข้า RP หลัก
+    injectRpgNpc: false,           // · รวมความสัมพันธ์กับ NPC ด้วย (รอบ ②)
     crossAppRpg: false,            // ให้แอปอื่นอ้างอิงสถานะได้
+    rpgNpcInfo: {},                // { <charFile>: { <npcKey>: {name,avatar,birthday,...,extra,known} } } — ตัวตน NPC ผูกการ์ด (รอบ ②)
     rpgTokens: 350,                // ความยาวผลลัพธ์ตอน AI เสนอสเตตัส
     rpgExtraPrompt: "",            // คำสั่งเสริมตอน AI เสนอสเตตัส
     hudEnabled: false,             // แถบ HUD เหนือช่องพิมพ์ในหน้าแชทหลักของ ST (ปิดโดยดีฟอลต์)

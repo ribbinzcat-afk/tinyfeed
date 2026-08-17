@@ -4783,6 +4783,9 @@
 }
 
 /* ===== TinyQuest (RPG): แท็บสถานะ/ตั้งค่าสเตตัส ===== */
+/* .tinyfeed-app ให้แค่ flex:1 เฉยๆ — ต้องมี min-height:0 ต่อคอลัมน์นี้เอง ไม่งั้น .tinyfeed-rpg-tabbody
+ * ข้างในจะไม่มีความสูงจำกัดให้ overflow-y:auto ยึด กลายเป็นเนื้อหาดันจนล้นกรอบสกรอลไม่ได้ (bug ที่ผู้ใช้เจอ) */
+.tinyfeed-rpg-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tinyfeed-rpg-tabbody { flex: 1; overflow-y: auto; padding: var(--tf-sp-4); min-height: 0; }
 .tinyfeed-rpg-head { display: flex; align-items: center; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-5); }
 .tinyfeed-rpg-headname { font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong); }
@@ -4916,6 +4919,119 @@
 .tinyfeed-rpg-proposal-name { flex: 0 0 auto; color: var(--tf-text-strong); font-weight: 600; }
 .tinyfeed-rpg-proposal-meta { flex: 1; color: var(--tf-text-muted); font-size: var(--tf-fs-xs); }
 .tinyfeed-rpg-proposals-actions { display: flex; gap: var(--tf-sp-3); margin-top: var(--tf-sp-3); }
+
+/* ── ตัวสลับ ผู้เล่น/NPC ในแท็บตั้งค่าสเตตัส (รอบ ②) ── */
+.tinyfeed-rpg-schema-switch { display: flex; gap: var(--tf-sp-2); margin-bottom: var(--tf-sp-4); }
+.tinyfeed-rpg-schema-switch-btn {
+    flex: 1; text-align: center; padding: var(--tf-sp-2) var(--tf-sp-3); border-radius: var(--tf-r-pill);
+    font-size: var(--tf-fs-sm); color: var(--tf-text-muted); background: var(--tf-topbar);
+    border: 1px solid var(--tf-border); cursor: pointer; transition: all 0.15s ease;
+}
+.tinyfeed-rpg-schema-switch-btn.tinyfeed-rpg-schema-switch-active {
+    color: #fff; background: var(--tf-app-rpg); border-color: var(--tf-app-rpg); font-weight: 600;
+}
+
+/* ── ตัวจัดการช่องข้อมูลตัวตน NPC + ระดับความสัมพันธ์ (รอบ ②) ── */
+.tinyfeed-rpg-npcfields-box { margin-top: var(--tf-sp-5); padding-top: var(--tf-sp-4); border-top: 1px solid var(--tf-border-soft); }
+.tinyfeed-rpg-fieldtoggle {
+    display: flex; align-items: center; gap: var(--tf-sp-2); padding: 5px 0;
+    font-size: var(--tf-fs-sm); color: var(--tf-text); cursor: pointer;
+}
+.tinyfeed-rpg-customfield-row,
+.tinyfeed-rpg-stage-row {
+    display: flex; align-items: center; gap: var(--tf-sp-2); margin-bottom: var(--tf-sp-2);
+}
+.tinyfeed-rpg-customfield-label,
+.tinyfeed-rpg-stage-label {
+    flex: 1; min-width: 0; box-sizing: border-box; background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-sm);
+    padding: 6px var(--tf-sp-3); font: inherit; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-stage-at {
+    flex: 0 0 74px; box-sizing: border-box; background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-sm);
+    padding: 6px var(--tf-sp-2); font: inherit; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-customfield-del,
+.tinyfeed-rpg-stage-del {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: var(--tf-r-pill);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--tf-text-muted); cursor: pointer; font-size: 0.85em;
+}
+.tinyfeed-rpg-customfield-del:hover,
+.tinyfeed-rpg-stage-del:hover { background: color-mix(in srgb, var(--tf-danger) 15%, transparent); color: var(--tf-danger); }
+
+/* ── สมุด NPC: หน้ารายการ (รอบ ②) ── */
+.tinyfeed-rpg-npc-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-3); }
+.tinyfeed-rpg-npc-count { font-size: var(--tf-fs-sm); color: var(--tf-text-muted); }
+.tinyfeed-rpg-npc-addform { display: flex; gap: var(--tf-sp-2); margin-bottom: var(--tf-sp-4); }
+.tinyfeed-rpg-npc-addform input {
+    flex: 1; min-width: 0; box-sizing: border-box; background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-2) var(--tf-sp-3); font: inherit; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-npc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.tinyfeed-rpg-npc-card {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 10px 6px; border-radius: 12px; cursor: pointer;
+    background: color-mix(in srgb, var(--tf-app-rpg) 8%, var(--tf-topbar));
+    border: 1px solid var(--tf-border); transition: transform 0.1s ease, border-color 0.15s ease;
+}
+.tinyfeed-rpg-npc-card:active { transform: scale(0.96); }
+.tinyfeed-rpg-npc-card:hover { border-color: var(--tf-app-rpg); }
+.tinyfeed-rpg-npc-card .tinyfeed-avatar { width: 54px; height: 54px; }
+.tinyfeed-rpg-npc-name { font-size: 0.8em; color: var(--tf-text-strong); text-align: center; line-height: 1.2; word-break: break-word; }
+.tinyfeed-rpg-npc-name small { color: var(--tf-text-muted); font-weight: 400; }
+.tinyfeed-rpg-npc-hearts { font-size: 0.7em; color: #ec4899; letter-spacing: 1px; }
+.tinyfeed-rpg-heart-empty { opacity: 0.25; }
+
+/* ── สมุด NPC: หน้ารายละเอียด (รอบ ②) ── */
+.tinyfeed-rpg-npc-profile-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 4px 0 var(--tf-sp-5); }
+.tinyfeed-rpg-npc-profile-head .tinyfeed-avatar { width: 84px; height: 84px; font-size: 2em; }
+.tinyfeed-rpg-npc-profile-name { font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong); }
+.tinyfeed-rpg-npc-profile-stage {
+    font-size: var(--tf-fs-xs); font-weight: 600; color: var(--tf-app-rpg);
+    background: color-mix(in srgb, var(--tf-app-rpg) 16%, var(--tf-topbar));
+    padding: 2px var(--tf-sp-3); border-radius: var(--tf-r-pill);
+}
+.tinyfeed-rpg-npc-profile-hearts { font-size: 0.95em; color: #ec4899; letter-spacing: 2px; margin-top: 2px; }
+.tinyfeed-rpg-npc-aff-num { color: var(--tf-text-muted); font-size: 0.65em; letter-spacing: 0; margin-left: 4px; }
+.tinyfeed-rpg-npc-affbar {
+    width: 160px; height: 6px; border-radius: var(--tf-r-pill); margin-top: 4px;
+    background: color-mix(in srgb, var(--tf-text-muted) 25%, transparent); overflow: hidden;
+}
+.tinyfeed-rpg-npc-affbar > span { display: block; height: 100%; background: linear-gradient(90deg, #ec4899, #f472b6); border-radius: var(--tf-r-pill); transition: width 0.4s ease; }
+.tinyfeed-rpg-npc-affbtns { display: flex; gap: var(--tf-sp-3); margin-top: var(--tf-sp-2); }
+.tinyfeed-rpg-aff-btn {
+    padding: 3px var(--tf-sp-4); border-radius: var(--tf-r-pill); font-size: var(--tf-fs-xs); font-weight: 600;
+    color: var(--tf-text); background: var(--tf-border-soft); cursor: pointer;
+}
+.tinyfeed-rpg-aff-btn:hover { background: var(--tf-border); }
+.tinyfeed-rpg-npc-viewfull {
+    font-size: var(--tf-fs-xs); color: var(--tf-accent); cursor: pointer; margin-top: var(--tf-sp-2);
+    text-decoration: underline;
+}
+.tinyfeed-rpg-npcfields-list { margin-bottom: var(--tf-sp-5); }
+.tinyfeed-rpg-npcfield {
+    display: flex; align-items: center; gap: var(--tf-sp-3);
+    padding: 6px 0; border-top: 1px solid var(--tf-border-soft); font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-npcfield:first-child { border-top: none; }
+.tinyfeed-rpg-npcfield-label { flex: 0 0 auto; min-width: 84px; color: var(--tf-text-muted); }
+.tinyfeed-rpg-npcfield-input,
+.tinyfeed-rpg-npcfield-reveal {
+    flex: 1; min-width: 0; box-sizing: border-box; background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-sm);
+    padding: 5px var(--tf-sp-3); font: inherit; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-npcfield-input:focus,
+.tinyfeed-rpg-npcfield-reveal:focus { outline: none; border-color: var(--tf-accent); }
+.tinyfeed-rpg-npcfield-unknown {
+    flex: 1; color: var(--tf-text-muted); letter-spacing: 2px; cursor: pointer;
+    padding: 5px var(--tf-sp-3); border: 1px dashed var(--tf-border); border-radius: var(--tf-r-sm);
+}
+.tinyfeed-rpg-npcfield-unknown:hover { border-color: var(--tf-accent); color: var(--tf-accent); }
+.tinyfeed-rpg-npc-delbtn { width: 100%; margin-top: var(--tf-sp-4); color: var(--tf-danger); }
 
 /* ── วิดเจ็ตหน้าโฮม ── */
 .tinyfeed-widget-rpg { cursor: pointer; transition: transform 0.15s ease; }
