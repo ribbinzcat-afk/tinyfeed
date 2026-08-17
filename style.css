@@ -5,7 +5,9 @@
    ============================================================ */
 
 /* ---- ค่าที่ไม่ขึ้นกับธีม (มืด/สว่างใช้ชุดเดียวกัน) ---- */
-#tinyfeed-phone {
+/* #tinyfeed-hud แทรกอยู่ในหน้าแชทหลักของ ST (นอก #tinyfeed-phone) — ต้องได้ token ชุดเดียวกันด้วย */
+#tinyfeed-phone,
+#tinyfeed-hud {
     /* ระยะห่าง */
     --tf-sp-1: 4px;
     --tf-sp-2: 6px;
@@ -47,11 +49,13 @@
     --tf-app-verse: #6366f1;
     --tf-app-theater: #e11d48;
     --tf-app-novel: #0ea5e9;
+    --tf-app-rpg: #f43f5e;
     --tf-app-news: #f59e0b;      /* ไม่ใช่แอป — เป็นแท็บใน feed */
 }
 
 /* ---- ค่าที่ขึ้นกับธีม (ต้องนิยามครบทั้งสองชุดเสมอ) ---- */
-#tinyfeed-phone.tinyfeed-theme-dark {
+#tinyfeed-phone.tinyfeed-theme-dark,
+#tinyfeed-hud.tinyfeed-theme-dark {
     --tf-bg: #16181c;
     --tf-text: #e7e9ea;
     --tf-text-strong: #ffffff;
@@ -63,7 +67,8 @@
     --tf-topbar: #16181c;
 }
 
-#tinyfeed-phone.tinyfeed-theme-light {
+#tinyfeed-phone.tinyfeed-theme-light,
+#tinyfeed-hud.tinyfeed-theme-light {
     --tf-bg: #ffffff;
     --tf-text: #0f1419;
     --tf-text-strong: #0f1419;
@@ -4775,4 +4780,174 @@
 .tinyfeed-novel-chardesc {
     font-size: var(--tf-fs-sm); color: var(--tf-text-muted);
     line-height: 1.6; margin-top: var(--tf-sp-2);
+}
+
+/* ===== TinyQuest (RPG): แท็บสถานะ/ตั้งค่าสเตตัส ===== */
+.tinyfeed-rpg-tabbody { flex: 1; overflow-y: auto; padding: var(--tf-sp-4); min-height: 0; }
+.tinyfeed-rpg-head { display: flex; align-items: center; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-5); }
+.tinyfeed-rpg-headname { font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong); }
+
+.tinyfeed-rpg-group { margin-bottom: var(--tf-sp-5); }
+.tinyfeed-rpg-group-title {
+    font-size: var(--tf-fs-xs); font-weight: 700; letter-spacing: 0.04em;
+    color: var(--tf-text-muted); text-transform: uppercase;
+    margin-bottom: var(--tf-sp-3);
+}
+
+.tinyfeed-rpg-stat {
+    display: flex; align-items: center; gap: var(--tf-sp-3);
+    padding: var(--tf-sp-2) 0; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-stat-label {
+    flex: 0 0 auto; min-width: 88px; color: var(--tf-text);
+    display: flex; align-items: center; gap: 4px;
+}
+.tinyfeed-rpg-stat-label i { width: 15px; text-align: center; color: var(--tf-text-muted); }
+.tinyfeed-rpg-stat-bar {
+    flex: 1; height: 8px; border-radius: var(--tf-r-pill);
+    background: var(--tf-border-soft); overflow: hidden;
+}
+.tinyfeed-rpg-stat-bar > span {
+    display: block; height: 100%; border-radius: var(--tf-r-pill);
+    transition: width 0.3s ease;
+}
+.tinyfeed-rpg-stat-num {
+    flex: 0 0 auto; min-width: 44px; text-align: right;
+    color: var(--tf-text-muted); font-variant-numeric: tabular-nums;
+}
+.tinyfeed-rpg-stat-numval { color: var(--tf-text-strong); font-weight: 600; }
+.tinyfeed-rpg-stat-btn {
+    flex: 0 0 auto; width: 22px; height: 22px; border-radius: var(--tf-r-pill);
+    display: flex; align-items: center; justify-content: center;
+    background: var(--tf-border-soft); color: var(--tf-text); cursor: pointer;
+    font-weight: 700; user-select: none;
+}
+.tinyfeed-rpg-stat-btn:hover { background: var(--tf-border); }
+
+.tinyfeed-rpg-stat-tagrow,
+.tinyfeed-rpg-stat-textrow { align-items: flex-start; }
+.tinyfeed-rpg-tags { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+.tinyfeed-rpg-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px var(--tf-sp-3); border-radius: var(--tf-r-pill);
+    background: color-mix(in srgb, var(--tf-accent) 15%, transparent);
+    color: var(--tf-text-strong); font-size: var(--tf-fs-xs);
+}
+.tinyfeed-rpg-tag-del { cursor: pointer; color: var(--tf-text-muted); font-size: 0.85em; }
+.tinyfeed-rpg-tag-del:hover { color: var(--tf-danger); }
+.tinyfeed-rpg-tag-input {
+    flex: 1; min-width: 70px; background: transparent; border: none; outline: none;
+    color: var(--tf-text); font: inherit; font-size: var(--tf-fs-xs);
+}
+.tinyfeed-rpg-stat-textinput {
+    flex: 1; box-sizing: border-box; background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-md);
+    padding: 6px var(--tf-sp-3); font: inherit; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-stat-textinput:focus { outline: none; border-color: var(--tf-accent); }
+
+.tinyfeed-rpg-logbox { margin-top: var(--tf-sp-6); }
+.tinyfeed-rpg-log-item {
+    font-size: var(--tf-fs-xs); color: var(--tf-text-muted); line-height: 1.6;
+    padding: 4px 0; border-top: 1px solid var(--tf-border-soft);
+}
+.tinyfeed-rpg-log-item:first-of-type { border-top: none; }
+.tinyfeed-rpg-log-time { color: var(--tf-text-soft); margin-right: 6px; }
+.tinyfeed-rpg-log-why { font-style: italic; }
+.tinyfeed-rpg-log-empty { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); }
+
+/* ── ตั้งค่าสเตตัส (schema editor) ── */
+.tinyfeed-rpg-schema-toolbar {
+    display: flex; flex-wrap: wrap; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-4);
+}
+.tinyfeed-rpg-schema-toolbar select {
+    flex: 1; min-width: 120px; box-sizing: border-box; background: var(--tf-topbar); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-2) var(--tf-sp-3); font: inherit; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-schema-toolbar .tinyfeed-btn-generate { flex: 0 0 auto; font-size: var(--tf-fs-xs); }
+
+.tinyfeed-rpg-schema-row {
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-3); margin-bottom: var(--tf-sp-3); background: var(--tf-topbar);
+}
+.tinyfeed-rpg-schema-row-top { display: flex; align-items: center; gap: var(--tf-sp-2); margin-bottom: var(--tf-sp-2); }
+.tinyfeed-rpg-schema-row-top input[type="text"] {
+    flex: 1; min-width: 0; box-sizing: border-box; background: var(--tf-bg); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-sm);
+    padding: 6px var(--tf-sp-3); font: inherit; font-size: var(--tf-fs-sm);
+}
+.tinyfeed-rpg-schema-row-top select {
+    flex: 0 0 auto; box-sizing: border-box; background: var(--tf-bg); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-sm);
+    padding: 6px var(--tf-sp-2); font: inherit; font-size: var(--tf-fs-xs);
+}
+.tinyfeed-rpg-schema-up,
+.tinyfeed-rpg-schema-down,
+.tinyfeed-rpg-schema-del {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: var(--tf-r-pill);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--tf-text-muted); cursor: pointer; font-size: 0.85em;
+}
+.tinyfeed-rpg-schema-up:hover,
+.tinyfeed-rpg-schema-down:hover { background: var(--tf-border-soft); color: var(--tf-text); }
+.tinyfeed-rpg-schema-del:hover { background: color-mix(in srgb, var(--tf-danger) 15%, transparent); color: var(--tf-danger); }
+.tinyfeed-rpg-schema-row-bottom { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tf-sp-3); margin-top: var(--tf-sp-2); }
+.tinyfeed-rpg-schema-row-bottom input[type="number"],
+.tinyfeed-rpg-schema-row-bottom input[type="text"] {
+    flex: 1; min-width: 60px; box-sizing: border-box; background: var(--tf-bg); color: var(--tf-text);
+    border: 1px solid var(--tf-border); border-radius: var(--tf-r-sm);
+    padding: 6px var(--tf-sp-2); font: inherit; font-size: var(--tf-fs-xs);
+}
+.tinyfeed-rpg-sf-check {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 4px;
+    font-size: var(--tf-fs-xs); color: var(--tf-text-muted); white-space: nowrap;
+}
+
+.tinyfeed-rpg-proposals-box {
+    border: 1px dashed var(--tf-accent); border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-4); margin-bottom: var(--tf-sp-4);
+    background: color-mix(in srgb, var(--tf-accent) 8%, transparent);
+}
+.tinyfeed-rpg-proposal-row {
+    display: flex; align-items: center; gap: var(--tf-sp-3);
+    padding: var(--tf-sp-2) 0; font-size: var(--tf-fs-sm); cursor: pointer;
+}
+.tinyfeed-rpg-proposal-name { flex: 0 0 auto; color: var(--tf-text-strong); font-weight: 600; }
+.tinyfeed-rpg-proposal-meta { flex: 1; color: var(--tf-text-muted); font-size: var(--tf-fs-xs); }
+.tinyfeed-rpg-proposals-actions { display: flex; gap: var(--tf-sp-3); margin-top: var(--tf-sp-3); }
+
+/* ── วิดเจ็ตหน้าโฮม ── */
+.tinyfeed-widget-rpg { cursor: pointer; transition: transform 0.15s ease; }
+.tinyfeed-widget-rpg:active { transform: scale(0.98); }
+
+/* ===== TinyQuest HUD: แถบสถานะเหนือช่องพิมพ์ในหน้าแชทหลักของ ST ===== */
+#tinyfeed-hud {
+    padding: 6px var(--tf-sp-4);
+    font-size: var(--tf-fs-sm);
+    border-top: 1px solid var(--tf-border);
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+}
+.tinyfeed-hud-bar { display: flex; align-items: center; gap: var(--tf-sp-3); }
+.tinyfeed-hud-toggle {
+    flex: 0 0 auto; width: 20px; text-align: center;
+    color: var(--tf-text-muted); cursor: pointer;
+}
+.tinyfeed-hud-toggle:hover { color: var(--tf-text); }
+.tinyfeed-hud-chips {
+    flex: 1; display: flex; gap: var(--tf-sp-3); overflow-x: auto;
+    cursor: pointer; scrollbar-width: none;
+}
+.tinyfeed-hud-chips::-webkit-scrollbar { display: none; }
+.tinyfeed-hud-chip {
+    flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
+    padding: 2px var(--tf-sp-3); border-radius: var(--tf-r-pill);
+    background: color-mix(in srgb, var(--hud-c, var(--tf-accent)) 18%, transparent);
+    color: var(--tf-text-strong); font-weight: 600; font-size: var(--tf-fs-xs);
+}
+.tinyfeed-hud-chip i { color: var(--hud-c, var(--tf-accent)); }
+.tinyfeed-hud-empty {
+    cursor: pointer; color: var(--tf-text-muted); font-size: var(--tf-fs-xs);
+    display: flex; align-items: center; justify-content: space-between;
 }

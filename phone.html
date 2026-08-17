@@ -147,6 +147,10 @@
                         <span>แดชบอร์ดโทเคน (ต่อแอป + รวม)</span>
                         <input id="tinyfeed-cfg-widget-tokens" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>สถานะ RPG (TinyQuest)</span>
+                        <input id="tinyfeed-cfg-widget-rpg" type="checkbox" />
+                    </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ความทึบพื้นหลังวิดเจ็ต: <b id="tinyfeed-widget-opacity-val">82%</b></span>
                         <input id="tinyfeed-cfg-widget-opacity" type="range" min="0" max="100" step="5" />
@@ -541,6 +545,10 @@
                         <span>แทรกนิยาย TinyNovel ด้วย</span>
                         <input id="tinyfeed-cfg-inject-novel" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกสถานะผู้เล่น TinyQuest ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-rpg" type="checkbox" />
+                    </label>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
                             <span class="tinyfeed-field-label">จำนวนล่าสุดที่แทรก</span>
@@ -603,6 +611,10 @@
                     <label class="tinyfeed-field-row">
                         <span>· นิยาย (TinyNovel)</span>
                         <input id="tinyfeed-cfg-crossapp-novel" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· สถานะผู้เล่น (TinyQuest)</span>
+                        <input id="tinyfeed-cfg-crossapp-rpg" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">จำนวนที่แนบข้ามแอป</span>
@@ -870,6 +882,24 @@
                     </label>
                 </div>
 
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="rpg">
+                    <div class="tinyfeed-settings-title">TinyQuest (RPG)</div>
+                    <small class="tinyfeed-field-hint">ชุดสเตตัส <b>ผูกกับตัวละคร</b> (การ์ดเดียวกันใช้ชุดเดียวกันทุกแชท) · ค่าที่เล่นจริง (ตัวเลข/ประวัติ) <b>ผูกกับแชทนี้</b> · แก้ชุดสเตตัสได้ในแอป TinyQuest แท็บ "ตั้งค่าสเตตัส"</small>
+                    <label class="tinyfeed-field-row">
+                        <span>แถบสถานะเหนือช่องพิมพ์ (HUD)</span>
+                        <input id="tinyfeed-cfg-hud-enabled" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">โชว์เฉพาะค่าที่ "ปักหมุด" ไว้ในแอป TinyQuest · แตะแถบเพื่อเปิดแอปเต็ม</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวผลลัพธ์ตอน AI เสนอสเตตัส (token)</span>
+                        <input id="tinyfeed-cfg-rpg-tokens" type="number" min="50" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเพิ่มเติมตอน AI เสนอสเตตัส (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-rpg-extra" rows="2" placeholder="เช่น เน้นค่าพลังเวทมนตร์ ห้ามมีค่าเงิน..."></textarea>
+                    </label>
+                </div>
+
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="prompts">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
@@ -1128,6 +1158,10 @@
 
         <div id="tinyfeed-app-novel" class="tinyfeed-app tinyfeed-hidden">
             <div id="tinyfeed-novel-body" class="tinyfeed-novel-body"></div>
+        </div>
+
+        <div id="tinyfeed-app-rpg" class="tinyfeed-app tinyfeed-hidden">
+            <div id="tinyfeed-rpg-body" class="tinyfeed-rpg-body"></div>
         </div>
 
         <div id="tinyfeed-gallery-picker" class="tinyfeed-modal tinyfeed-hidden">

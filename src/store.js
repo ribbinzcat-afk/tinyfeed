@@ -206,6 +206,15 @@ export const defaultSettings = {
     // TinyVerse
     verseBioLimit: 1000,          // จำกัดจำนวนตัวอักษร bio ที่ดึงจากการ์ด (0 = ไม่จำกัด)
     verseTokens: 120,             // ความยาวโพสต์ฟีดโกลบอล (โทเคน)
+    // TinyQuest (แอปที่ 13): สเตตัส/schema RPG ที่ตั้งเองได้ต่อการ์ด
+    rpgSchemas: {},                // { <charFile>: { stats:[statDef], stages:[] } } — schema ผูกกับการ์ด
+    injectRpg: false,              // แทรกสถานะผู้เล่นเข้า RP หลัก
+    crossAppRpg: false,            // ให้แอปอื่นอ้างอิงสถานะได้
+    rpgTokens: 350,                // ความยาวผลลัพธ์ตอน AI เสนอสเตตัส
+    rpgExtraPrompt: "",            // คำสั่งเสริมตอน AI เสนอสเตตัส
+    hudEnabled: false,             // แถบ HUD เหนือช่องพิมพ์ในหน้าแชทหลักของ ST (ปิดโดยดีฟอลต์)
+    hudCollapsed: false,           // จำสถานะพับ/กาง HUD
+    widgetRpg: false,              // วิดเจ็ตสถานะบนหน้าโฮม
 };
 
 export function getSetting(key) {
