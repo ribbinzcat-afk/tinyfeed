@@ -4726,10 +4726,10 @@ function renderRpgStatus() {
         <div class="tinyfeed-rpg-head">
             ${makeAvatar({ isUser: true, author: getUserName() })}
             <div class="tinyfeed-rpg-headname">${escapeText(getUserName())}</div>
-            <span id="tinyfeed-rpg-scan-btn" class="tinyfeed-rpg-headgear" title="สแกนบทหาการเปลี่ยนแปลง"><i class="fa-solid fa-magnifying-glass"></i></span>
             ${gearHtml}
         </div>
         ${pendingBanner}
+        <button id="tinyfeed-rpg-scan-btn" class="tinyfeed-ai-link tinyfeed-rpg-scanbtn"><i class="fa-solid fa-magnifying-glass"></i> <span>สแกนบทหาการเปลี่ยนแปลง</span></button>
         ${groupsHtml}
         <div class="tinyfeed-rpg-logbox">
             <div class="tinyfeed-rpg-group-title">ประวัติ</div>
@@ -5062,9 +5062,19 @@ function rpgDiscardPending() {
 }
 
 // ── แท็บสมุด (รอบ ②): หน้ารายการ / หน้ารายละเอียด ──
+// หน้ารายละเอียด NPC ต้องมีปุ่มย้อนกลับจริง (เหมือน openVersePost/closeVersePost) — เดิมลืมโชว์ #tinyfeed-back
+// เลยกดย้อนกลับจากหน้ารายละเอียดไม่ได้ ทำจุดเดียวตรงนี้ให้ครอบคลุมทุกทางเข้า/ออกแทนการเรียกซ้ำหลายที่
+function rpgShowNpcBack() {
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
+    $("#tinyfeed-back").removeClass("tinyfeed-hidden");
+}
+function rpgHideNpcBack() {
+    $("#tinyfeed-back").addClass("tinyfeed-hidden");
+    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
+}
 function renderRpgNpcTab() {
-    if (rpgNpcView) renderRpgNpcProfile(rpgNpcView);
-    else renderRpgNpcList();
+    if (rpgNpcView) { rpgShowNpcBack(); renderRpgNpcProfile(rpgNpcView); }
+    else { rpgHideNpcBack(); renderRpgNpcList(); }
 }
 function npcHeartsHtml(aff) {
     const hearts = rpgHearts(aff);
@@ -5099,7 +5109,7 @@ function renderRpgNpcProfile(key) {
     const body = $("#tinyfeed-rpg-tabbody");
     if (!body.length) return;
     const meta = rpgNpcList().find((n) => n.key === key);
-    if (!meta) { rpgNpcView = null; renderRpgNpcList(); return; }
+    if (!meta) { rpgNpcView = null; renderRpgNpcTab(); return; }
     const info = getRpgNpcInfo(key);
     const n = getRpgNpc(key);
     const aff = n.affection || 0;
@@ -5293,7 +5303,7 @@ function updateRpgHud() {
         return;
     }
     const chips = defs.map((d) => {
-        const text = rpgStatValueText(d);
+        const text = rpgStatDisplay(d);   // มีชื่อค่ากำกับด้วยเสมอ (ไม่ใช่แค่ตัวเลขเดี่ยวๆ ดูไม่ออกว่าเป็นค่าอะไร)
         return `<span class="tinyfeed-hud-chip" style="--hud-c:${escapeAttr(d.color || "#8b5cf6")}">${d.icon ? `<i class="fa-solid ${escapeAttr(d.icon)}"></i> ` : ""}${escapeText(text)}</span>`;
     }).join("");
     hud.html(`
@@ -11277,7 +11287,13 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-widget-rpg", function () { openApp("rpg"); });
         $(document).on("click", ".tinyfeed-tab[data-rtab]", function () {
             const t = $(this).data("rtab");
-            if (t && t !== rpgTab) { rpgTab = t; renderRpg(); }
+            if (t && t !== rpgTab) {
+                rpgTab = t;
+                rpgNpcView = null;      // สลับแท็บ = ออกจากหน้ารายละเอียด NPC เสมอ (กันปุ่มย้อนกลับค้างผิดสถานะ)
+                rpgFieldEditing = null;
+                rpgHideNpcBack();
+                renderRpg();
+            }
         });
         // รอบ ③: ไอคอนเฟืองในแท็บสถานะ → หน้าตั้งค่าสเตตัสแบบเต็มจอ (ย้ายออกจากแท็บ กันแท็บล้นตอนเพิ่มกระเป๋า)
         $(document).on("click", "#tinyfeed-rpg-schema-gear", openRpgSchema);
@@ -11513,7 +11529,7 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-rpg-npc-delete", function () {
             rpgDeleteNpc($(this).data("key"));
             rpgNpcView = null;
-            renderRpgNpcList();
+            renderRpgNpcTab();
         });
         // HUD ในหน้าแชทหลัก
         $(document).on("click", ".tinyfeed-hud-open", function () { openPhone(); openApp("rpg"); });

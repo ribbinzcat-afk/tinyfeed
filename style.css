@@ -4801,6 +4801,8 @@
     transition: background 0.15s ease, color 0.15s ease;
 }
 .tinyfeed-rpg-headgear:hover { background: var(--tf-border-soft); color: var(--tf-text-strong); }
+/* ปุ่มสแกนบท — ใช้ .tinyfeed-ai-link กลาง (เหมือนปุ่ม "ให้ NPC คอมเมนต์" ของ TinyFeed) แค่จัดระยะห่างเพิ่ม */
+.tinyfeed-rpg-scanbtn { margin-bottom: var(--tf-sp-5); }
 
 .tinyfeed-rpg-group { margin-bottom: var(--tf-sp-5); }
 .tinyfeed-rpg-group-title {
