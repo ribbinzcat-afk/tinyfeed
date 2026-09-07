@@ -2,7 +2,7 @@
  * ใช้ตัวในนี้ ห้ามเขียน markup เอง — ดู CONVENTIONS.md บทที่ 4.1 / 4.2 / 4.7 */
 
 /* แถบพิมพ์กลาง — โครง [ไอคอนนำหน้า…][ช่องพิมพ์ + สติกเกอร์][ปุ่มส่ง]
- * ใช้ 6 ที่: TinyConnect · TinyStream ผู้ชม/สตรีมเมอร์ · TinyForum · คอมเมนต์ TinyFeed/TinyVerse
+ * ใช้ 5 ที่: TinyConnect · TinyStream ผู้ชม/สตรีมเมอร์ · TinyForum · คอมเมนต์ TinyFeed
  * คืน "เนื้อใน" ของแถบ (ไม่รวม container) เพื่อให้ผู้เรียกคุมคลาส/สถานะซ่อนของ container เอง
  *
  *   lead     [{id?, cls?, icon, title}]  ไอคอนหน้าแถบ (0–2 อัน)
@@ -44,6 +44,15 @@ export function emptyStateHtml(icon, title, sub) {
 
 export function emptyInlineHtml(html) {
     return `<div class="tinyfeed-empty-inline">${html}</div>`;
+}
+
+/* ปุ่มอัปโหลดรูปจากเครื่อง — ใช้คู่กับ <input> ที่รับลิงก์รูป (URL) เสมอ
+ * วางไว้ใน .tinyfeed-uploadrow เดียวกับ <input> ที่ต้องการ (ไม่ว่า input จะเป็น id คงที่หรือแถวที่ JS สร้างใหม่)
+ * handler กลาง (ดู index.js "อัปโหลดรูปจากเครื่อง") จะหา input ด้วย
+ *   $(this).closest(".tinyfeed-uploadrow").find("input").first()
+ * kind = ตัวคุมขนาด/คุณภาพที่ย่อ ดู IMG_KINDS ใน src/util.js (image/sticker/avatar/wallpaper/sprite/thumb) */
+export function uploadBtnHtml(kind) {
+    return `<span class="tinyfeed-upload-btn" data-kind="${kind}" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>`;
 }
 
 export function skeletonCardHtml() {

@@ -1,5 +1,6 @@
 import { extension_settings, getContext } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
+import { saveBase64AsFile } from "../../../utils.js";
 
 // โมดูลย่อย (ดู CONVENTIONS.md บทที่ 7 — module layout)
 import {
@@ -7,12 +8,12 @@ import {
     defaultSettings, flushAllSaves, getFeedData, getGallery, getSetting, saveFeedDataDebounced, saveGallery, setSetting,
 } from "./src/store.js";
 import {
-    displayTime, escapeAttr, escapeHtml, escapeText, findGalleryImage, htmlToPlain,
+    displayTime, downscaleImageFile, escapeAttr, escapeHtml, escapeText, findGalleryImage, htmlToPlain,
     renderImgToken, renderRich, renderStickerToken, resolveMediaPriority,
     stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
 } from "./src/util.js";
 import {
-    composeBarHtml, emptyInlineHtml, emptyStateHtml, skeletonCardHtml,
+    composeBarHtml, emptyInlineHtml, emptyStateHtml, skeletonCardHtml, uploadBtnHtml,
 } from "./src/components.js";
 
 
@@ -35,7 +36,6 @@ function loadSettings() {
         extension_settings[extensionName].injectMode = "posts_comments_news";
     }
     migrateLegacyAvatars();   // ย้ายรูป override เก่าเข้าโปรไฟล์ persona/char
-    migrateVerseScenes();     // ย้ายซีนเก่าจาก TinyVerse → TinyTheater (ครั้งเดียว)
     cleanupLegacyGlobalScope();   // ล้าง shop/bankCurrency global เก่าที่ค้างจากก่อนย้าย scope (ครั้งเดียว)
     const enabled = extension_settings[extensionName].enabled;
     $("#tinyfeed-enabled").prop("checked", enabled);
@@ -44,8 +44,6 @@ function loadSettings() {
     applyWallpaper();
     applyAppearance();
     applyCustomCss();
-    mountRpgHud();     // แถบ HUD อยู่ในหน้าแชทหลักของ ST (นอก #tinyfeed-phone) — สร้างครั้งเดียวตอนโหลด
-    updateRpgHud();
 }
 
 // ใส่วอลเปเปอร์หน้าโฮม (ลิงก์ภายนอก)
@@ -153,50 +151,23 @@ const APPS = [
         },
     },
     {
-        id: "verse", name: "TinyVerse", icon: "fa-globe", a: "#6366f1", b: "#4338ca",
-        panel: "#tinyfeed-app-verse", home: true, remember: true,
-        open() { versePostId = null; openVerse(); },
-        back() { if (isVersePostOpen()) { closeVersePost(); return true; } return false; },
-    },
-    {
-        id: "theater", name: "TinyTheater", icon: "fa-masks-theater", a: "#e11d48", b: "#9f1239",
-        panel: "#tinyfeed-app-theater", home: true, remember: true,
-        open() { openTheater(); },
-    },
-    {
-        id: "novel", name: "TinyNovel", icon: "fa-book-open", a: "#0ea5e9", b: "#0369a1",
-        panel: "#tinyfeed-app-novel", home: true, remember: true,
-        open() { openNovel(); },
-        back() {
-            if (novelScreen === "chars") { novelScreen = "read"; renderNovel(); return true; }   // ตัวละคร → กลับไปอ่านต่อ
-            if (novelScreen !== "shelf") { novelScreen = "shelf"; novelBookId = null; renderNovel(); return true; }
-            return false;
-        },
-    },
-    {
-        id: "rpg", name: "TinyQuest", icon: "fa-dice-d20", a: "#f43f5e", b: "#be123c",
-        panel: "#tinyfeed-app-rpg", home: true, remember: true,
-        open() { openRpg(); },
-        back() {
-            if (rpgSchemaOpen) { closeRpgSchema(); return true; }   // หน้าตั้งค่าสเตตัส (รอบ ③ ย้ายออกจากแท็บ) → กลับแท็บสถานะ
-            if (rpgTab === "npc" && rpgNpcView) { rpgNpcView = null; rpgFieldEditing = null; renderRpg(); return true; }
-            return false;
-        },
+        id: "ask", name: "TinyAsk", icon: "fa-circle-question", a: "#6366f1", b: "#4338ca",
+        panel: "#tinyfeed-app-ask", home: true, remember: true,
+        open() { openAsk(); },
     },
 ];
 
 const APP_BY_ID = Object.fromEntries(APPS.map((a) => [a.id, a]));
 
 /* ทะเบียน overlay/modal — ใช้ร่วมกันระหว่าง openApp (กันค้างข้ามแอป) และ handleBack (ปุ่มย้อนกลับ)
- * เดิมสองที่นี้ถือลิสต์คนละชุด → char-profile / verse-import / verse-poster ปิดด้วยปุ่มย้อนกลับไม่ได้ */
+ * เดิมสองที่นี้ถือลิสต์คนละชุด → char-profile ปิดด้วยปุ่มย้อนกลับไม่ได้ */
 const OVERLAYS = [
     { sel: "#tinyfeed-gallery-picker", close: closeGalleryOverlays },
     { sel: "#tinyfeed-gallery-view", close: closeGalleryOverlays },
     { sel: "#tinyfeed-gallery-edit", close: closeGalleryOverlays },
     { sel: "#tinyfeed-char-picker", close: closeCharPicker },
     { sel: "#tinyfeed-char-profile", close: closeCharProfile },
-    { sel: "#tinyfeed-verse-import-modal", close: closeVerseImport },
-    { sel: "#tinyfeed-verse-poster-modal", close: closeVersePosterPicker },
+    { sel: "#tinyfeed-group-edit-modal", close: closeGroupEditModal },
     { sel: "#tinyfeed-slip-modal", close: closeSlipModal },
     { sel: "#tinyfeed-donate-modal", close: closeDonateModal },
     { sel: "#tinyfeed-shop-edit-modal", close: closeShopEditModal },
@@ -204,10 +175,7 @@ const OVERLAYS = [
     { sel: "#tinyfeed-pet-item-modal", close: closePetItemModal },
     { sel: "#tinyfeed-pet-topup-modal", close: closePetTopup },
     { sel: "#tinyfeed-pet-game-modal", close: closePetGame },
-    { sel: "#tinyfeed-rpg-item-modal", close: closeRpgItemModal },
-    { sel: "#tinyfeed-rpg-item-add-modal", close: closeRpgItemAddModal },
-    { sel: "#tinyfeed-rpg-quest-add-modal", close: closeRpgQuestAddModal },
-    { sel: "#tinyfeed-rpg-review-modal", close: closeRpgReviewModal },
+    { sel: "#tinyfeed-ask-send-modal", close: closeAskSendModal },
 ];
 
 function anyOverlayOpen() {
@@ -1024,13 +992,6 @@ function fillShopCatSelect($sel, keep) {
     $sel.html(`<option value="">— ไม่ระบุหมวด —</option>` + cats.map((c) => `<option value="${escapeAttr(c)}">${escapeText(c)}</option>`).join(""));
     if (cur && cats.includes(cur)) $sel.val(cur);
 }
-// เติม <select> ค่าสเตตัสที่สินค้ามีผลได้ (เฉพาะ number/bar — รอบ ③) ผูกกับ schema ของการ์ดนี้
-function fillRpgStatSelect($sel, keep) {
-    const stats = getRpgSchema().stats.filter((d) => d.type === "number" || d.type === "bar");
-    const cur = keep != null ? keep : $sel.val();
-    $sel.html(`<option value="">— ไม่มีผลกับสเตตัส —</option>` + stats.map((d) => `<option value="${escapeAttr(d.id)}">${escapeText(d.label)}</option>`).join(""));
-    if (cur && stats.some((d) => d.id === cur)) $sel.val(cur);
-}
 // thumbnail: รูป > อิโมจิ > ไอคอนกล่อง
 function shopThumbHtml(it) {
     if (it.image) return `<img class="tinyfeed-shop-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
@@ -1041,7 +1002,6 @@ function shopThumbHtml(it) {
 function renderShop() {
     $("#tinyfeed-shop-balance").text(formatMoney(getBankData().balance));
     fillShopCatSelect($("#tinyfeed-shop-cat"));
-    fillRpgStatSelect($("#tinyfeed-shop-fx-stat"));
     // กรองหมวดที่หายไปแล้ว
     if (shopFilterCat !== "__all__" && !shopCatsClean().includes(shopFilterCat)) shopFilterCat = "__all__";
     renderShopCatBar();
@@ -1055,7 +1015,6 @@ function renderShop() {
     }
     $("#tinyfeed-shop-grid").html(items.map((it) => {
         const n = owned[it.id] || 0;
-        const fxText = rpgItemEffectText(it.fx);
         return `<div class="tinyfeed-shop-item" data-id="${escapeAttr(it.id)}">
             <div class="tinyfeed-shop-thumb-wrap">
                 ${shopThumbHtml(it)}
@@ -1066,17 +1025,11 @@ function renderShop() {
             <div class="tinyfeed-shop-name">${escapeText(it.name)}</div>
             ${it.cat ? `<div class="tinyfeed-shop-cat-tag">${escapeText(it.cat)}</div>` : ""}
             ${it.desc ? `<div class="tinyfeed-shop-desc">${escapeText(it.desc)}</div>` : ""}
-            ${fxText ? `<div class="tinyfeed-shop-fx-tag"><i class="fa-solid fa-bolt"></i> ${escapeText(fxText)}</div>` : ""}
             <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
         </div>`;
     }).join(""));
 }
 
-function rpgFxFromForm(statSel, amountSel) {
-    const stat = String($(statSel).val() || "").trim();
-    const amount = parseInt($(amountSel).val(), 10) || 0;
-    return stat ? { stat, amount } : { stat: "", amount: 0 };
-}
 function addShopItem() {
     const name = String($("#tinyfeed-shop-name").val() || "").trim();
     const price = parseInt($("#tinyfeed-shop-price").val(), 10);
@@ -1084,13 +1037,12 @@ function addShopItem() {
     const emoji = String($("#tinyfeed-shop-emoji").val() || "").trim().slice(0, 4);
     const desc = String($("#tinyfeed-shop-desc").val() || "").trim();
     const cat = String($("#tinyfeed-shop-cat").val() || "").trim();
-    const fx = rpgFxFromForm("#tinyfeed-shop-fx-stat", "#tinyfeed-shop-fx-amount");
     if (!name) { toastr.info("ตั้งชื่อสินค้าก่อนนะ", "TinyShop"); return; }
     if (!Number.isFinite(price) || price <= 0) { toastr.info("ใส่ราคาสินค้าก่อนนะ", "TinyShop"); return; }
-    getShop().push({ id: shopId(), name, price, image, emoji, desc, cat, fx });
+    getShop().push({ id: shopId(), name, price, image, emoji, desc, cat });
     saveShop();
-    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-emoji, #tinyfeed-shop-desc, #tinyfeed-shop-fx-amount").val("");
-    $("#tinyfeed-shop-fx-stat").val("");
+    $("#tinyfeed-shop-name, #tinyfeed-shop-price, #tinyfeed-shop-image, #tinyfeed-shop-emoji, #tinyfeed-shop-desc").val("");
+    updateUploadPreview($("#tinyfeed-shop-image"));
     renderShop();
     toastr.success(`เพิ่มสินค้า "${name}" แล้ว`, "TinyShop");
 }
@@ -1102,11 +1054,10 @@ function openShopEdit(id) {
     $("#tinyfeed-shop-edit-name").val(it.name || "");
     $("#tinyfeed-shop-edit-price").val(it.price || "");
     $("#tinyfeed-shop-edit-image").val(it.image || "");
+    updateUploadPreview($("#tinyfeed-shop-edit-image"));
     $("#tinyfeed-shop-edit-emoji").val(it.emoji || "");
     fillShopCatSelect($("#tinyfeed-shop-edit-cat"), it.cat || "");
     $("#tinyfeed-shop-edit-desc").val(it.desc || "");
-    fillRpgStatSelect($("#tinyfeed-shop-edit-fx-stat"), it.fx && it.fx.stat);
-    $("#tinyfeed-shop-edit-fx-amount").val(it.fx && it.fx.amount ? it.fx.amount : "");
     $("#tinyfeed-shop-edit-modal").removeClass("tinyfeed-hidden");
 }
 function closeShopEditModal() { $("#tinyfeed-shop-edit-modal").addClass("tinyfeed-hidden"); shopEditId = null; }
@@ -1123,7 +1074,6 @@ function saveShopEdit() {
     it.emoji = String($("#tinyfeed-shop-edit-emoji").val() || "").trim().slice(0, 4);
     it.cat = String($("#tinyfeed-shop-edit-cat").val() || "").trim();
     it.desc = String($("#tinyfeed-shop-edit-desc").val() || "").trim();
-    it.fx = rpgFxFromForm("#tinyfeed-shop-edit-fx-stat", "#tinyfeed-shop-edit-fx-amount");
     saveShop();
     closeShopEditModal();
     renderShop();
@@ -1144,7 +1094,6 @@ async function generateShopItems(opts) {
         const extra = String(getSetting("shopExtraPrompt") || "").trim();
         const q = buildPrompt("shopItems", {
             cats: cats.join(", "),
-            stats: rpgAvailableStatIdsLine(),
             extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
             context: crossAppContext("shop"),
         });
@@ -1166,7 +1115,6 @@ async function generateShopItems(opts) {
 function parseShopItems(raw, cats) {
     const s = stripReasoning(raw);
     const lowerCats = cats.map((c) => c.toLowerCase());
-    const validStatIds = new Set(getRpgSchema().stats.filter((d) => d.type === "number" || d.type === "bar").map((d) => d.id));
     const re = /ITEM:\s*(.+)/gi;
     let m, count = 0;
     while ((m = re.exec(s)) !== null) {
@@ -1176,14 +1124,9 @@ function parseShopItems(raw, cats) {
         let cat = (parts[2] || "").trim();
         const emoji = (parts[3] || "").trim().slice(0, 4);
         const desc = (parts[4] || "").trim();
-        const fxStatRaw = (parts[5] || "").trim();
-        const fxAmount = Math.round(parseFloat(String(parts[6] || "").replace(/[^\d.-]/g, "")) || 0);
         if (!name || !price) continue;
         if (!lowerCats.includes(cat.toLowerCase())) cat = cats[0] || "";
-        // statId ที่ AI ใส่มาไม่มีในschema (การ์ดคนละใบ/AI มั่ว) → ทิ้งเอฟเฟกต์ ไม่ทิ้งสินค้า
-        const fx = (fxStatRaw && fxStatRaw !== "-" && validStatIds.has(fxStatRaw) && fxAmount)
-            ? { stat: fxStatRaw, amount: fxAmount } : { stat: "", amount: 0 };
-        getShop().push({ id: shopId(), name, price, image: "", emoji, desc, food: 0, cat, fx });
+        getShop().push({ id: shopId(), name, price, image: "", emoji, desc, food: 0, cat });
         count++;
     }
     return count;
@@ -1202,9 +1145,6 @@ function buyShopItem(id) {
     if (!bankDeduct(it.price, `ซื้อ ${it.name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
     const owned = getShopOwned();
     owned[id] = (owned[id] || 0) + 1;
-    if (getSetting("shopToInventory")) {
-        rpgAddItem({ name: it.name, emoji: it.emoji, image: it.image, desc: it.desc, fx: it.fx, src: "shop" });
-    }
     saveFeedDataDebounced();
     renderShop();
     toastr.success(`ซื้อ "${it.name}" แล้ว`, "TinyShop");
@@ -1287,6 +1227,7 @@ function addGalleryImage() {
     g.images.push({ id: galleryId(), url, caption, name: finalName, album: currentAlbum("image"), ts: Date.now() });
     saveGallery();
     $("#tinyfeed-gallery-img-url, #tinyfeed-gallery-img-caption, #tinyfeed-gallery-img-name").val("");
+    updateUploadPreview($("#tinyfeed-gallery-img-url"));
     renderGalleryGrid("image");
     toastr.success(`เพิ่มรูป "${finalName}" แล้ว`, "TinyGallery");
 }
@@ -1303,6 +1244,7 @@ function addGallerySticker() {
     g.stickers.push({ id: galleryId(), url, name: finalName, album: currentAlbum("sticker"), ts: Date.now() });
     saveGallery();
     $("#tinyfeed-gallery-stk-url, #tinyfeed-gallery-stk-name").val("");
+    updateUploadPreview($("#tinyfeed-gallery-stk-url"));
     renderGalleryGrid("sticker");
     toastr.success(`เพิ่มสติกเกอร์ "${finalName}" แล้ว`, "TinyGallery");
 }
@@ -1339,14 +1281,23 @@ function deleteGalleryAlbum(kind) {
     renderGalleryGrid(kind);
 }
 
+// url เดียวกันถูกใช้ที่อื่นในคลังอีกไหม (กันลบไฟล์จริงทิ้งทั้งที่ยังมีรายการอื่นอ้างอิงอยู่)
+function galleryUrlStillUsed(url, excludeId) {
+    const g = getGallery();
+    const isSame = (it) => String(it.url) === String(url) && String(it.id) !== String(excludeId);
+    return g.images.some(isSame) || g.stickers.some(isSame);
+}
+
 function deleteGalleryItem(kind, id) {
     const g = getGallery();
     const arr = kind === "sticker" ? g.stickers : g.images;
     const idx = arr.findIndex((it) => String(it.id) === String(id));
     if (idx < 0) return;
+    const url = arr[idx].url;
     arr.splice(idx, 1);
     saveGallery();
     renderGalleryGrid(kind);
+    if (!galleryUrlStillUsed(url, id)) deleteTinyUploadedImage(url);
 }
 
 // หาไอเท็มในคลังตาม kind + id
@@ -1378,6 +1329,9 @@ function openGalleryEdit(kind, id) {
     const g = getGallery();
     const albums = kind === "sticker" ? g.stickerAlbums : g.imageAlbums;
     $("#tinyfeed-gallery-edit-title").text(kind === "sticker" ? "แก้ไขสติกเกอร์" : "แก้ไขรูป");
+    $("#tinyfeed-gallery-edit-url").closest(".tinyfeed-uploadrow").find(".tinyfeed-upload-btn").data("kind", kind);
+    $("#tinyfeed-gallery-edit-url").val(it.url || "");
+    updateUploadPreview($("#tinyfeed-gallery-edit-url"));
     $("#tinyfeed-gallery-edit-name").val(it.name || "");
     $("#tinyfeed-gallery-edit-caption").val(it.caption || "");
     $("#tinyfeed-gallery-edit-caption-field").toggleClass("tinyfeed-hidden", kind !== "image");
@@ -1394,18 +1348,23 @@ function saveGalleryEdit() {
     const it = getGalleryItem(kind, id);
     if (!it) { closeGalleryEdit(); return; }
     const newName = String($("#tinyfeed-gallery-edit-name").val() || "").trim();
+    const newUrl = String($("#tinyfeed-gallery-edit-url").val() || "").trim();
     if (!newName) { toastr.info("ตั้งชื่อก่อนนะ", "TinyGallery"); return; }
+    if (!newUrl) { toastr.info("ต้องมีรูป — อัปโหลดใหม่หรือวางลิงก์", "TinyGallery"); return; }
     const arr = kind === "sticker" ? getGallery().stickers : getGallery().images;
     if (arr.some((x) => x.id !== it.id && String(x.name).trim().toLowerCase() === newName.toLowerCase())) {
         toastr.info("มีชื่อนี้อยู่แล้ว ตั้งชื่ออื่นนะ", "TinyGallery"); return;
     }
+    const oldUrl = it.url;
     it.name = newName;
+    it.url = newUrl;
     if (kind === "image") it.caption = String($("#tinyfeed-gallery-edit-caption").val() || "").trim();
     it.album = String($("#tinyfeed-gallery-edit-album").val() || "ทั่วไป");
     saveGallery();
     closeGalleryEdit();
     renderGalleryGrid(kind);
     toastr.success("บันทึกแล้ว", "TinyGallery");
+    if (oldUrl !== newUrl && !galleryUrlStillUsed(oldUrl, it.id)) deleteTinyUploadedImage(oldUrl);
 }
 
 // ปิด overlay ทั้งหมดของคลัง (picker/ดูรูป/แก้ไข)
@@ -1413,6 +1372,118 @@ function closeGalleryOverlays() {
     closeGalleryPicker();
     closeGalleryView();
     closeGalleryEdit();
+}
+
+// normalize ผู้เขียน (ชื่อจากฟีด/คอมเมนต์) → การ์ดโปรไฟล์ (ผู้ใช้/ตัวหลัก/NPC/อื่นๆ) เพื่อใช้กับ openCharProfile
+function charCardForAuthor(author) {
+    const name = String(author || "").trim();
+    if (!name) return null;
+    if (nameMatchesUser(name)) return { name: getUserName(), avatar: getUserAvatar(), bio: "", isUser: true };
+    if (nameMatchesChar(name)) {
+        return { name: getCharName(), avatar: getCharacterAvatar(), bio: "", npcs: getNpcs().map((n) => ({ name: n.name, avatar: n.avatar || "" })) };
+    }
+    const npc = getNpcs().find((x) => String(x.name || "").trim().toLowerCase() === name.toLowerCase());
+    if (npc) return { name: npc.name, avatar: npc.avatar || "", bio: "", isNpc: true };
+    return { name, avatar: "", bio: "" };
+}
+
+// ── หน้าโปรไฟล์ตัวละคร (component ใช้ร่วม TinyFeed: แตะชื่อคนโพสต์ → ดูโปรไฟล์) ──
+let charProfileCtx = null;
+// ref = ชื่อผู้เขียน (string) | การ์ด normalize แล้ว (object)
+function openCharProfile(ref) {
+    let card = null;
+    if (ref && typeof ref === "object") card = ref;
+    else card = charCardForAuthor(ref);
+    if (!card) return;
+    charProfileCtx = card;
+    renderCharProfile(card);
+    $("#tinyfeed-char-profile").removeClass("tinyfeed-hidden");
+}
+function closeCharProfile() { $("#tinyfeed-char-profile").addClass("tinyfeed-hidden"); charProfileCtx = null; }
+function renderCharProfile(card) {
+    const body = $("#tinyfeed-char-profile-body");
+    if (!body.length) return;
+    const av = makeAvatar({ avatar: card.avatar || "", author: card.name, isUser: !!card.isUser });
+    const npcs = Array.isArray(card.npcs) ? card.npcs : [];
+    const bio = String(card.bio || "").trim();
+    const roleTag = card.isUser ? "คุณ" : card.isNpc ? "NPC" : "ตัวละคร";
+    const npcHtml = npcs.length ? `
+        <div class="tinyfeed-vprofile-section">
+            <div class="tinyfeed-vprofile-sectitle">NPC ในสังกัด (${npcs.length})</div>
+            <div class="tinyfeed-vprofile-npcs">${npcs.map((n) => `
+                <div class="tinyfeed-vprofile-npc" data-npc="${escapeAttr(n.name)}">${makeAvatar({ avatar: n.avatar || "", author: n.name })}<span>${escapeText(n.name)}</span></div>`).join("")}</div>
+        </div>` : "";
+    body.html(`
+        <div class="tinyfeed-vprofile-head">
+            <div class="tinyfeed-vprofile-ava">${av}</div>
+            <div class="tinyfeed-vprofile-name">${escapeText(card.name)} <span class="tinyfeed-vprofile-role">${roleTag}</span></div>
+            ${bio ? `<div class="tinyfeed-vprofile-bio">${escapeText(bio)}</div>` : ""}
+        </div>
+        ${npcHtml}
+    `);
+}
+
+// TinyMemo: กำหนดการ + โน้ต/ความจำ (ensure array สำหรับแชทเก่า)
+function getAgenda() {
+    const data = getFeedData();
+    if (!Array.isArray(data.agenda)) data.agenda = [];
+    return data.agenda;
+}
+
+function getNotes() {
+    const data = getFeedData();
+    if (!Array.isArray(data.notes)) data.notes = [];
+    return data.notes;
+}
+
+// TinyForum: กระทู้ (ensure array สำหรับแชทเก่า)
+function getForum() {
+    const data = getFeedData();
+    if (!Array.isArray(data.forum)) data.forum = [];
+    return data.forum;
+}
+
+// รายชื่อห้อง (global setting) — ensure array + seed default
+function getForumRooms() {
+    const r = getSetting("forumRooms");
+    if (!Array.isArray(r) || !r.length) return ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"];
+    return r;
+}
+
+// ===== อัปโหลดรูปจากเครื่อง — ย่อในเบราว์เซอร์ (src/util.js) แล้วส่งขึ้นเซิร์ฟเวอร์ ST (ไม่เก็บ base64 ที่ไหนเลย) =====
+// ทุกปุ่ม .tinyfeed-upload-btn (uploadBtnHtml() จาก components.js) ต้องอยู่ใน .tinyfeed-uploadrow เดียวกับ <input> เป้าหมาย
+let uploadTarget = null;   // { $input } — ช่องที่กำลังรออัปโหลดอยู่ตอนนี้
+
+// ย่อ+อัปโหลด 1 ไฟล์ → คืน path สั้นๆ จากเซิร์ฟเวอร์ (เช่น "user/images/tinyphone/xxx.webp")
+async function uploadTinyImage(file, kind) {
+    const { base64, ext } = await downscaleImageFile(file, kind);
+    const name = `tf${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    return await saveBase64AsFile(base64, "tinyphone", name, ext);
+}
+
+// ลบไฟล์ที่เราอัปโหลดเองทิ้งจากดิสก์ (เงียบๆ พอ ไม่ต้องบล็อกการลบรายการถ้าล้มเหลว)
+async function deleteTinyUploadedImage(url) {
+    const path = String(url || "");
+    if (!path.startsWith("user/images/tinyphone/")) return;   // ลิงก์ภายนอก/รูปในตัว → ไม่ยุ่ง
+    try {
+        await fetch("/api/images/delete", {
+            method: "POST",
+            headers: getContext().getRequestHeaders(),
+            body: JSON.stringify({ path }),
+        });
+    } catch (e) {
+        console.error(`[${extensionName}] deleteTinyUploadedImage failed:`, e);   // ไม่ต้อง toast — ไฟล์ขยะไม่กระทบการใช้งาน
+    }
+}
+
+// พรีวิวสี่เหลี่ยมเล็กข้าง input — ใช้ .tinyfeed-gallery-thumb-wrap/-thumb เดิม (ได้ .tinyfeed-img-broken ฟรีตอนรูปเสีย)
+// เรียกจากทุก populate/render ที่เติมค่าลง input ใน .tinyfeed-uploadrow (หลัง .val(...) เสมอ) + จากช่องพิมพ์เองตอนพิมพ์
+function updateUploadPreview($input) {
+    const $prev = $input.closest(".tinyfeed-uploadrow").find(".tinyfeed-upload-preview");
+    if (!$prev.length) return;
+    const url = String($input.val() || "").trim();
+    $prev.closest(".tinyfeed-upload-preview-wrap").toggleClass("tinyfeed-hidden", !url);
+    if (url) $prev.removeClass("tinyfeed-img-broken").attr("src", url);
 }
 
 // ===== ตัวเลือกตัวละคร (กดรูปโปรไฟล์ → เลือก) ใช้ร่วม TinyFeed + TinyStream =====
@@ -1604,6 +1675,7 @@ function toggleGroupForm(show) {
     $("#tinyfeed-group-members").html(rows || `<span class="tinyfeed-field-hint">ยังไม่มีคนให้เลือก</span>`);
     $("#tinyfeed-group-name").val("");
     $("#tinyfeed-group-avatar").val("");
+    updateUploadPreview($("#tinyfeed-group-avatar"));
     form.removeClass("tinyfeed-hidden");
 }
 
@@ -1616,6 +1688,34 @@ function createGroup() {
     getConnectGroups().push({ id: "g" + Date.now(), name, members, avatar });
     saveFeedDataDebounced();
     toggleGroupForm(false);
+    renderConnectList();
+}
+
+// แก้ชื่อ+รูปกลุ่มเดิม — modal แทน window.prompt() (prompt() เป็น dialog เบราว์เซอร์ ทะลุกรอบโทรศัพท์)
+let groupEditKey = null;
+function openGroupEditModal(key) {
+    const g = findGroup(key);
+    if (!g) return;
+    groupEditKey = key;
+    $("#tinyfeed-group-edit-name").val(g.name || "");
+    $("#tinyfeed-group-edit-avatar").val(g.avatar || "");
+    updateUploadPreview($("#tinyfeed-group-edit-avatar"));
+    $("#tinyfeed-group-edit-modal").removeClass("tinyfeed-hidden");
+}
+function closeGroupEditModal() {
+    $("#tinyfeed-group-edit-modal").addClass("tinyfeed-hidden");
+    groupEditKey = null;
+}
+function saveGroupEdit() {
+    const g = findGroup(groupEditKey);
+    if (!g) { closeGroupEditModal(); return; }
+    const name = String($("#tinyfeed-group-edit-name").val() || "").trim();
+    if (!name) { toastr.info("ตั้งชื่อกลุ่มก่อนนะ", "TinyConnect"); return; }
+    g.name = name;
+    g.avatar = String($("#tinyfeed-group-edit-avatar").val() || "").trim();
+    saveFeedDataDebounced();
+    if (isConnectThreadOpen() && activeThread === groupEditKey) $(".tinyfeed-title").text(g.name);
+    closeGroupEditModal();
     renderConnectList();
 }
 
@@ -2003,10 +2103,6 @@ function applyTheme(theme) {
     $("#tinyfeed-notif")
         .removeClass("tinyfeed-theme-dark tinyfeed-theme-light")
         .addClass(`tinyfeed-theme-${theme}`);
-    // HUD ก็อยู่นอกตัวเครื่องเหมือนกัน (แทรกอยู่ในหน้าแชทหลักของ ST)
-    $("#tinyfeed-hud")
-        .removeClass("tinyfeed-theme-dark tinyfeed-theme-light")
-        .addClass(`tinyfeed-theme-${theme}`);
     // ธีมมืดโชว์ไอคอนพระอาทิตย์ (กดเพื่อไปสว่าง), ธีมสว่างโชว์พระจันทร์
     const icon = $("#tinyfeed-theme");
     icon.removeClass("fa-moon fa-sun");
@@ -2036,9 +2132,8 @@ const ACCENT_PRESETS = [
 function applyAppearance() {
     const phone = document.getElementById("tinyfeed-phone");
     const notif = document.getElementById("tinyfeed-notif");
-    const hud = document.getElementById("tinyfeed-hud");
     const accent = String(getSetting("accentColor") || "").trim();
-    [phone, notif, hud].forEach((el) => {
+    [phone, notif].forEach((el) => {
         if (!el) return;
         if (accent) el.style.setProperty("--tf-accent", accent);
         else el.style.removeProperty("--tf-accent");
@@ -2287,9 +2382,7 @@ const INJECT_SOURCES = [
     { id: "bank", inject: "injectBank", cross: "crossAppBank", single: () => ({ bank: true }) },
     { id: "shop", inject: "injectShop", cross: "crossAppShop", single: () => ({ shop: true }) },
     { id: "pet", inject: "injectPet", cross: "crossAppPet", single: () => ({ pet: true }) },
-    { id: "theater", inject: "injectTheater", cross: "crossAppTheater", single: () => ({ theater: true }) },
-    { id: "novel", inject: "injectNovel", cross: "crossAppNovel", single: () => ({ novel: true }) },
-    { id: "rpg", inject: "injectRpg", cross: "crossAppRpg", single: () => ({ rpg: true }) },
+    { id: "ask", inject: "injectAsk", cross: "crossAppAsk", single: () => ({ ask: true }) },
 ];
 // มีแหล่งไหนเปิดอยู่บ้างไหม (ใช้แทนการไล่ && / || ทีละตัว)
 function anyWant(w) { return INJECT_SOURCES.some((s) => w[s.id]); }
@@ -2302,7 +2395,6 @@ function injectWant() {
         comments: ["posts_comments", "posts_comments_news"].includes(mode),
         news: ["news", "posts_comments_news", "both"].includes(mode),
         forumComments: Boolean(getSetting("injectForumComments")),
-        rpgNpc: Boolean(getSetting("injectRpgNpc")),
         count: Math.max(1, parseInt(getSetting("injectCount"), 10) || 5),
     };
     for (const src of INJECT_SOURCES) {
@@ -2420,16 +2512,6 @@ function renderHomeWidgets() {
     if (getSetting("widgetTokens")) {
         parts.push(renderTokenWidget());
     }
-    if (getSetting("widgetRpg")) {
-        const defs = getRpgSchema().stats.filter((d) => d.hud).slice(0, 6);
-        const rows = defs.length
-            ? defs.map((d) => `<div class="tinyfeed-widget-agenda-item">${d.icon ? `<i class="fa-solid ${escapeAttr(d.icon)}"></i> ` : ""}${escapeText(d.label)} ${escapeText(rpgStatValueText(d))}</div>`).join("")
-            : `<div class="tinyfeed-widget-agenda-empty">ยังไม่มีสเตตัสที่ปักหมุด</div>`;
-        parts.push(`<div id="tinyfeed-widget-rpg" class="tinyfeed-widget tinyfeed-widget-rpg" data-app="rpg">
-            <div class="tinyfeed-widget-head"><i class="fa-solid fa-dice-d20"></i> สถานะ (TinyQuest)</div>
-            ${rows}
-        </div>`);
-    }
     box.html(parts.join(""));
     box.toggleClass("tinyfeed-hidden", parts.length === 0);
     clearHomeClock();
@@ -2472,2847 +2554,6 @@ function getNpcs() {
     return store[key];
 }
 function saveNpcs() { saveSettingsDebounced(); }
-
-// ===== TinyVerse (แอปที่ 10): ฮับตัวละครโกลบอล — import การ์ด+NPC มารวมกัน + หน้าโปรไฟล์ใช้ร่วม =====
-// data model: extension_settings[extensionName].verse = { chars: { <charFile>: {...} }, feed: [] }
-function getVerse() {
-    const store = extension_settings[extensionName] = extension_settings[extensionName] || {};
-    if (!store.verse || typeof store.verse !== "object") store.verse = { chars: {}, feed: [], scenes: [] };
-    if (!store.verse.chars || typeof store.verse.chars !== "object") store.verse.chars = {};
-    if (!Array.isArray(store.verse.feed)) store.verse.feed = [];
-    if (!Array.isArray(store.verse.scenes)) store.verse.scenes = [];
-    return store.verse;
-}
-function saveVerse() { saveSettingsDebounced(); }
-// จำนวนตัวอักษรสูงสุดของ bio (ตั้งค่าได้; 0 = ไม่จำกัด)
-function verseBioLimit() {
-    const n = parseInt(getSetting("verseBioLimit"), 10);
-    return (Number.isFinite(n) && n >= 0) ? n : 1000;
-}
-// bio จากการ์ด (v1 field หรือ v2 card.data) ตัดตามค่าจำกัด (0 = เต็ม)
-function cardBio(card) {
-    if (!card) return "";
-    const d = card.description || (card.data && card.data.description) || "";
-    const per = card.personality || (card.data && card.data.personality) || "";
-    let bio = String(d || "").trim();
-    if (!bio && per) bio = String(per).trim();
-    const cap = verseBioLimit();
-    return cap > 0 ? bio.slice(0, cap) : bio;
-}
-// เพิ่ม/รีเฟรชตัวละครหนึ่งตัวเข้า roster (refresh ชื่อ/รูป/NPC/bio, คง persona ที่ผู้ใช้แก้) — คืน true ถ้าเป็นตัวใหม่
-function verseAddChar(card) {
-    if (!card || !card.avatar) return false;
-    const v = getVerse();
-    const key = String(card.avatar);
-    const existed = !!v.chars[key];
-    const prof = getProfileStore("char")[key] || {};
-    const avatar = (prof.avatarUrl && String(prof.avatarUrl)) || `/thumbnail?type=avatar&file=${encodeURIComponent(key)}`;
-    const store = getNpcsStore();
-    const npcs = Array.isArray(store[key]) ? store[key].map((n) => ({ name: n.name, avatar: n.avatar || "" })) : [];
-    const prev = v.chars[key] || {};
-    v.chars[key] = {
-        key,
-        name: card.name || prev.name || "ตัวละคร",
-        avatar,
-        bio: cardBio(card) || prev.bio || "",           // รีเฟรชจากการ์ด
-        persona: prev.persona || cardBio(card) || "",   // ผู้ใช้แก้ได้ → คงไว้
-        npcs: npcs.length ? npcs : (prev.npcs || []),
-        addedTs: prev.addedTs || Date.now(),
-    };
-    return !existed;
-}
-// อ่าน charcard ทั้งหมดที่โหลดใน ST (getContext().characters) → รายการเลือก import
-function verseImportCandidates() {
-    let cards = [];
-    try { const ctx = getContext(); if (ctx && Array.isArray(ctx.characters)) cards = ctx.characters; } catch (e) { /* ไม่มี context */ }
-    const v = getVerse();
-    return cards.filter((c) => c && c.avatar).map((c) => ({ file: String(c.avatar), name: c.name || "ตัวละคร", inRoster: !!v.chars[String(c.avatar)] }));
-}
-function verseRemoveChar(key) { const v = getVerse(); if (v.chars[key]) { delete v.chars[key]; saveVerse(); } }
-function verseClearAll() { const v = getVerse(); v.chars = {}; saveVerse(); }
-
-// ── ตัวเลือก import (เลือกเฉพาะตัวที่ต้องการ + ตั้งค่าจำกัดตัวอักษร bio) ──
-function openVerseImport() {
-    $("#tinyfeed-verse-biolimit").val(verseBioLimit());
-    $("#tinyfeed-verse-selall").prop("checked", false);
-    renderVerseImportList();
-    $("#tinyfeed-verse-import-modal").removeClass("tinyfeed-hidden");
-}
-function closeVerseImport() { $("#tinyfeed-verse-import-modal").addClass("tinyfeed-hidden"); }
-function renderVerseImportList() {
-    const list = $("#tinyfeed-verse-import-list");
-    if (!list.length) return;
-    const cands = verseImportCandidates();
-    if (!cands.length) {
-        list.html(emptyInlineHtml("ไม่พบตัวละครใน SillyTavern<br><small>ลองเปิด/โหลดการ์ดก่อน</small>"));
-        return;
-    }
-    const prof = getProfileStore("char");
-    list.html(cands.map((c) => {
-        const av = (prof[c.file] && prof[c.file].avatarUrl) || `/thumbnail?type=avatar&file=${encodeURIComponent(c.file)}`;
-        // default: ติ๊กเฉพาะตัวที่ยังไม่อยู่ใน roster (ตัวที่อยู่แล้ว = ติ๊กเพื่อรีเฟรช)
-        return `<label class="tinyfeed-verse-imp-row">
-            <input type="checkbox" class="tinyfeed-verse-imp-check" data-file="${escapeAttr(c.file)}" ${c.inRoster ? "" : "checked"} />
-            ${makeAvatar({ avatar: av, author: c.name })}
-            <span class="tinyfeed-verse-imp-name">${escapeText(c.name)}</span>
-            ${c.inRoster ? `<span class="tinyfeed-verse-imp-tag">อยู่แล้ว</span>` : ""}
-        </label>`;
-    }).join(""));
-}
-function verseDoImport() {
-    const lim = parseInt($("#tinyfeed-verse-biolimit").val(), 10);
-    setSetting("verseBioLimit", (Number.isFinite(lim) && lim >= 0) ? lim : 1000);   // ตั้งค่าก่อน เพื่อให้ cardBio ตัดตามค่าใหม่
-    const files = $(".tinyfeed-verse-imp-check:checked").map(function () { return String($(this).data("file")); }).get();
-    if (!files.length) { toastr.info("ยังไม่ได้เลือกตัวละคร", "TinyVerse"); return; }
-    let cards = [];
-    try { const ctx = getContext(); if (ctx && Array.isArray(ctx.characters)) cards = ctx.characters; } catch (e) { /* ไม่มี context */ }
-    const byFile = {};
-    for (const c of cards) if (c && c.avatar) byFile[String(c.avatar)] = c;
-    let added = 0;
-    for (const f of files) if (byFile[f] && verseAddChar(byFile[f])) added++;
-    saveVerse();
-    closeVerseImport();
-    renderVerse();
-    toastr.success(`Import ${files.length} ตัว (ใหม่ ${added})`, "TinyVerse");
-}
-// หา verse char ตามชื่อ (case-insensitive)
-function verseCardByName(name) {
-    const n = String(name || "").trim().toLowerCase();
-    if (!n) return null;
-    const v = getVerse();
-    for (const k in v.chars) if (String(v.chars[k].name || "").trim().toLowerCase() === n) return v.chars[k];
-    return null;
-}
-// normalize ผู้เขียน (ชื่อจากฟีด/คอมเมนต์) → การ์ดโปรไฟล์ (ผู้ใช้/ตัวหลัก/verse/NPC/anon) เพื่อใช้กับ openCharProfile ร่วมกัน
-function charCardForAuthor(author) {
-    const name = String(author || "").trim();
-    if (!name) return null;
-    if (nameMatchesUser(name)) return { name: getUserName(), avatar: getUserAvatar(), bio: "", isUser: true };
-    if (nameMatchesChar(name)) {
-        const key = getCharKey();
-        return getVerse().chars[key] || { key, name: getCharName(), avatar: getCharacterAvatar(), bio: "", persona: "", npcs: getNpcs().map((n) => ({ name: n.name, avatar: n.avatar || "" })) };
-    }
-    const vc = verseCardByName(name);
-    if (vc) return vc;
-    const npc = getNpcs().find((x) => String(x.name || "").trim().toLowerCase() === name.toLowerCase());
-    if (npc) return { name: npc.name, avatar: npc.avatar || "", bio: "", isNpc: true };
-    return { name, avatar: "", bio: "" };
-}
-
-// ── TinyVerse app: แท็บ ฟีดโกลบอล / ตัวละคร ──
-let verseTab = "feed";
-let versePostId = null;   // โพสต์ที่กางหน้ารายละเอียดอยู่ (null = อยู่หน้ารายการ) — เหมือน TinyFeed
-function openVerse() { renderVerse(); }
-
-function isVersePostOpen() { return !!versePostId; }
-
-// เปิดหน้ารายละเอียดโพสต์ (ท่าเดียวกับ openPostDetail ของ TinyFeed)
-function openVersePost(id) {
-    if (!getVerse().feed.some((p) => p.id === id)) return;
-    versePostId = id;
-    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
-    $("#tinyfeed-back").removeClass("tinyfeed-hidden");
-    renderVerse();
-}
-
-function closeVersePost() {
-    versePostId = null;
-    $("#tinyfeed-back").addClass("tinyfeed-hidden");
-    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
-    $(".tinyfeed-title").text("TinyVerse");
-    renderVerse();
-}
-
-function renderVerse() {
-    const body = $("#tinyfeed-verse-body");
-    if (!body.length) return;
-    // หน้ารายละเอียด: ไม่มีแถบแท็บ เหมือน detail ของ TinyFeed
-    if (versePostId) {
-        const post = getVerse().feed.find((p) => p.id === versePostId);
-        if (!post) { versePostId = null; closeVersePost(); return; }
-        $(".tinyfeed-title").text("โพสต์");
-        body.html(`<div class="tinyfeed-screen">${renderVersePost(post, true)}</div>`);
-        return;
-    }
-    body.html(`
-        <div class="tinyfeed-tabs">
-            <div class="tinyfeed-tab${verseTab === "feed" ? " tinyfeed-tab-active" : ""}" data-vtab="feed"><i class="fa-solid fa-hashtag"></i> ฟีด</div>
-            <div class="tinyfeed-tab${verseTab === "roster" ? " tinyfeed-tab-active" : ""}" data-vtab="roster"><i class="fa-solid fa-users"></i> ตัวละคร</div>
-        </div>
-        <div id="tinyfeed-verse-tabbody" class="tinyfeed-verse-tabbody"></div>
-    `);
-    if (verseTab === "feed") renderVerseFeed();
-    else renderVerseRoster();
-}
-function renderVerseRoster() {
-    const body = $("#tinyfeed-verse-tabbody");
-    if (!body.length) return;
-    const v = getVerse();
-    const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
-    const cards = keys.map((k) => {
-        const c = v.chars[k];
-        return `<div class="tinyfeed-verse-card" data-key="${escapeAttr(k)}">
-            ${makeAvatar({ avatar: c.avatar || "", author: c.name })}
-            <span class="tinyfeed-verse-cardname">${escapeText(c.name)}</span>
-            ${(c.npcs && c.npcs.length) ? `<span class="tinyfeed-verse-cardnpc">${c.npcs.length} NPC</span>` : ""}
-        </div>`;
-    }).join("");
-    body.html(`
-        <div class="tinyfeed-verse-bar">
-            <span class="tinyfeed-verse-count">ตัวละคร ${keys.length}</span>
-            <div class="tinyfeed-verse-baractions">
-                ${keys.length ? `<button id="tinyfeed-verse-clear" class="tinyfeed-btn-ghost tinyfeed-verse-clearbtn"><i class="fa-solid fa-trash"></i> เคลียร์</button>` : ""}
-                <button id="tinyfeed-verse-import" class="tinyfeed-btn-primary"><i class="fa-solid fa-download"></i> Import</button>
-            </div>
-        </div>
-        ${keys.length
-            ? `<div class="tinyfeed-verse-grid">${cards}</div>`
-            : emptyStateHtml("fa-user-astronaut", "ยังไม่มีตัวละคร", "กด Import เพื่อดึงการ์ด + NPC เข้ามารวมกัน")}
-    `);
-}
-
-// ── ฟีดโกลบอล: โพสต์จากตัวละครทุกการ์ด (AI แต่งในคาแรกเตอร์) + ผู้ใช้โพสต์เอง (แบบ TinyFeed) ──
-let verseBusy = false;
-const VERSE_POSTER_RANDOM = "__random__";
-let versePoster = POSTER_USER;   // ค่าเริ่มต้น = โพสต์เป็นตัวเราเอง (พิมพ์เอง + แนบรูป/สติกเกอร์)
-function verseTokens() { const n = parseInt(getSetting("verseTokens"), 10); return (Number.isFinite(n) && n > 0) ? n : 120; }
-// avatar ของคนโพสต์ที่เลือก (เรา / สุ่ม / ตัวละครใน roster)
-function versePosterAvatarNode() {
-    if (versePoster === VERSE_POSTER_RANDOM) return `<div class="tinyfeed-avatar tinyfeed-avatar-auto" title="สุ่มตัวละคร"><i class="fa-solid fa-shuffle"></i></div>`;
-    if (versePoster === POSTER_USER) return makeAvatar({ isUser: true, author: getUserName() });
-    const c = getVerse().chars[versePoster];
-    return c ? makeAvatar({ avatar: c.avatar || "", author: c.name }) : makeAvatar({ isUser: true, author: getUserName() });
-}
-// ปรับสภาพช่องเขียน: เราเอง = พิมพ์+แนบรูป/สติกเกอร์ · ตัวละคร/สุ่ม = โหมด AI (guidance + คทา)
-function applyVerseComposeMode() {
-    const aiMode = versePoster !== POSTER_USER;
-    $("#tinyfeed-verse-compose-avatar").html(versePosterAvatarNode());
-    $("#tinyfeed-verse-input")
-        .prop("disabled", aiMode)
-        .toggleClass("tinyfeed-input-disabled", aiMode)
-        .attr("placeholder", aiMode ? "ให้ตัวละครนี้โพสต์ให้ (กดปุ่มโพสต์)" : "คุณกำลังคิดอะไรอยู่?");
-    $("#tinyfeed-verse-guidance").toggleClass("tinyfeed-hidden", !aiMode);
-    $("#tinyfeed-verse-img, #tinyfeed-verse-sticker").prop("disabled", aiMode);
-    $("#tinyfeed-verse-post .tinyfeed-post-wand").toggleClass("tinyfeed-hidden", !aiMode);
-    const emptyUser = String($("#tinyfeed-verse-input").val() || "").trim().length === 0;
-    $("#tinyfeed-verse-post").prop("disabled", aiMode ? false : emptyUser);
-}
-function setVersePostGenerating(on) {
-    $("#tinyfeed-verse-post .tinyfeed-post-wand").toggleClass("tinyfeed-spin", on);
-    $("#tinyfeed-verse-post").prop("disabled", on);
-    $("#tinyfeed-verse-post .tinyfeed-post-label").text(on ? "กำลังสร้าง..." : "โพสต์");
-}
-function renderVerseFeed() {
-    const body = $("#tinyfeed-verse-tabbody");
-    if (!body.length) return;
-    // แสดง compose เสมอ (ผู้ใช้โพสต์เองได้แม้ยังไม่ import ตัวละคร; โหมด AI จะเตือนถ้า roster ว่าง)
-    body.html(`
-        <div class="tinyfeed-compose tinyfeed-verse-compose">
-            <div class="tinyfeed-compose-row">
-                <div class="tinyfeed-compose-avatar" id="tinyfeed-verse-compose-avatar" title="เลือกคนโพสต์"></div>
-                <textarea id="tinyfeed-verse-input" rows="1" placeholder="คุณกำลังคิดอะไรอยู่?"></textarea>
-            </div>
-            <input id="tinyfeed-verse-guidance" class="tinyfeed-gen-guidance tinyfeed-hidden" type="text" placeholder="แนวทางโพสต์นี้ (ไม่บังคับ)" />
-            <div class="tinyfeed-compose-bar">
-                <div class="tinyfeed-compose-bar-left">
-                    <button id="tinyfeed-verse-img" class="tinyfeed-compose-iconbtn" title="แนบรูปจากคลัง"><i class="fa-solid fa-image"></i></button>
-                    <button id="tinyfeed-verse-sticker" class="tinyfeed-compose-iconbtn" title="แนบสติกเกอร์"><i class="fa-regular fa-face-smile"></i></button>
-                </div>
-                <div class="tinyfeed-compose-bar-right">
-                    <button id="tinyfeed-verse-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
-                    <button id="tinyfeed-verse-post" class="tinyfeed-btn-primary" disabled>
-                        <i class="fa-solid fa-wand-magic-sparkles tinyfeed-post-wand tinyfeed-hidden"></i>
-                        <span class="tinyfeed-post-label">โพสต์</span>
-                    </button>
-                </div>
-            </div>
-        </div>
-        <div id="tinyfeed-verse-feed" class="tinyfeed-verse-feed"></div>
-    `);
-    applyVerseComposeMode();
-    renderVerseFeedList();
-}
-/* วาดใหม่เฉพาะส่วนโพสต์ (ไม่แตะช่องเขียน → ไม่รีเซ็ตข้อความที่ผู้ใช้พิมพ์อยู่)
- * ถ้ากางหน้ารายละเอียดอยู่ ให้วาดหน้านั้นแทน — ทุกจุดที่เรียกฟังก์ชันนี้จึงอัปเดตถูกที่เสมอ */
-function renderVerseFeedList() {
-    if (versePostId) { renderVerse(); return; }
-    const list = $("#tinyfeed-verse-feed");
-    if (!list.length) return;
-    const feed = getVerse().feed;
-    list.html(feed.length
-        ? feed.map((p) => renderVersePost(p, false)).join("")
-        : emptyInlineHtml("ยังไม่มีโพสต์ · พิมพ์แล้วกดโพสต์ หรือเลือกตัวละครให้ AI โพสต์ให้"));
-}
-/* วาดโพสต์ TinyVerse — 2 โหมดเหมือน TinyFeed
- *   detail=false (ในฟีด)  : หัว + เนื้อ + [ไลก์][จำนวนคอมเมนต์]  แตะที่การ์ด = เปิดรายละเอียด
- *   detail=true  (หน้าเต็ม): + ปุ่มให้ AI คอมเมนต์ + คอมเมนต์ทั้งหมด + ช่องเขียนคอมเมนต์
- * ปุ่มย่อยทุกตัวต้อง stopPropagation ใน handler ไม่งั้นจะเด้งเข้าหน้ารายละเอียด */
-function renderVersePost(post, detail = false) {
-    const id = escapeAttr(post.id);
-    const cs = Array.isArray(post.comments) ? post.comments : [];
-    const comments = detail && cs.length ? `<div class="tinyfeed-comments">${cs.map((c, i) => `
-        <div class="tinyfeed-comment">
-            ${makeAvatar(c)}
-            <div class="tinyfeed-comment-body">
-                <span class="tinyfeed-comment-author">${escapeText(c.author)}</span>
-                <span class="tinyfeed-comment-text">${renderRich(c.text)}</span>
-            </div>
-            <span class="tinyfeed-verse-cdel" data-vpost="${id}" data-cidx="${i}" title="ลบคอมเมนต์"><i class="fa-solid fa-trash"></i></span>
-        </div>`).join("")}</div>` : "";
-    const composer = detail ? commentComposeHtml({
-        postId: post.id, dataKey: "vpost",
-        inputCls: "tinyfeed-verse-cinput", stickerCls: "tinyfeed-verse-csticker", sendCls: "tinyfeed-verse-csend",
-    }) : "";
-    const aiBtn = detail
-        ? `<span class="tinyfeed-ai-link tinyfeed-verse-aicomment" data-vpost="${id}" title="ให้ตัวละครอื่นมาคอมเมนต์"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ตัวละครคอมเมนต์</span>`
-        : "";
-    return `<div class="tinyfeed-post${detail ? " tinyfeed-post-detail" : ""}" data-vpost="${id}">
-        <div class="tinyfeed-post-head">
-            ${makeAvatar(post)}
-            <div class="tinyfeed-post-meta">
-                <span class="tinyfeed-post-author">${escapeText(post.author)}</span>
-                <span class="tinyfeed-post-time">${displayTime(post)}</span>
-            </div>
-            <span class="tinyfeed-verse-del" data-vpost="${id}" title="ลบโพสต์"><i class="fa-solid fa-trash"></i></span>
-        </div>
-        <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
-        <div class="tinyfeed-post-actions">
-            <span class="tinyfeed-verse-like ${post.liked ? "tinyfeed-liked" : ""}" data-vpost="${id}"><i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}</span>
-            <span class="tinyfeed-verse-ccount"><i class="fa-solid fa-comment"></i> ${formatCount(cs.length)}</span>
-            ${aiBtn}
-        </div>
-        ${comments}
-        ${composer}
-    </div>`;
-}
-// ผู้ใช้โพสต์เอง (persona) — รองรับ [img:]/[sticker:] เหมือน TinyFeed
-function addVerseUserPost(text) {
-    const clean = String(text || "").trim();
-    if (!clean) return;
-    const v = getVerse();
-    v.feed.unshift({
-        id: "vu" + Date.now(), author: getUserName(), isUser: true, avatar: "",
-        ts: Date.now(), text: escapeHtml(clean), likes: randomInitialLikes(), liked: false, comments: [],
-    });
-    if (v.feed.length > 200) v.feed.length = 200;
-    saveVerse();
-    renderVerseFeedList();
-}
-// ให้ตัวละคร (หรือสุ่ม) โพสต์ด้วย AI
-async function verseGeneratePost() {
-    if (verseBusy) return;
-    const v = getVerse();
-    const keys = Object.keys(v.chars);
-    if (!keys.length) { toastr.info("ยังไม่มีตัวละคร ไปแท็บ 'ตัวละคร' แล้ว Import ก่อนนะ", "TinyVerse"); return; }
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้โพสต์ไม่ได้", "TinyVerse"); return; }
-    const key = (versePoster === VERSE_POSTER_RANDOM || !v.chars[versePoster]) ? keys[Math.floor(Math.random() * keys.length)] : versePoster;
-    const c = v.chars[key];
-    const guidance = String($("#tinyfeed-verse-guidance").val() || "").trim();
-    verseBusy = true;
-    setVersePostGenerating(true);
-    try {
-        const q = buildPrompt("versePost", {
-            charName: c.name,
-            persona: (c.persona || c.bio || "").trim() || "(ไม่มีข้อมูลตัวละครเพิ่มเติม)",
-            guidance: (guidance ? `แนวทางของโพสต์นี้: ${guidance}. ` : "") + galleryPromptBlock(),
-            context: crossAppContext("verse"),
-        });
-        const raw = await tinyGenerate(q, verseTokens(), "verse");
-        const parsed = parseGeneratedPost(raw, c.name);
-        const text = stripWrapBrackets(parsed.text || "");
-        if (!text) { toastr.info("ยังไม่มีโพสต์ ลองใหม่นะ", "TinyVerse"); return; }
-        v.feed.unshift({
-            id: "v" + Date.now(), author: c.name, authorKey: key, avatar: c.avatar || "",
-            isAI: true, isVerse: true, ts: Date.now(), text: escapeHtml(text),
-            likes: randomInitialLikes(), liked: false, comments: [],
-        });
-        if (v.feed.length > 200) v.feed.length = 200;
-        saveVerse();
-        if (currentApp === "verse" && verseTab === "feed") { $("#tinyfeed-verse-guidance").val(""); renderVerseFeedList(); }
-    } catch (e) {
-        console.error(`[${extensionName}] verseGeneratePost failed:`, e);
-        toastr.error("โพสต์ไม่สำเร็จ", "TinyVerse");
-    } finally {
-        verseBusy = false;
-        setVersePostGenerating(false);
-        applyVerseComposeMode();
-    }
-}
-function verseFeedPost(id) { return getVerse().feed.find((p) => p.id === id) || null; }
-
-// ===== TinyVerse v2: ครอสโอเวอร์ (คอมเมนต์ข้ามการ์ด + ซีนครอสโอเวอร์) =====
-// บล็อกข้อมูลตัวละครสำหรับพรอมป์ (ตัดความยาว persona กันพรอมป์บวม)
-function verseRosterBlock(keys, perCharCap) {
-    const v = getVerse();
-    const cap = perCharCap || 220;
-    return keys.map((k) => {
-        const c = v.chars[k];
-        if (!c) return "";
-        const p = String(c.persona || c.bio || "").trim().replace(/\s+/g, " ").slice(0, cap);
-        return `- ${c.name}${p ? `: ${p}` : ""}`;
-    }).filter(Boolean).join("\n");
-}
-// จับคู่ชื่อที่ AI ตอบกลับ → การ์ดใน roster (เพื่อใส่ avatar ให้ตรงตัว)
-function verseAvatarForName(name) {
-    const c = verseCardByName(name);
-    return c ? (c.avatar || "") : "";
-}
-// ให้ตัวละครอื่น "ข้ามการ์ด" มาคอมเมนต์โพสต์
-async function verseGenerateComments(postId) {
-    if (verseBusy) return;
-    const v = getVerse();
-    const post = verseFeedPost(postId);
-    if (!post) return;
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyVerse"); return; }
-    // ผู้คอมเมนต์ = ตัวละครใน roster ที่ไม่ใช่เจ้าของโพสต์
-    const others = Object.keys(v.chars).filter((k) => k !== post.authorKey && v.chars[k].name !== post.author);
-    if (!others.length) { toastr.info("ต้องมีตัวละครอย่างน้อย 2 ตัวถึงจะคอมเมนต์ข้ามการ์ดได้", "TinyVerse"); return; }
-    verseBusy = true;
-    $(`.tinyfeed-verse-aicomment[data-vpost="${postId}"]`).addClass("tinyfeed-generating");
-    try {
-        const q = buildPrompt("verseComments", {
-            author: post.author,
-            post: htmlToPlain(post.text),
-            roster: verseRosterBlock(others.slice(0, 12)),
-        });
-        const raw = await tinyGenerate(q, Math.max(80, verseTokens()), "verse");
-        const parsed = parseCommentLines(raw, post.author, "COMMENT");
-        // กันคอมเมนต์จากเจ้าของโพสต์เอง + ใส่ avatar ตามตัวจริงใน roster
-        const authorLc = String(post.author).trim().toLowerCase();
-        const list = parsed
-            .filter((c) => String(c.author).trim().toLowerCase() !== authorLc)
-            .map((c) => ({ author: c.author, avatar: verseAvatarForName(c.author), text: c.text }));
-        if (!list.length) { toastr.info("ยังไม่มีคอมเมนต์ ลองใหม่นะ", "TinyVerse"); return; }
-        if (!Array.isArray(post.comments)) post.comments = [];
-        post.comments.push(...list);
-        saveVerse();
-        renderVerseFeedList();
-    } catch (e) {
-        console.error(`[${extensionName}] verseGenerateComments failed:`, e);
-        toastr.error("สร้างคอมเมนต์ไม่สำเร็จ", "TinyVerse");
-    } finally {
-        verseBusy = false;
-        $(".tinyfeed-verse-aicomment").removeClass("tinyfeed-generating");
-    }
-}
-// ผู้ใช้คอมเมนต์เองในฟีดโกลบอล
-function addVerseComment(postId, text) {
-    const clean = String(text || "").trim();
-    if (!clean) return;
-    const post = verseFeedPost(postId);
-    if (!post) return;
-    if (!Array.isArray(post.comments)) post.comments = [];
-    post.comments.push({ author: getUserName(), isUser: true, avatar: "", text: escapeHtml(clean) });
-    saveVerse();
-    renderVerseFeedList();
-}
-
-// หมายเหตุ: ฟีเจอร์ "ซีนครอสโอเวอร์" ย้ายไปเป็นแอป TinyTheater แล้ว (โหมด "ตอนเดียวจบ")
-// ซีนเก่าใน verse.scenes จะถูกย้ายอัตโนมัติครั้งเดียวโดย migrateVerseScenes()
-
-// ===== TinyTheater (แอปที่ 11): มินิเธียเตอร์ What if — หน้าตาแบบแอปสตรีมมิ่ง =====
-// data: extension_settings[ext].theater = { shows: [ { id,title,whatIf,genre,cover,castKeys,castNames,oneShot,episodes:[{no,title,blocks:[{type,author,avatar,text}],ts}],ts,updatedTs } ] }
-const THEATER_GENRES = ["โรแมนซ์", "ตลก", "ดราม่า", "สยองขวัญ", "แอ็กชัน", "ลึกลับ", "อบอุ่นหัวใจ", "แฟนตาซี"];
-// โจทย์สำเร็จรูปสำหรับปุ่มสุ่ม — {A}/{B} จะถูกแทนด้วยชื่อนักแสดงที่เลือกไว้
-const THEATER_WHATIF_PRESETS = [
-    "ถ้า {A} กับ {B} ตื่นมาแล้วสลับร่างกัน",
-    "ถ้า {A} กับ {B} ติดอยู่ในลิฟต์ด้วยกันทั้งคืน",
-    "ถ้า {A} ย้อนเวลากลับไปเจอ {B} ตอนเด็ก",
-    "ถ้า {A} กับ {B} ต้องมาเปิดร้านกาแฟด้วยกัน",
-    "ถ้าทุกคนจำ {A} ไม่ได้เลย ยกเว้น {B}",
-    "ถ้า {A} กับ {B} ติดอยู่ในวันเดิมซ้ำๆ ไม่รู้จบ",
-    "ถ้า {A} อ่านใจ {B} ได้เป็นเวลา 1 วัน",
-    "ถ้า {A} กับ {B} สลับโลกกันอยู่ — ต่างคนต่างหลุดเข้าไปในโลกของอีกฝ่าย",
-    "ถ้า {A} ต้องแกล้งเป็นแฟนกับ {B} เพื่อเอาตัวรอดจากสถานการณ์หนึ่ง",
-    "ถ้า {A} กับ {B} เจอกันในโรงเรียนมัธยมยุคปัจจุบัน",
-    "ถ้าโลกกำลังจะแตกในอีก 24 ชั่วโมง แล้ว {A} เลือกไปหา {B}",
-    "ถ้า {A} กลายเป็นแมวเป็นเวลา 1 สัปดาห์ และมีแต่ {B} ที่ดูแลได้",
-    "ถ้า {A} กับ {B} ต้องร่วมมือกันทั้งที่เกลียดขี้หน้ากัน",
-    "ถ้า {A} ค้นพบความลับที่ {B} ปกปิดมาตลอด",
-    "ถ้า {A} กับ {B} ได้เป็นเพื่อนร่วมห้องกันโดยบังเอิญ",
-];
-// สุ่มโจทย์จาก preset แล้วเติมชื่อนักแสดงที่เลือก (ไม่ได้เลือก = ใช้คำกลางๆ)
-function theaterRandomWhatIf() {
-    const names = theaterCastSel.map(theaterCastName).filter(Boolean);
-    const a = names[0] || "ตัวละคร A";
-    const b = names[1] || (names.length === 1 ? "อีกฝ่าย" : "ตัวละคร B");
-    const p = THEATER_WHATIF_PRESETS[Math.floor(Math.random() * THEATER_WHATIF_PRESETS.length)];
-    return p.split("{A}").join(a).split("{B}").join(b);
-}
-const THEATER_LENGTHS = {
-    oneshot: { label: "ตอนเดียวจบ", hint: "เรื่องสั้นจบในตอน เน้นบทสนทนา", tokens: 500 },
-    short: { label: "สั้น", hint: "อ่านเร็ว ~1 นาที", tokens: 450 },
-    medium: { label: "กลาง", hint: "กำลังดี", tokens: 800 },
-    long: { label: "ยาว", hint: "จัดเต็ม", tokens: 1200 },
-};
-// คำอธิบาย persona ของผู้ใช้จาก ST (ตั้งในหน้า Persona) — ไม่มีก็คืน ""
-function userPersonaDesc() {
-    try {
-        const ctx = getContext();
-        const d = ctx && ctx.powerUserSettings ? ctx.powerUserSettings.persona_description : "";
-        return String(d || "").trim().replace(/\s+/g, " ").slice(0, 400);
-    } catch (e) { return ""; }
-}
-// roster สำหรับพรอมป์ที่รองรับ "ผู้ใช้" ร่วมแสดง (POSTER_USER ปนใน keys ได้)
-function theaterRosterBlock(keys, cap) {
-    const lines = [];
-    const charKeys = [];
-    for (const k of keys) {
-        if (k === POSTER_USER) {
-            const d = userPersonaDesc();
-            lines.push(`- ${getUserName()} (ตัวละครของผู้เล่น)${d ? `: ${d}` : ""}`);
-        } else charKeys.push(k);
-    }
-    const rest = verseRosterBlock(charKeys, cap);
-    return [lines.join("\n"), rest].filter(Boolean).join("\n");
-}
-function theaterCastName(k) { return k === POSTER_USER ? getUserName() : ((getVerse().chars[k] || {}).name || ""); }
-// ผู้ใช้ร่วมแสดง → อนุญาตให้ AI เขียนบทให้ persona ของเราได้ (ปกติห้าม)
-function theaterUserRule(keys) {
-    return keys.includes(POSTER_USER)
-        ? `หมายเหตุ: ${getUserName()} เป็นตัวละครของผู้เล่นที่ร่วมแสดงในเรื่องนี้ด้วย — เขียนบทพูด/การกระทำให้ ${getUserName()} ได้เลย ให้สมกับข้อมูลตัวละครที่ให้ไว้.`
-        : `ห้ามพูดหรือกระทำแทนผู้ใช้.`;
-}
-function getTheater() {
-    const store = extension_settings[extensionName] = extension_settings[extensionName] || {};
-    if (!store.theater || typeof store.theater !== "object") store.theater = { shows: [] };
-    if (!Array.isArray(store.theater.shows)) store.theater.shows = [];
-    return store.theater;
-}
-function saveTheater() { saveSettingsDebounced(); }
-function theaterShow(id) { return getTheater().shows.find((s) => s.id === id) || null; }
-function theaterLength(key) { return THEATER_LENGTHS[key] || THEATER_LENGTHS.medium; }
-// ย้ายซีนเก่าจาก TinyVerse มาเป็นเรื่อง "ตอนเดียวจบ" (ครั้งเดียว)
-function migrateVerseScenes() {
-    const v = getVerse();
-    if (!Array.isArray(v.scenes) || !v.scenes.length) return;
-    const t = getTheater();
-    for (const s of v.scenes) {
-        t.shows.push({
-            id: "sh" + (s.id || Date.now()), title: s.title || "ซีนครอสโอเวอร์", whatIf: s.setting || "",
-            genre: "", cover: "", castKeys: s.charKeys || [], castNames: s.charNames || [], oneShot: true,
-            episodes: [{ no: 1, title: s.title || "", blocks: (s.lines || []).map((l) => ({ type: "line", author: l.author, avatar: l.avatar || "", text: l.text })), ts: s.ts || Date.now() }],
-            ts: s.ts || Date.now(), updatedTs: s.ts || Date.now(),
-        });
-    }
-    v.scenes = [];
-    saveTheater();
-    console.log(`[${extensionName}] migrated ${t.shows.length} verse scene(s) → TinyTheater`);
-}
-// แยกผลลัพธ์ AI เป็นบล็อก (TITLE / EPTITLE / NARRATION / LINE: ชื่อ | ข้อความ)
-function parseTheaterBlocks(raw, fallbackName) {
-    const s = stripReasoning(raw);
-    const out = { title: "", epTitle: "", blocks: [] };
-    for (const line of String(s).split(/\r?\n/)) {
-        const t = line.trim();
-        if (!t) continue;
-        let m;
-        if ((m = t.match(/^TITLE:\s*(.+)$/i))) { if (!out.title) out.title = stripWrapBrackets(m[1].trim()); continue; }
-        if ((m = t.match(/^EPTITLE:\s*(.+)$/i))) { if (!out.epTitle) out.epTitle = stripWrapBrackets(m[1].trim()); continue; }
-        if ((m = t.match(/^NARRATION:\s*(.+)$/i))) {
-            const txt = m[1].trim();
-            if (txt) out.blocks.push({ type: "narration", text: escapeHtml(stripWrapBrackets(txt)) });
-            continue;
-        }
-        if ((m = t.match(/^LINE:\s*(.+)$/i))) {
-            const parts = m[1].split("|");
-            let author = parts.length >= 2 ? parts[0].trim() : fallbackName;
-            let txt = parts.length >= 2 ? parts.slice(1).join("|").trim() : m[1].trim();
-            author = author.replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || fallbackName;
-            if (txt) out.blocks.push({ type: "line", author, avatar: verseAvatarForName(author), text: escapeHtml(stripWrapBrackets(txt)) });
-            continue;
-        }
-    }
-    return out;
-}
-// สรุปเนื้อเรื่องที่ผ่านมาเป็นข้อความ (ป้อนให้ AI เขียนตอนต่อ) — ตัดท้ายกันพรอมป์บวม
-function theaterStorySoFar(show, cap) {
-    const lines = [];
-    for (const ep of show.episodes) {
-        lines.push(`[ตอนที่ ${ep.no}${ep.title ? ` — ${ep.title}` : ""}]`);
-        for (const b of ep.blocks) {
-            const txt = htmlToPlain(b.text);
-            lines.push(b.type === "line" ? `${b.author}: ${txt}` : txt);
-        }
-    }
-    const all = lines.join("\n");
-    const max = cap || 2500;
-    return all.length > max ? "…\n" + all.slice(all.length - max) : all;   // เก็บส่วนท้าย (ล่าสุด) ไว้
-}
-
-// ── หน้าจอ: browse (กริดปก) / create (What if) / read (อ่าน) ──
-let theaterScreen = "browse";
-let theaterShowId = null;
-let theaterEpIdx = 0;
-let theaterCastSel = [];
-let theaterCover = "";
-let theaterBusy = false;
-let theaterWhatIfIdeas = [];   // ไอเดียโจทย์ที่ AI เสนอ (โชว์เป็นชิปให้กดเลือก)
-// ให้ AI คิดโจทย์ What if ให้ 3 แบบ (อิงนักแสดงที่เลือก)
-async function theaterSuggestWhatIf() {
-    if (theaterBusy) return;
-    const v = getVerse();
-    const keys = theaterCastSel.filter((k) => k === POSTER_USER || v.chars[k]);
-    if (!keys.length) { toastr.info("เลือกนักแสดงก่อน แล้ว AI จะคิดโจทย์ให้เข้ากับตัวละคร", "TinyTheater"); return; }
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyTheater"); return; }
-    const genre = String($("#tinyfeed-th-genre").val() || "").trim();
-    theaterBusy = true;
-    $("#tinyfeed-th-ai").addClass("tinyfeed-generating");
-    try {
-        const q = buildPrompt("theaterWhatIf", {
-            chars: keys.map(theaterCastName).filter(Boolean).join(", "),
-            roster: theaterRosterBlock(keys, 300),
-            genre: genre || "(อิสระ)",
-        });
-        const raw = await tinyGenerate(q, 220, "theater");
-        const ideas = [];
-        const re = /WHATIF:\s*(.+)/gi;
-        let m;
-        while ((m = re.exec(stripReasoning(raw))) !== null) {
-            const t = stripWrapBrackets(m[1].trim());
-            if (t) ideas.push(t);
-        }
-        if (!ideas.length) { toastr.info("ยังคิดโจทย์ไม่ออก ลองใหม่นะ", "TinyTheater"); return; }
-        theaterWhatIfIdeas = ideas.slice(0, 5);
-        renderTheaterWhatIfIdeas();
-    } catch (e) {
-        console.error(`[${extensionName}] theaterSuggestWhatIf failed:`, e);
-        toastr.error("คิดโจทย์ไม่สำเร็จ", "TinyTheater");
-    } finally {
-        theaterBusy = false;
-        $("#tinyfeed-th-ai").removeClass("tinyfeed-generating");
-    }
-}
-// วาดชิปไอเดีย (แยกจาก renderTheaterCreate เพื่ออัปเดตได้โดยไม่ล้างช่องที่กรอกไว้)
-function renderTheaterWhatIfIdeas() {
-    const box = $("#tinyfeed-th-ideas");
-    if (!box.length) return;
-    if (!theaterWhatIfIdeas.length) { box.empty(); return; }
-    box.html(`<div class="tinyfeed-th-ideahead">แตะเพื่อใช้โจทย์นี้</div>` +
-        theaterWhatIfIdeas.map((t, i) => `<div class="tinyfeed-th-idea" data-idea="${i}">${escapeText(t)}</div>`).join(""));
-}
-function openTheater() { theaterScreen = "browse"; theaterShowId = null; renderTheater(); }
-function renderTheater() {
-    const body = $("#tinyfeed-theater-body");
-    if (!body.length) return;
-    if (theaterScreen === "create") renderTheaterCreate();
-    else if (theaterScreen === "read") renderTheaterRead();
-    else renderTheaterBrowse();
-}
-// ปกเรื่อง: รูปที่เลือก > avatar นักแสดงคนแรก > ไล่เฉดสี
-function theaterPosterHtml(show) {
-    if (show.cover) return `<div class="tinyfeed-th-poster" style="background-image:url('${escapeAttr(show.cover)}')"></div>`;
-    // ไล่หา avatar ตัวแรกที่ใช้ได้ (รองรับ persona ของผู้ใช้ที่ร่วมแสดง)
-    for (const k of (show.castKeys || [])) {
-        const url = k === POSTER_USER ? getUserAvatar() : ((getVerse().chars[k] || {}).avatar || "");
-        if (url) return `<div class="tinyfeed-th-poster" style="background-image:url('${escapeAttr(url)}')"></div>`;
-    }
-    return `<div class="tinyfeed-th-poster tinyfeed-th-poster-blank"><i class="fa-solid fa-masks-theater"></i></div>`;
-}
-function renderTheaterBrowse() {
-    const shows = getTheater().shows.slice().sort((a, b) => (b.updatedTs || b.ts || 0) - (a.updatedTs || a.ts || 0));
-    const cards = shows.map((s) => `
-        <div class="tinyfeed-th-card" data-show="${escapeAttr(s.id)}">
-            ${theaterPosterHtml(s)}
-            <div class="tinyfeed-th-cardtitle">${escapeText(s.title || "ไม่มีชื่อเรื่อง")}</div>
-            <div class="tinyfeed-th-cardmeta">${s.oneShot ? "จบในตอน" : `${s.episodes.length} ตอน`}${s.genre ? ` · ${escapeText(s.genre)}` : ""}</div>
-        </div>`).join("");
-    $("#tinyfeed-theater-body").html(`
-        <div class="tinyfeed-th-hero">
-            <div class="tinyfeed-th-herotitle">🎬 มินิเธียเตอร์</div>
-            <div class="tinyfeed-th-herosub">เลือกตัวละคร ตั้งโจทย์ “What if…” แล้วให้ AI เขียนเป็นเรื่อง</div>
-            <button id="tinyfeed-th-new" class="tinyfeed-btn-primary tinyfeed-th-newbtn"><i class="fa-solid fa-plus"></i> สร้างเรื่องใหม่</button>
-        </div>
-        ${shows.length
-            ? `<div class="tinyfeed-th-sectitle">คลังเรื่อง</div><div class="tinyfeed-th-grid">${cards}</div>`
-            : emptyStateHtml("fa-clapperboard", "ยังไม่มีเรื่อง", "กด \"สร้างเรื่องใหม่\" เพื่อเปิดโรงละครแรกของคุณ")}
-    `);
-}
-function renderTheaterCreate() {
-    const v = getVerse();
-    const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
-    // ไม่มีตัวละครก็ยังสร้างได้ (แสดงเดี่ยวด้วย persona ของเรา) — แค่ใบ้ให้ไป import
-    // การ์ดแรก = persona ของเรา (ร่วมแสดงได้)
-    const userOn = theaterCastSel.includes(POSTER_USER);
-    const userPick = `<div class="tinyfeed-th-castpick${userOn ? " tinyfeed-th-castpick-on" : ""}" data-key="${POSTER_USER}" title="persona ของคุณ">
-            ${makeAvatar({ isUser: true, author: getUserName() })}
-            <span class="tinyfeed-th-castname">${escapeText(getUserName())}<br><small>(คุณ)</small></span>
-        </div>`;
-    const picks = userPick + keys.map((k) => {
-        const c = v.chars[k];
-        const on = theaterCastSel.includes(k);
-        return `<div class="tinyfeed-th-castpick${on ? " tinyfeed-th-castpick-on" : ""}" data-key="${escapeAttr(k)}">
-            ${makeAvatar({ avatar: c.avatar || "", author: c.name })}
-            <span class="tinyfeed-th-castname">${escapeText(c.name)}</span>
-        </div>`;
-    }).join("");
-    const genres = THEATER_GENRES.map((g) => `<div class="tinyfeed-th-genre" data-genre="${escapeAttr(g)}">${escapeText(g)}</div>`).join("");
-    const lens = Object.keys(THEATER_LENGTHS).map((k) => `<option value="${k}">${THEATER_LENGTHS[k].label} — ${THEATER_LENGTHS[k].hint}</option>`).join("");
-    $("#tinyfeed-theater-body").html(`
-        <div class="tinyfeed-th-head">
-            <button id="tinyfeed-th-back" class="tinyfeed-btn-ghost"><i class="fa-solid fa-arrow-left"></i> กลับ</button>
-            <span class="tinyfeed-th-headtitle">สร้างเรื่องใหม่</span>
-        </div>
-        <div class="tinyfeed-th-formsec">
-            <div class="tinyfeed-th-label">นักแสดง <small>(เลือก 1-4 ตัว · ครอสโอเวอร์ได้ · ใส่ตัวคุณเองก็ได้)</small> <span class="tinyfeed-th-selcount">เลือกแล้ว ${theaterCastSel.length}</span></div>
-            <div class="tinyfeed-th-casts">${picks}</div>
-            ${keys.length ? "" : `<div class="tinyfeed-th-hint">ยังไม่มีตัวละครอื่น — ไป <b>TinyVerse › ตัวละคร</b> กด Import เพื่อให้มาร่วมแสดงได้</div>`}
-        </div>
-        <div class="tinyfeed-th-formsec">
-            <div class="tinyfeed-th-label">What if… <small>(หัวใจของเรื่อง)</small></div>
-            <textarea id="tinyfeed-th-whatif" class="tinyfeed-th-whatif" rows="3" placeholder="เช่น ถ้าทั้งคู่ตื่นมาแล้วสลับร่างกัน…"></textarea>
-            <div class="tinyfeed-th-whatiftools">
-                <button id="tinyfeed-th-dice" class="tinyfeed-btn-ghost tinyfeed-th-toolbtn" title="สุ่มโจทย์สำเร็จรูป">🎲 สุ่มโจทย์</button>
-                <button id="tinyfeed-th-ai" class="tinyfeed-btn-ghost tinyfeed-th-toolbtn" title="ให้ AI คิดโจทย์จากตัวละครที่เลือก"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ AI คิดให้</button>
-            </div>
-            <div id="tinyfeed-th-ideas" class="tinyfeed-th-ideas"></div>
-        </div>
-        <div class="tinyfeed-th-formsec">
-            <div class="tinyfeed-th-label">แนวเรื่อง <small>(เลือกหรือพิมพ์เองก็ได้)</small></div>
-            <div class="tinyfeed-th-genres">${genres}</div>
-            <input id="tinyfeed-th-genre" class="tinyfeed-gen-guidance tinyfeed-th-genreinput" type="text" placeholder="แนวเรื่อง" />
-        </div>
-        <div class="tinyfeed-th-formsec">
-            <div class="tinyfeed-th-label">ความยาว</div>
-            <select id="tinyfeed-th-length" class="tinyfeed-th-length">${lens}</select>
-        </div>
-        <div class="tinyfeed-th-formsec">
-            <div class="tinyfeed-th-label">ปกเรื่อง <small>(ไม่บังคับ)</small></div>
-            <div class="tinyfeed-th-coverrow">
-                <div id="tinyfeed-th-coverprev" class="tinyfeed-th-coverprev">${theaterCover ? `<img src="${escapeAttr(theaterCover)}" />` : `<i class="fa-solid fa-image"></i>`}</div>
-                <button id="tinyfeed-th-cover" class="tinyfeed-btn-ghost">เลือกจากคลังรูป</button>
-                ${theaterCover ? `<button id="tinyfeed-th-coverclear" class="tinyfeed-btn-ghost">ล้าง</button>` : ""}
-            </div>
-        </div>
-        <button id="tinyfeed-th-create" class="tinyfeed-btn-primary tinyfeed-th-createbtn">
-            <i class="fa-solid fa-wand-magic-sparkles tinyfeed-th-wand"></i> <span class="tinyfeed-th-createlabel">เปิดม่าน! สร้างเรื่อง</span>
-        </button>
-    `);
-    $("#tinyfeed-th-length").val("medium");
-    renderTheaterWhatIfIdeas();   // คงไอเดียที่ AI เสนอไว้ข้ามการ re-render (เช่น ตอนสลับนักแสดง)
-}
-function renderTheaterRead() {
-    const show = theaterShow(theaterShowId);
-    if (!show) { theaterScreen = "browse"; renderTheater(); return; }
-    const idx = Math.max(0, Math.min(theaterEpIdx, show.episodes.length - 1));
-    theaterEpIdx = idx;
-    const ep = show.episodes[idx];
-    const cast = (show.castNames || []).join(" × ");
-    const eps = show.episodes.map((e, i) => `<div class="tinyfeed-th-epchip${i === idx ? " tinyfeed-th-epchip-on" : ""}" data-ep="${i}">EP${e.no}</div>`).join("");
-    const blocks = ep.blocks.map((b) => b.type === "line"
-        ? `<div class="tinyfeed-th-line">
-                ${makeAvatar({ avatar: b.avatar || "", author: b.author })}
-                <div class="tinyfeed-th-linebody"><span class="tinyfeed-th-lineauthor">${escapeText(b.author)}</span><span class="tinyfeed-th-linetext">${renderRich(b.text)}</span></div>
-           </div>`
-        : `<div class="tinyfeed-th-narration">${renderRich(b.text)}</div>`).join("");
-    $("#tinyfeed-theater-body").html(`
-        <div class="tinyfeed-th-readhero">
-            ${theaterPosterHtml(show)}
-            <div class="tinyfeed-th-readovl">
-                <button id="tinyfeed-th-back" class="tinyfeed-th-backbtn"><i class="fa-solid fa-arrow-left"></i></button>
-                <span class="tinyfeed-th-deleteshow" data-show="${escapeAttr(show.id)}" title="ลบเรื่องนี้"><i class="fa-solid fa-trash"></i></span>
-            </div>
-        </div>
-        <div class="tinyfeed-th-readbody">
-            <div class="tinyfeed-th-readtitle">${escapeText(show.title || "ไม่มีชื่อเรื่อง")}</div>
-            <div class="tinyfeed-th-readmeta">${escapeText(cast)}${show.genre ? ` · ${escapeText(show.genre)}` : ""} · ${show.oneShot ? "จบในตอน" : `${show.episodes.length} ตอน`}</div>
-            ${show.whatIf ? `<div class="tinyfeed-th-whatifbox"><b>What if…</b> ${escapeText(show.whatIf)}</div>` : ""}
-            ${show.episodes.length > 1 ? `<div class="tinyfeed-th-eps">${eps}</div>` : ""}
-            ${ep.title ? `<div class="tinyfeed-th-eptitle">EP${ep.no} · ${escapeText(ep.title)}</div>` : ""}
-            <div class="tinyfeed-th-story">${blocks}</div>
-            ${show.oneShot ? "" : `<button id="tinyfeed-th-next" class="tinyfeed-btn-primary tinyfeed-th-nextbtn">
-                <i class="fa-solid fa-wand-magic-sparkles tinyfeed-th-wand"></i> <span class="tinyfeed-th-nextlabel">เขียนตอนต่อไป</span>
-            </button>`}
-        </div>
-    `);
-}
-function setTheaterGenerating(on, labelSel, busyText, idleText) {
-    $(".tinyfeed-th-wand").toggleClass("tinyfeed-spin", on);
-    $("#tinyfeed-th-create, #tinyfeed-th-next").prop("disabled", on);
-    $(labelSel).text(on ? busyText : idleText);
-}
-// สร้างเรื่องใหม่ (ตอนที่ 1 + ตั้งชื่อเรื่อง)
-async function theaterCreateShow() {
-    if (theaterBusy) return;
-    const v = getVerse();
-    const keys = theaterCastSel.filter((k) => k === POSTER_USER || v.chars[k]);   // POSTER_USER = persona ของเรา
-    if (!keys.length) { toastr.info("เลือกนักแสดงอย่างน้อย 1 ตัวนะ", "TinyTheater"); return; }
-    const whatIf = String($("#tinyfeed-th-whatif").val() || "").trim();
-    if (!whatIf) { toastr.info("ใส่โจทย์ What if… ก่อนนะ", "TinyTheater"); return; }
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyTheater"); return; }
-    const genre = String($("#tinyfeed-th-genre").val() || "").trim();
-    const lenKey = String($("#tinyfeed-th-length").val() || "medium");
-    const len = theaterLength(lenKey);
-    const names = keys.map(theaterCastName).filter(Boolean);
-    theaterBusy = true;
-    setTheaterGenerating(true, ".tinyfeed-th-createlabel", "กำลังเปิดม่าน...", "เปิดม่าน! สร้างเรื่อง");
-    try {
-        const q = buildPrompt("theaterEpisode", {
-            chars: names.join(", "), roster: theaterRosterBlock(keys, 300), whatIf,
-            genre: genre || "(อิสระ)", length: `${len.label} — ${len.hint}`,
-            userRule: theaterUserRule(keys),
-        });
-        const raw = await tinyGenerate(q, len.tokens, "theater");
-        const parsed = parseTheaterBlocks(raw, names[0]);
-        if (!parsed.blocks.length) { toastr.info("ยังเขียนไม่ออก ลองใหม่หรือปรับโจทย์นะ", "TinyTheater"); return; }
-        const show = {
-            id: "sh" + Date.now(), title: parsed.title || names.join(" × "), whatIf, genre,
-            cover: theaterCover || "", castKeys: keys.slice(), castNames: names.slice(),
-            oneShot: lenKey === "oneshot", lengthKey: lenKey,   // เก็บไว้ให้ตอนต่อไปใช้ความยาวเดิม
-            episodes: [{ no: 1, title: parsed.epTitle || "", blocks: parsed.blocks, ts: Date.now() }],
-            ts: Date.now(), updatedTs: Date.now(),
-        };
-        getTheater().shows.unshift(show);
-        saveTheater();
-        theaterCastSel = []; theaterCover = ""; theaterWhatIfIdeas = [];
-        theaterShowId = show.id; theaterEpIdx = 0; theaterScreen = "read";
-        renderTheater();
-    } catch (e) {
-        console.error(`[${extensionName}] theaterCreateShow failed:`, e);
-        toastr.error("สร้างเรื่องไม่สำเร็จ", "TinyTheater");
-    } finally {
-        theaterBusy = false;
-        setTheaterGenerating(false, ".tinyfeed-th-createlabel", "กำลังเปิดม่าน...", "เปิดม่าน! สร้างเรื่อง");
-    }
-}
-// เขียนตอนต่อไป (ต่อเนื้อเรื่องเดิม)
-async function theaterNextEpisode() {
-    if (theaterBusy) return;
-    const show = theaterShow(theaterShowId);
-    if (!show) return;
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyTheater"); return; }
-    const v = getVerse();
-    const keys = (show.castKeys || []).filter((k) => k === POSTER_USER || v.chars[k]);
-    const len = theaterLength(show.lengthKey || "medium");
-    const epNo = show.episodes.length + 1;
-    theaterBusy = true;
-    setTheaterGenerating(true, ".tinyfeed-th-nextlabel", "กำลังเขียน...", "เขียนตอนต่อไป");
-    try {
-        const q = buildPrompt("theaterNext", {
-            chars: (show.castNames || []).join(", "),
-            roster: keys.length ? theaterRosterBlock(keys, 300) : (show.castNames || []).map((n) => `- ${n}`).join("\n"),
-            whatIf: show.whatIf || "(ไม่ระบุ)", genre: show.genre || "(อิสระ)",
-            length: `${len.label} — ${len.hint}`, epNo: String(epNo), story: theaterStorySoFar(show),
-            userRule: theaterUserRule(keys),
-        });
-        const raw = await tinyGenerate(q, len.tokens, "theater");
-        const parsed = parseTheaterBlocks(raw, (show.castNames || [])[0] || "");
-        if (!parsed.blocks.length) { toastr.info("ยังเขียนต่อไม่ออก ลองใหม่นะ", "TinyTheater"); return; }
-        show.episodes.push({ no: epNo, title: parsed.epTitle || "", blocks: parsed.blocks, ts: Date.now() });
-        show.updatedTs = Date.now();
-        saveTheater();
-        theaterEpIdx = show.episodes.length - 1;
-        renderTheater();
-    } catch (e) {
-        console.error(`[${extensionName}] theaterNextEpisode failed:`, e);
-        toastr.error("เขียนตอนต่อไม่สำเร็จ", "TinyTheater");
-    } finally {
-        theaterBusy = false;
-        setTheaterGenerating(false, ".tinyfeed-th-nextlabel", "กำลังเขียน...", "เขียนตอนต่อไป");
-    }
-}
-function theaterDeleteShow(id) {
-    const t = getTheater();
-    const i = t.shows.findIndex((s) => s.id === id);
-    if (i < 0) return;
-    t.shows.splice(i, 1);
-    saveTheater();
-    theaterScreen = "browse"; theaterShowId = null;
-    renderTheater();
-}
-
-// ── ตัวเลือกคนโพสต์ (เรา / สุ่ม / ตัวละครใน roster) — แตะรูปโปรไฟล์ในช่องเขียน ──
-function openVersePosterPicker() {
-    const v = getVerse();
-    const keys = Object.keys(v.chars).sort((a, b) => (v.chars[b].addedTs || 0) - (v.chars[a].addedTs || 0));
-    const rows = [];
-    rows.push(`<div class="tinyfeed-verse-poster-pick" data-vposter="${POSTER_USER}">${makeAvatar({ isUser: true, author: getUserName() })}<span class="tinyfeed-char-pick-name">${escapeText(getUserName())} (คุณ)</span></div>`);
-    if (keys.length) rows.push(`<div class="tinyfeed-verse-poster-pick" data-vposter="${VERSE_POSTER_RANDOM}"><div class="tinyfeed-avatar tinyfeed-avatar-auto"><i class="fa-solid fa-shuffle"></i></div><span class="tinyfeed-char-pick-name">🎲 สุ่มตัวละคร (AI)</span></div>`);
-    keys.forEach((k) => {
-        const c = v.chars[k];
-        rows.push(`<div class="tinyfeed-verse-poster-pick" data-vposter="${escapeAttr(k)}">${makeAvatar({ avatar: c.avatar || "", author: c.name })}<span class="tinyfeed-char-pick-name">${escapeText(c.name)} (AI)</span></div>`);
-    });
-    $("#tinyfeed-verse-poster-list").html(rows.join(""));
-    $("#tinyfeed-verse-poster-modal").removeClass("tinyfeed-hidden");
-}
-function closeVersePosterPicker() { $("#tinyfeed-verse-poster-modal").addClass("tinyfeed-hidden"); }
-
-// ── หน้าโปรไฟล์ตัวละคร (component ใช้ร่วม: TinyVerse + TinyFeed) ──
-let charProfileCtx = null;
-// ref = charKey (string) | ชื่อผู้เขียน (string) | การ์ด normalize แล้ว (object)
-function openCharProfile(ref) {
-    let card = null;
-    if (ref && typeof ref === "object") card = ref;
-    else if (getVerse().chars[ref]) card = getVerse().chars[ref];
-    else card = charCardForAuthor(ref);
-    if (!card) return;
-    charProfileCtx = card;
-    renderCharProfile(card);
-    $("#tinyfeed-char-profile").removeClass("tinyfeed-hidden");
-}
-function closeCharProfile() { $("#tinyfeed-char-profile").addClass("tinyfeed-hidden"); charProfileCtx = null; }
-function renderCharProfile(card) {
-    const body = $("#tinyfeed-char-profile-body");
-    if (!body.length) return;
-    const inRoster = !!(card.key && getVerse().chars[card.key]);
-    const av = makeAvatar({ avatar: card.avatar || "", author: card.name, isUser: !!card.isUser });
-    const npcs = Array.isArray(card.npcs) ? card.npcs : [];
-    const bio = String(card.bio || "").trim();
-    const roleTag = card.isUser ? "คุณ" : card.isNpc ? "NPC" : "ตัวละคร";
-    const addBtn = (card.key && !inRoster && !card.isUser) ? `<button id="tinyfeed-vprofile-add" class="tinyfeed-btn-ghost tinyfeed-vprofile-addbtn"><i class="fa-solid fa-plus"></i> เพิ่มเข้า TinyVerse</button>` : "";
-    const removeBtn = inRoster ? `<button id="tinyfeed-vprofile-remove" class="tinyfeed-vprofile-remove" title="เอาออกจาก TinyVerse"><i class="fa-solid fa-trash"></i></button>` : "";
-    const personaBox = inRoster ? `
-        <div class="tinyfeed-vprofile-section">
-            <div class="tinyfeed-vprofile-sectitle">persona (ให้ AI ใช้พูดแทนตัวนี้ใน TinyVerse)</div>
-            <textarea id="tinyfeed-vprofile-persona" class="tinyfeed-vprofile-persona" placeholder="อธิบายนิสัย/ภูมิหลัง/วิธีพูด...">${escapeText(card.persona || bio || "")}</textarea>
-            <button id="tinyfeed-vprofile-save" class="tinyfeed-btn-primary tinyfeed-vprofile-savebtn"><i class="fa-solid fa-check"></i> บันทึก persona</button>
-        </div>` : "";
-    const npcHtml = npcs.length ? `
-        <div class="tinyfeed-vprofile-section">
-            <div class="tinyfeed-vprofile-sectitle">NPC ในสังกัด (${npcs.length})</div>
-            <div class="tinyfeed-vprofile-npcs">${npcs.map((n) => `
-                <div class="tinyfeed-vprofile-npc" data-npc="${escapeAttr(n.name)}">${makeAvatar({ avatar: n.avatar || "", author: n.name })}<span>${escapeText(n.name)}</span></div>`).join("")}</div>
-        </div>` : "";
-    body.html(`
-        <div class="tinyfeed-vprofile-head">
-            <div class="tinyfeed-vprofile-ava">${av}</div>
-            <div class="tinyfeed-vprofile-name">${escapeText(card.name)} <span class="tinyfeed-vprofile-role">${roleTag}</span></div>
-            ${bio ? `<div class="tinyfeed-vprofile-bio">${escapeText(bio)}</div>` : ""}
-            ${(addBtn || removeBtn) ? `<div class="tinyfeed-vprofile-actions">${addBtn}${removeBtn}</div>` : ""}
-        </div>
-        ${personaBox}
-        ${npcHtml}
-    `);
-}
-
-// TinyMemo: กำหนดการ + โน้ต/ความจำ (ensure array สำหรับแชทเก่า)
-function getAgenda() {
-    const data = getFeedData();
-    if (!Array.isArray(data.agenda)) data.agenda = [];
-    return data.agenda;
-}
-
-function getNotes() {
-    const data = getFeedData();
-    if (!Array.isArray(data.notes)) data.notes = [];
-    return data.notes;
-}
-
-// TinyForum: กระทู้ (ensure array สำหรับแชทเก่า)
-function getForum() {
-    const data = getFeedData();
-    if (!Array.isArray(data.forum)) data.forum = [];
-    return data.forum;
-}
-
-// รายชื่อห้อง (global setting) — ensure array + seed default
-function getForumRooms() {
-    const r = getSetting("forumRooms");
-    if (!Array.isArray(r) || !r.length) return ["ข่าว/สังคม", "รีวิว", "ถาม-ตอบ", "ซุบซิบ", "ทั่วไป"];
-    return r;
-}
-
-// ===== TinyGallery: คลังรูป + สติกเกอร์ (global — เก็บใน extension_settings ไม่ผูกกับแชท) =====
-
-
-/* ===== TinyNovel (แอปที่ 12): แอปอ่านนิยายที่ AI เขียนให้ =====
- * global เต็มตัว — ไม่ดึงข้อมูลจากแชท/การ์ดปัจจุบันเลย (ต่างจาก TinyTheater ที่อิง roster)
- * ตัวเอกเลือกได้ 3 แบบ: ให้ AI สร้างเอง / persona ของเรา / ตัวละครจาก TinyVerse
- * ตั้งจำนวนตอนไว้ล่วงหน้า แล้ว AI เดินเรื่องให้จบพอดีตอนสุดท้าย */
-const NOVEL_TROPES = [
-    "ทะลุมิติเข้าไปในนิยายที่เคยอ่าน",
-    "ย้อนเวลากลับไปแก้ไขอดีต",
-    "เกิดใหม่เป็นตัวร้ายที่รู้ชะตากรรมตัวเอง",
-    "สลับร่างกับคนที่เกลียดที่สุด",
-    "ติดอยู่ในเกมที่ตายจริง",
-    "ตื่นมาแล้วความจำหายไปสิบปี",
-    "สัญญาแต่งงานลวงกับคนแปลกหน้า",
-    "ศัตรูคู่แค้นที่ต้องร่วมมือกัน",
-    "ระบบลึกลับสั่งภารกิจรายวัน",
-    "โลกหลังหายนะที่เหลือคนไม่กี่คน",
-    "ชิงบัลลังก์ในราชสำนัก",
-    "ตัวประกอบที่ไม่ยอมเดินตามบท",
-    "วนลูปวันเดิมซ้ำไม่รู้จบ",
-    "ได้ยินเสียงในใจคนอื่น",
-    "จดหมายจากตัวเองในอนาคต",
-    "เมืองที่ทุกคนลืมชื่อเราไปแล้ว",
-];
-const NOVEL_GENRES = ["โรแมนซ์", "แฟนตาซี", "สืบสวน", "ดราม่า", "ตลก", "ระทึกขวัญ", "ไซไฟ", "ย้อนยุค"];
-const NOVEL_LENGTHS = {
-    short: { label: "สั้น", hint: "อ่านเร็ว ~1 นาทีต่อตอน", tokens: 500 },
-    medium: { label: "กลาง", hint: "กำลังดี", tokens: 850 },
-    long: { label: "ยาว", hint: "จัดเต็ม", tokens: 1300 },
-};
-const NOVEL_EP_CHOICES = [1, 3, 5, 8, 12];
-const NOVEL_HERO_AI = "__ai__";     // ให้ AI สร้างตัวเอกเอง
-
-function getNovel() {
-    const s = extension_settings[extensionName];
-    if (!s.novel || typeof s.novel !== "object") s.novel = { books: [] };
-    if (!Array.isArray(s.novel.books)) s.novel.books = [];
-    return s.novel;
-}
-function saveNovel() { saveSettingsDebounced(); }
-function novelBook(id) { return getNovel().books.find((b) => b.id === id) || null; }
-// ความยาว "กลาง" ปรับได้จากหน้าตั้งค่า (short/long ยังใช้ค่าคงที่)
-function novelLength(key) {
-    const base = NOVEL_LENGTHS[key] || NOVEL_LENGTHS.medium;
-    if ((key || "medium") === "medium") {
-        const t = parseInt(getSetting("novelTokens"), 10);
-        if (Number.isFinite(t) && t > 0) return Object.assign({}, base, { tokens: t });
-    }
-    return base;
-}
-// คำสั่งเสริมจากหน้าตั้งค่า (ว่างได้)
-function novelExtraLine() {
-    const x = String(getSetting("novelExtraPrompt") || "").trim();
-    return x ? `คำสั่งเพิ่มเติมจากผู้อ่าน: ${x}` : "";
-}
-
-// ── state ของหน้าจอ ──
-let novelScreen = "shelf";      // shelf | create | read | chars
-let novelBookId = null;
-let novelEpIdx = 0;
-let novelBusy = false;
-let novelCover = "";
-let novelHero = NOVEL_HERO_AI;
-let novelPlotIdeas = [];
-
-function openNovel() { novelScreen = "shelf"; novelBookId = null; renderNovel(); }
-
-function setNovelGenerating(on, sel, busyText, idleText) {
-    const $b = $(sel);
-    $b.prop("disabled", on);
-    $b.find(".tinyfeed-novel-btnlabel").text(on ? busyText : idleText);
-    $b.toggleClass("tinyfeed-generating", on);
-}
-
-// สุ่มพล็อตจากคลัง (ไม่เรียก AI)
-function novelRandomTrope() {
-    return NOVEL_TROPES[Math.floor(Math.random() * NOVEL_TROPES.length)];
-}
-
-// ชื่อตัวเอกที่ผู้ใช้เลือก (ไว้ส่งเข้า prompt)
-function novelHeroLine(hero) {
-    if (hero === NOVEL_HERO_AI) return "ให้คุณสร้างตัวเอกขึ้นมาเองทั้งหมด (ตั้งชื่อ นิสัย ปูมหลัง)";
-    if (hero === POSTER_USER) {
-        const desc = userPersonaDesc();
-        return `ให้ "${getUserName()}" เป็นตัวเอก${desc ? ` — ข้อมูลตัวละคร: ${desc}` : ""}`;
-    }
-    const c = getVerse().chars[hero];
-    if (!c) return "ให้คุณสร้างตัวเอกขึ้นมาเองทั้งหมด";
-    return `ให้ "${c.name}" เป็นตัวเอก${c.desc ? ` — ข้อมูลตัวละคร: ${String(c.desc).slice(0, 300)}` : ""}`;
-}
-
-/* แปลงผลจาก AI ตอนสร้างเรื่อง — รูปแบบ:
- *   TITLE: <ชื่อเรื่อง>
- *   SYNOPSIS: <เรื่องย่อ>
- *   CHAR: <ชื่อ> | <บทบาท> | <คำบรรยาย>
- * คืน {title, synopsis, chars[]} — escape ให้เรียบร้อยตั้งแต่ตรงนี้ */
-/* จับบรรทัดหัวข้อ (TITLE / SYNOPSIS / CHAR / EPTITLE)
- * ยอมให้มีชื่อผู้พูดนำหน้าได้ เช่น "ST System: TITLE: ..." — บางโมเดลแอบใส่มา
- * คืน [ชนิด, เนื้อหา] หรือ null ถ้าไม่ใช่บรรทัดหัวข้อ */
-function novelHeaderLine(line) {
-    const m = String(line).trim().match(/^(?:[^:\n]{0,24}:\s*)?(TITLE|SYNOPSIS|CHAR|EPTITLE)\s*:\s*(.*)$/i);
-    return m ? [m[1].toUpperCase(), m[2].trim()] : null;
-}
-
-function parseNovelOutline(raw) {
-    const out = { title: "", synopsis: "", chars: [] };
-    for (const line of stripReasoning(String(raw || "")).split("\n")) {
-        const h = novelHeaderLine(line);
-        const s = h ? `${h[0]}: ${h[1]}` : line.trim();
-        let m;
-        if ((m = s.match(/^TITLE:\s*(.+)$/i))) { if (!out.title) out.title = escapeText(stripWrapBrackets(m[1].trim())); }
-        else if ((m = s.match(/^SYNOPSIS:\s*(.+)$/i))) { if (!out.synopsis) out.synopsis = escapeText(m[1].trim()); }
-        else if ((m = s.match(/^CHAR:\s*(.+)$/i))) {
-            const parts = m[1].split("|").map((x) => x.trim());
-            if (parts[0]) {
-                out.chars.push({
-                    name: escapeText(stripWrapBrackets(parts[0])),
-                    role: escapeText(parts[1] || ""),
-                    desc: escapeText(parts[2] || ""),
-                });
-            }
-        }
-    }
-    return out;
-}
-
-/* แปลงเนื้อตอน — เอา EPTITLE ตัวแรกเป็นชื่อตอน ที่เหลือเป็นเนื้อเรื่อง
- * ตัดบรรทัดหัวข้อ "ทุกบรรทัด" ทิ้ง (ไม่ใช่แค่ตัวแรก) เพราะบางโมเดลแอบใส่ TITLE: ซ้ำกลางเนื้อ
- * และรองรับกรณีมีชื่อผู้พูดนำหน้า เช่น "ST System: TITLE: ..." */
-function parseNovelEpisode(raw) {
-    const lines = stripReasoning(String(raw || "")).split("\n");
-    let title = "";
-    const body = [];
-    for (const line of lines) {
-        const h = novelHeaderLine(line);
-        if (h) {
-            if (h[0] === "EPTITLE" && !title && h[1]) title = escapeText(stripWrapBrackets(h[1]));
-            continue;   // บรรทัดหัวข้อไม่ใช่เนื้อเรื่อง ทิ้งทุกกรณี
-        }
-        body.push(line);
-    }
-    let text = body.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-    text = novelTrimEcho(text);
-    return { title, text: escapeText(text) };
-}
-
-/* บางโมเดลแปะเนื้อหาจากแชทหลัก/หน้าต้อนรับ ST ไว้หน้าเนื้อนิยาย เจอ 2 แบบ:
- *   1) บทบาทตัวละคร แล้วคั่นด้วยเส้น ***  → ตัดถึงเส้นคั่นตัวสุดท้ายในช่วงต้น
- *   2) ข้อความ UI ของ ST ที่มีลิงก์ markdown → ตัดบรรทัดนำที่มีลิงก์ทิ้ง
- * จำกัดเฉพาะช่วงต้นเรื่อง กันไปตัดเนื้อจริงที่ใช้ *** คั่นฉากกลางเรื่อง */
-function novelTrimEcho(text) {
-    const HEAD = 400;
-    // (1) เส้นคั่นในช่วงต้น
-    const re = /^\s*(?:\*{3,}|-{3,}|_{3,})\s*$/gm;
-    let cut = -1, m;
-    while ((m = re.exec(text)) !== null) {
-        if (m.index > HEAD) break;
-        cut = m.index + m[0].length;
-    }
-    let out = cut > 0 ? text.slice(cut).trim() : text;
-    // (2) บรรทัดนำที่มีลิงก์ markdown/URL — ร้อยแก้วภาษาไทยไม่ใช้แบบนี้
-    const lines = out.split("\n");
-    let i = 0;
-    while (i < lines.length) {
-        const l = lines[i].trim();
-        if (!l) { i++; continue; }
-        if (/\[[^\]]*\]\([^)]*\)|https?:\/\//.test(l)) { i++; continue; }
-        break;
-    }
-    return lines.slice(i).join("\n").trim();
-}
-
-// เนื้อเรื่องที่ผ่านมา (ตัดเก็บส่วนท้ายไว้ให้ AI ไม่ให้ prompt บวม)
-function novelStorySoFar(book, cap = 2500) {
-    const parts = book.episodes.map((ep) =>
-        `[ตอนที่ ${ep.no}${ep.title ? ` — ${ep.title}` : ""}]\n${htmlToPlain(ep.text)}`);
-    const all = parts.join("\n\n");
-    return all.length > cap ? "…" + all.slice(-cap) : all;
-}
-
-function novelCoverHtml(book) {
-    if (book.cover) return `<div class="tinyfeed-novel-cover" style="background-image:url('${escapeAttr(book.cover)}')"></div>`;
-    const initial = escapeText(String(book.title || "?").trim().charAt(0) || "?");
-    return `<div class="tinyfeed-novel-cover tinyfeed-novel-cover-blank">${initial}</div>`;
-}
-
-function renderNovel() {
-    const body = $("#tinyfeed-novel-body");
-    if (!body.length) return;
-    if (novelScreen === "create") return renderNovelCreate();
-    if (novelScreen === "read") return renderNovelRead();
-    if (novelScreen === "chars") return renderNovelChars();
-    renderNovelShelf();
-}
-
-// ── ชั้นหนังสือ ──
-function renderNovelShelf() {
-    $(".tinyfeed-title").text("TinyNovel");
-    const books = getNovel().books;
-    const grid = books.length
-        ? `<div class="tinyfeed-novel-grid">${books.map((b) => {
-            const read = Math.min(b.lastReadEp || 0, b.episodes.length);
-            const done = b.episodes.length >= (b.totalEps || 0);
-            return `<div class="tinyfeed-novel-card" data-book="${escapeAttr(b.id)}">
-                ${novelCoverHtml(b)}
-                <div class="tinyfeed-novel-cardtitle">${b.title || "(ไม่มีชื่อ)"}</div>
-                <div class="tinyfeed-novel-cardmeta">
-                    ${done ? `<span class="tinyfeed-novel-done">จบแล้ว</span>` : `<span>อ่าน ${read}/${b.totalEps || "?"}</span>`}
-                </div>
-            </div>`;
-        }).join("")}</div>`
-        : emptyStateHtml("fa-book-open", "ยังไม่มีนิยาย", "กด “แต่งเรื่องใหม่” แล้วเลือกพล็อตที่ชอบ เดี๋ยว AI เขียนให้อ่าน");
-    $("#tinyfeed-novel-body").html(`
-        <div class="tinyfeed-novel-hero">
-            <div class="tinyfeed-novel-herotitle"><i class="fa-solid fa-book-open"></i> ห้องสมุด</div>
-            <div class="tinyfeed-novel-herosub">เลือกพล็อต ตั้งจำนวนตอน แล้วให้ AI แต่งให้อ่าน</div>
-            <button id="tinyfeed-novel-new" class="tinyfeed-btn-primary tinyfeed-novel-newbtn">
-                <i class="fa-solid fa-plus"></i> <span class="tinyfeed-novel-btnlabel">แต่งเรื่องใหม่</span>
-            </button>
-        </div>
-        <div class="tinyfeed-screen">${grid}</div>
-    `);
-}
-
-// ── ฟอร์มสร้างเรื่อง ──
-function renderNovelCreate() {
-    $(".tinyfeed-title").text("แต่งเรื่องใหม่");
-    const verseChars = Object.entries(getVerse().chars || {});
-    const heroOpts = [
-        `<option value="${NOVEL_HERO_AI}"${novelHero === NOVEL_HERO_AI ? " selected" : ""}>ให้ AI สร้างตัวเอกเอง</option>`,
-        `<option value="${POSTER_USER}"${novelHero === POSTER_USER ? " selected" : ""}>${escapeText(getUserName())} (ตัวเรา)</option>`,
-        ...verseChars.map(([k, c]) =>
-            `<option value="${escapeAttr(k)}"${novelHero === k ? " selected" : ""}>${escapeText(c.name || k)}</option>`),
-    ].join("");
-    const epOpts = NOVEL_EP_CHOICES.map((n) => `<option value="${n}"${n === 5 ? " selected" : ""}>${n} ตอนจบ</option>`).join("");
-    const lenOpts = Object.entries(NOVEL_LENGTHS)
-        .map(([k, v]) => `<option value="${k}"${k === "medium" ? " selected" : ""}>${v.label} — ${v.hint}</option>`).join("");
-    const genreChips = NOVEL_GENRES.map((g) => `<span class="tinyfeed-novel-chip" data-genre="${escapeAttr(g)}">${g}</span>`).join("");
-    $("#tinyfeed-novel-body").html(`
-        <div class="tinyfeed-screen">
-            <div class="tinyfeed-novel-field">
-                <label>พล็อตเรื่อง</label>
-                <textarea id="tinyfeed-novel-plot" rows="3" placeholder="อยากอ่านเรื่องแบบไหน? เช่น ทะลุมิติไปเป็นตัวร้ายในนิยายที่เคยอ่าน"></textarea>
-                <div class="tinyfeed-novel-plotbtns">
-                    <button id="tinyfeed-novel-dice" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn"><i class="fa-solid fa-dice"></i> สุ่มพล็อตยอดนิยม</button>
-                    <button id="tinyfeed-novel-ai" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn"><i class="fa-solid fa-wand-magic-sparkles"></i> <span class="tinyfeed-novel-btnlabel">ให้ AI คิดให้</span></button>
-                </div>
-                <div id="tinyfeed-novel-ideas" class="tinyfeed-novel-ideas"></div>
-            </div>
-            <div class="tinyfeed-novel-field">
-                <label>แนวเรื่อง</label>
-                <input id="tinyfeed-novel-genre" type="text" placeholder="เช่น โรแมนซ์ แฟนตาซี (เว้นว่างได้)" />
-                <div class="tinyfeed-novel-chips">${genreChips}</div>
-            </div>
-            <div class="tinyfeed-novel-field">
-                <label>ตัวเอก</label>
-                <select id="tinyfeed-novel-hero">${heroOpts}</select>
-                <small class="tinyfeed-field-hint">ไม่ต้องมีตัวละครในเครื่องก็ได้ — เลือก “ให้ AI สร้างตัวเอกเอง” ได้เลย</small>
-            </div>
-            <div class="tinyfeed-novel-field tinyfeed-novel-row2">
-                <div><label>ความยาวต่อตอน</label><select id="tinyfeed-novel-length">${lenOpts}</select></div>
-                <div><label>จบกี่ตอน</label><select id="tinyfeed-novel-eps">${epOpts}</select></div>
-            </div>
-            <div class="tinyfeed-novel-field">
-                <label>ปกหนังสือ</label>
-                <div class="tinyfeed-novel-coverrow">
-                    <div id="tinyfeed-novel-coverprev" class="tinyfeed-novel-coverprev">${novelCover
-                        ? `<img src="${escapeAttr(novelCover)}" alt="ปก" />` : `<i class="fa-solid fa-image"></i>`}</div>
-                    <button id="tinyfeed-novel-pickcover" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn">เลือกจากคลังรูป</button>
-                    ${novelCover ? `<button id="tinyfeed-novel-clearcover" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn">ล้าง</button>` : ""}
-                </div>
-            </div>
-            <button id="tinyfeed-novel-create" class="tinyfeed-btn-primary tinyfeed-novel-createbtn">
-                <i class="fa-solid fa-feather-pointed"></i> <span class="tinyfeed-novel-btnlabel">เริ่มเขียนตอนแรก</span>
-            </button>
-        </div>
-    `);
-    renderNovelIdeas();
-}
-
-function renderNovelIdeas() {
-    const box = $("#tinyfeed-novel-ideas");
-    if (!box.length) return;
-    box.html(novelPlotIdeas.length
-        ? novelPlotIdeas.map((t) => `<span class="tinyfeed-novel-idea" data-idea="${escapeAttr(t)}">${t}</span>`).join("")
-        : "");
-}
-
-/* วาดฟอร์มสร้างใหม่แต่คงค่าที่ผู้ใช้กรอกไว้ (ใช้ตอนเลือก/ล้างปก ซึ่งต้อง re-render)
- * — ถ้าเรียก renderNovelCreate() ตรงๆ พล็อต/แนว/จำนวนตอนที่พิมพ์ไว้จะหายหมด */
-function restoreNovelForm() {
-    const keep = {
-        plot: String($("#tinyfeed-novel-plot").val() || ""),
-        genre: String($("#tinyfeed-novel-genre").val() || ""),
-        length: String($("#tinyfeed-novel-length").val() || "medium"),
-        eps: String($("#tinyfeed-novel-eps").val() || "5"),
-    };
-    renderNovelCreate();
-    $("#tinyfeed-novel-plot").val(keep.plot);
-    $("#tinyfeed-novel-genre").val(keep.genre);
-    $("#tinyfeed-novel-length").val(keep.length);
-    $("#tinyfeed-novel-eps").val(keep.eps);
-}
-
-// ── หน้าอ่าน ──
-function renderNovelRead() {
-    const b = novelBook(novelBookId);
-    if (!b) { novelScreen = "shelf"; return renderNovel(); }
-    $(".tinyfeed-title").text(b.title || "นิยาย");
-    novelEpIdx = Math.max(0, Math.min(novelEpIdx, b.episodes.length - 1));
-    const ep = b.episodes[novelEpIdx];
-    const finished = b.episodes.length >= (b.totalEps || 0);
-    const chips = b.episodes.map((e, i) =>
-        `<span class="tinyfeed-novel-epchip${i === novelEpIdx ? " tinyfeed-novel-epchip-active" : ""}" data-ep="${i}">ตอน ${e.no}</span>`).join("");
-    const paras = ep ? htmlToPlain(ep.text).split(/\n{2,}/).filter(Boolean)
-        .map((p) => `<p>${escapeText(p)}</p>`).join("") : "";
-    $("#tinyfeed-novel-body").html(`
-        <div class="tinyfeed-novel-readhero">
-            ${novelCoverHtml(b)}
-            <div class="tinyfeed-novel-readmeta">
-                <div class="tinyfeed-novel-readtitle">${b.title || "(ไม่มีชื่อ)"}</div>
-                <div class="tinyfeed-novel-readsub">${b.genre ? `${b.genre} · ` : ""}${b.episodes.length}/${b.totalEps} ตอน${finished ? " · จบแล้ว" : ""}</div>
-                <div class="tinyfeed-novel-readbtns">
-                    <button id="tinyfeed-novel-chars" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn"><i class="fa-solid fa-users"></i> ตัวละคร (${(b.chars || []).length})</button>
-                    <button id="tinyfeed-novel-del" class="tinyfeed-btn-ghost tinyfeed-novel-toolbtn tinyfeed-novel-delbtn"><i class="fa-solid fa-trash"></i> ลบ</button>
-                </div>
-            </div>
-        </div>
-        <div class="tinyfeed-screen">
-            ${b.synopsis ? `<div class="tinyfeed-novel-synopsis">${b.synopsis}</div>` : ""}
-            <div class="tinyfeed-novel-epbar">${chips}</div>
-            ${ep && ep.title ? `<div class="tinyfeed-novel-eptitle">${ep.title}</div>` : ""}
-            <div class="tinyfeed-novel-text">${paras}</div>
-            ${finished
-                ? `<div class="tinyfeed-novel-endmark">— จบบริบูรณ์ —</div>`
-                : `<button id="tinyfeed-novel-next" class="tinyfeed-btn-primary tinyfeed-novel-nextbtn">
-                       <i class="fa-solid fa-feather-pointed"></i> <span class="tinyfeed-novel-btnlabel">เขียนตอนที่ ${b.episodes.length + 1}</span>
-                   </button>`}
-        </div>
-    `);
-    // จำว่าอ่านถึงตอนไหน
-    b.lastReadEp = Math.max(b.lastReadEp || 0, novelEpIdx + 1);
-    saveNovel();
-}
-
-// ── หน้าตัวละครในเรื่อง ──
-function renderNovelChars() {
-    const b = novelBook(novelBookId);
-    if (!b) { novelScreen = "shelf"; return renderNovel(); }
-    $(".tinyfeed-title").text("ตัวละคร");
-    const cs = b.chars || [];
-    $("#tinyfeed-novel-body").html(`
-        <div class="tinyfeed-screen">
-            ${cs.length ? cs.map((c) => `
-                <div class="tinyfeed-novel-charcard">
-                    <div class="tinyfeed-novel-charname">${c.name}${c.role ? ` <span class="tinyfeed-novel-charrole">${c.role}</span>` : ""}</div>
-                    ${c.desc ? `<div class="tinyfeed-novel-chardesc">${c.desc}</div>` : ""}
-                </div>`).join("")
-            : emptyInlineHtml("เรื่องนี้ยังไม่มีข้อมูลตัวละคร")}
-        </div>
-    `);
-}
-
-// ── AI: ให้คิดพล็อตให้ 3 ข้อ ──
-async function novelSuggestPlots() {
-    if (novelBusy) return;
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyNovel"); return; }
-    novelBusy = true;
-    setNovelGenerating(true, "#tinyfeed-novel-ai", "กำลังคิด...", "ให้ AI คิดให้");
-    try {
-        const q = buildPrompt("novelPlot", { genre: String($("#tinyfeed-novel-genre").val() || "").trim() || "(อิสระ)" });
-        const raw = await tinyGenerate(q, 260, "novel");
-        const ideas = [];
-        for (const line of stripReasoning(String(raw || "")).split("\n")) {
-            const m = line.trim().match(/^PLOT:\s*(.+)$/i);
-            if (m) ideas.push(escapeText(stripWrapBrackets(m[1].trim())));
-            if (ideas.length >= 5) break;
-        }
-        if (!ideas.length) { toastr.info("ยังคิดไม่ออก ลองใหม่นะ", "TinyNovel"); return; }
-        novelPlotIdeas = ideas;
-        renderNovelIdeas();
-    } catch (e) {
-        console.error(`[${extensionName}] novelSuggestPlots failed:`, e);
-        toastr.error("คิดพล็อตไม่สำเร็จ", "TinyNovel");
-    } finally {
-        novelBusy = false;
-        setNovelGenerating(false, "#tinyfeed-novel-ai", "กำลังคิด...", "ให้ AI คิดให้");
-    }
-}
-
-// ── AI: สร้างเรื่อง + ตอนแรก ──
-async function novelCreateBook() {
-    if (novelBusy) return;
-    const plot = String($("#tinyfeed-novel-plot").val() || "").trim();
-    if (!plot) { toastr.info("ใส่พล็อตก่อนนะ (กดสุ่มก็ได้)", "TinyNovel"); return; }
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyNovel"); return; }
-    const genre = String($("#tinyfeed-novel-genre").val() || "").trim();
-    const hero = String($("#tinyfeed-novel-hero").val() || NOVEL_HERO_AI);
-    const lenKey = String($("#tinyfeed-novel-length").val() || "medium");
-    const totalEps = Math.max(1, parseInt($("#tinyfeed-novel-eps").val(), 10) || 5);
-    const len = novelLength(lenKey);
-    novelBusy = true;
-    setNovelGenerating(true, "#tinyfeed-novel-create", "กำลังแต่ง...", "เริ่มเขียนตอนแรก");
-    try {
-        const q = buildPrompt("novelOutline", {
-            plot, genre: genre || "(อิสระ)", hero: novelHeroLine(hero),
-            totalEps: String(totalEps), length: `${len.label} — ${len.hint}`,
-            extra: novelExtraLine(),
-        });
-        const raw = await tinyGenerate(q, len.tokens + 300, "novel");
-        const outline = parseNovelOutline(raw);
-        const first = parseNovelEpisode(raw);   // ตัดบรรทัดหัวข้อให้เองแล้ว
-        if (!first.text) { toastr.info("ยังเขียนไม่ออก ลองปรับพล็อตดูนะ", "TinyNovel"); return; }
-        const book = {
-            id: "nv" + Date.now(),
-            title: outline.title || escapeText(plot.slice(0, 40)),
-            synopsis: outline.synopsis, genre, plot: escapeText(plot),
-            cover: novelCover || "", hero, lengthKey: lenKey, totalEps,
-            chars: outline.chars,
-            episodes: [{ no: 1, title: first.title, text: first.text, ts: Date.now() }],
-            lastReadEp: 1, ts: Date.now(), updatedTs: Date.now(),
-        };
-        getNovel().books.unshift(book);
-        saveNovel();
-        novelCover = ""; novelPlotIdeas = []; novelHero = NOVEL_HERO_AI;
-        novelBookId = book.id; novelEpIdx = 0; novelScreen = "read";
-        renderNovel();
-    } catch (e) {
-        console.error(`[${extensionName}] novelCreateBook failed:`, e);
-        toastr.error("แต่งเรื่องไม่สำเร็จ", "TinyNovel");
-    } finally {
-        novelBusy = false;
-        setNovelGenerating(false, "#tinyfeed-novel-create", "กำลังแต่ง...", "เริ่มเขียนตอนแรก");
-    }
-}
-
-// ── AI: เขียนตอนต่อไป (รู้ว่าเหลืออีกกี่ตอนจะจบ) ──
-async function novelNextEpisode() {
-    if (novelBusy) return;
-    const b = novelBook(novelBookId);
-    if (!b) return;
-    if (b.episodes.length >= b.totalEps) return;
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.info("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyNovel"); return; }
-    const len = novelLength(b.lengthKey);
-    const epNo = b.episodes.length + 1;
-    const isLast = epNo >= b.totalEps;
-    novelBusy = true;
-    setNovelGenerating(true, "#tinyfeed-novel-next", "กำลังเขียน...", `เขียนตอนที่ ${epNo}`);
-    try {
-        const roster = (b.chars || []).map((c) => `- ${c.name}${c.role ? ` (${c.role})` : ""}: ${c.desc || ""}`).join("\n");
-        const q = buildPrompt("novelEpisode", {
-            title: b.title, plot: b.plot || "", genre: b.genre || "(อิสระ)",
-            roster: roster || "(ยังไม่ระบุ)", story: novelStorySoFar(b),
-            epNo: String(epNo), totalEps: String(b.totalEps),
-            length: `${len.label} — ${len.hint}`,
-            endRule: isLast
-                ? "ตอนนี้คือ **ตอนสุดท้าย** ต้องปิดเรื่องให้จบสมบูรณ์ คลี่คลายทุกปมที่ค้างไว้ ห้ามทิ้งท้ายให้อ่านต่อ"
-                : `ยังเหลืออีก ${b.totalEps - epNo} ตอนจะจบ เดินเรื่องให้คืบหน้าและทิ้งท้ายให้อยากอ่านต่อ`,
-            extra: novelExtraLine(),
-        });
-        const raw = await tinyGenerate(q, len.tokens, "novel");
-        const parsed = parseNovelEpisode(raw);
-        if (!parsed.text) { toastr.info("ยังเขียนต่อไม่ออก ลองใหม่นะ", "TinyNovel"); return; }
-        b.episodes.push({ no: epNo, title: parsed.title, text: parsed.text, ts: Date.now() });
-        b.updatedTs = Date.now();
-        saveNovel();
-        novelEpIdx = b.episodes.length - 1;
-        renderNovel();
-    } catch (e) {
-        console.error(`[${extensionName}] novelNextEpisode failed:`, e);
-        toastr.error("เขียนตอนต่อไม่สำเร็จ", "TinyNovel");
-    } finally {
-        novelBusy = false;
-        setNovelGenerating(false, "#tinyfeed-novel-next", "กำลังเขียน...", `เขียนตอนที่ ${epNo}`);
-    }
-}
-
-function novelDeleteBook(id) {
-    const n = getNovel();
-    const i = n.books.findIndex((b) => b.id === id);
-    if (i < 0) return;
-    n.books.splice(i, 1);
-    saveNovel();
-    novelScreen = "shelf"; novelBookId = null;
-    renderNovel();
-}
-// ===== TinyQuest (แอปที่ 13): สเตตัส/ไอเทม/NPC สไตล์ RPG — รอบนี้ทำ "สเตตัส + schema" ก่อน =====
-// เหตุผลที่ schema ผูกกับการ์ด (ไม่ใช่ต่อแชท): การ์ด RPG เดียวกันเปิดหลายแชทควรใช้ชุดสเตตัสเดียวกัน
-// ส่วนค่าที่ "เล่นแล้วเปลี่ยน" (values/log) อยู่ต่อแชท เพราะแต่ละเรื่องดำเนินไปคนละทาง
-
-const RPG_TYPE_LABEL = { bar: "แถบ (มีเพดาน)", number: "ตัวเลข", text: "ข้อความ", tag: "แท็ก (รายการ)" };
-
-const RPG_PRESETS = {
-    dating: {
-        name: "เกมจีบหนุ่ม/สาว", stats: [
-            { id: "charm", label: "เสน่ห์", type: "bar", min: 0, max: 100, def: 20, color: "#ec4899", icon: "fa-heart", group: "สเตตัส", hud: true, inject: true },
-            { id: "art", label: "ศิลปะ", type: "bar", min: 0, max: 100, def: 20, color: "#a855f7", icon: "fa-palette", group: "สเตตัส", hud: false, inject: true },
-            { id: "sports", label: "กีฬา", type: "bar", min: 0, max: 100, def: 20, color: "#22c55e", icon: "fa-futbol", group: "สเตตัส", hud: false, inject: true },
-            { id: "study", label: "วิชาการ", type: "bar", min: 0, max: 100, def: 20, color: "#1d9bf0", icon: "fa-book", group: "สเตตัส", hud: false, inject: true },
-            { id: "popularity", label: "ความนิยม", type: "bar", min: 0, max: 100, def: 10, color: "#f59e0b", icon: "fa-star", group: "สเตตัส", hud: true, inject: true },
-            { id: "stress", label: "ความเครียด", type: "bar", min: 0, max: 100, def: 0, color: "#ef4444", icon: "fa-face-tired", group: "สเตตัส", hud: false, inject: true },
-        ],
-    },
-    jrpg: {
-        name: "JRPG", stats: [
-            { id: "lv", label: "เลเวล", type: "number", min: 1, max: 999, def: 1, color: "#f59e0b", icon: "fa-ranking-star", group: "ทั่วไป", hud: true, inject: true },
-            { id: "exp", label: "EXP", type: "number", min: 0, max: 999999, def: 0, color: "#8b5cf6", icon: "fa-star", group: "ทั่วไป", hud: false, inject: false },
-            { id: "hp", label: "HP", type: "bar", min: 0, max: 100, def: 100, color: "#ef4444", icon: "fa-heart", group: "ต่อสู้", hud: true, inject: true },
-            { id: "mp", label: "MP", type: "bar", min: 0, max: 50, def: 50, color: "#1d9bf0", icon: "fa-droplet", group: "ต่อสู้", hud: true, inject: true },
-            { id: "atk", label: "ATK", type: "number", min: 0, max: 999, def: 10, color: "#f97316", icon: "fa-khanda", group: "ต่อสู้", hud: false, inject: true },
-            { id: "def", label: "DEF", type: "number", min: 0, max: 999, def: 10, color: "#10b981", icon: "fa-shield-halved", group: "ต่อสู้", hud: false, inject: true },
-            { id: "agi", label: "AGI", type: "number", min: 0, max: 999, def: 10, color: "#22c55e", icon: "fa-wind", group: "ต่อสู้", hud: false, inject: false },
-            { id: "luk", label: "LUK", type: "number", min: 0, max: 999, def: 10, color: "#eab308", icon: "fa-clover", group: "ต่อสู้", hud: false, inject: false },
-        ],
-    },
-    trpg: {
-        name: "TRPG (D&D-style)", stats: [
-            { id: "str", label: "STR", type: "number", min: 1, max: 20, def: 10, color: "#ef4444", icon: "fa-dumbbell", group: "ความสามารถ", hud: false, inject: true },
-            { id: "dex", label: "DEX", type: "number", min: 1, max: 20, def: 10, color: "#22c55e", icon: "fa-person-running", group: "ความสามารถ", hud: false, inject: true },
-            { id: "con", label: "CON", type: "number", min: 1, max: 20, def: 10, color: "#f97316", icon: "fa-heart-pulse", group: "ความสามารถ", hud: false, inject: true },
-            { id: "int", label: "INT", type: "number", min: 1, max: 20, def: 10, color: "#1d9bf0", icon: "fa-brain", group: "ความสามารถ", hud: false, inject: true },
-            { id: "wis", label: "WIS", type: "number", min: 1, max: 20, def: 10, color: "#8b5cf6", icon: "fa-eye", group: "ความสามารถ", hud: false, inject: true },
-            { id: "cha", label: "CHA", type: "number", min: 1, max: 20, def: 10, color: "#ec4899", icon: "fa-comments", group: "ความสามารถ", hud: false, inject: true },
-            { id: "hp", label: "HP", type: "bar", min: 0, max: 20, def: 20, color: "#ef4444", icon: "fa-heart", group: "การต่อสู้", hud: true, inject: true },
-            { id: "ac", label: "AC", type: "number", min: 0, max: 30, def: 10, color: "#10b981", icon: "fa-shield-halved", group: "การต่อสู้", hud: false, inject: true },
-        ],
-    },
-    survival: {
-        name: "เอาตัวรอด", stats: [
-            { id: "hunger", label: "หิว", type: "bar", min: 0, max: 100, def: 100, color: "#f59e0b", icon: "fa-drumstick-bite", group: "ร่างกาย", hud: true, inject: true },
-            { id: "thirst", label: "กระหาย", type: "bar", min: 0, max: 100, def: 100, color: "#1d9bf0", icon: "fa-glass-water", group: "ร่างกาย", hud: true, inject: true },
-            { id: "stamina", label: "พลังงาน", type: "bar", min: 0, max: 100, def: 100, color: "#22c55e", icon: "fa-bolt", group: "ร่างกาย", hud: false, inject: true },
-            { id: "sanity", label: "สติ", type: "bar", min: 0, max: 100, def: 100, color: "#a855f7", icon: "fa-brain", group: "จิตใจ", hud: false, inject: true },
-        ],
-    },
-    blank: { name: "เริ่มจากศูนย์", stats: [] },
-};
-
-function defaultRpgSchema() { return { stats: [], stages: [], npcStats: [], npcFields: [], npcFieldsHidden: [] }; }
-
-function getRpgSchemaStore() {
-    extension_settings[extensionName] = extension_settings[extensionName] || {};
-    if (!extension_settings[extensionName].rpgSchemas || typeof extension_settings[extensionName].rpgSchemas !== "object") {
-        extension_settings[extensionName].rpgSchemas = {};
-    }
-    return extension_settings[extensionName].rpgSchemas;
-}
-// schema ผูกกับตัวละคร (เหมือน getNpcs) — "__nochar__" กันพังตอนไม่มีการ์ดเปิดอยู่
-function getRpgSchema() {
-    const store = getRpgSchemaStore();
-    const key = getCharKey() || "__nochar__";
-    let s = store[key];
-    if (!s || typeof s !== "object") { s = defaultRpgSchema(); store[key] = s; }
-    if (!Array.isArray(s.stats)) s.stats = [];
-    if (!Array.isArray(s.stages)) s.stages = [];
-    if (!Array.isArray(s.npcStats)) s.npcStats = [];
-    if (!Array.isArray(s.npcFields)) s.npcFields = [];
-    if (!Array.isArray(s.npcFieldsHidden)) s.npcFieldsHidden = [];
-    return s;
-}
-function saveRpgSchema() { saveSettingsDebounced(); updateRpgHud(); }
-
-function getRpg() {
-    const data = getFeedData();
-    if (!data.rpg || typeof data.rpg !== "object") data.rpg = { values: {}, max: {}, log: [] };
-    if (!data.rpg.values || typeof data.rpg.values !== "object") data.rpg.values = {};
-    if (!data.rpg.max || typeof data.rpg.max !== "object") data.rpg.max = {};
-    if (!Array.isArray(data.rpg.log)) data.rpg.log = [];
-    if (!data.rpg.npc || typeof data.rpg.npc !== "object") data.rpg.npc = {};
-    if (!Array.isArray(data.rpg.inventory)) data.rpg.inventory = [];   // รอบ ③ — กระเป๋าไอเทม
-    if (!Array.isArray(data.rpg.quests)) data.rpg.quests = [];         // รอบ ④ — เควส
-    return data.rpg;
-}
-function saveRpg() { saveFeedDataDebounced(); updateRpgHud(); }
-
-function rpgStatDef(id) { return getRpgSchema().stats.find((d) => d.id === id) || null; }
-// เพดานจริงของค่า bar (default = max ใน schema; เผื่ออนาคต override ได้ต่อแชท เช่น HP สูงสุดเพิ่มตอนเลเวลอัป)
-function rpgMax(id) {
-    const def = rpgStatDef(id);
-    if (!def) return 0;
-    const r = getRpg();
-    const override = r.max[id];
-    return Number.isFinite(override) ? override : (Number(def.max) || 0);
-}
-function rpgVal(id) {
-    const def = rpgStatDef(id);
-    if (!def) return "";
-    const r = getRpg();
-    const v = r.values[id];
-    if (v !== undefined) return v;
-    // ยังไม่เคยตั้งค่า → ใช้ค่าเริ่มต้นจาก schema
-    if (def.type === "tag") return [];
-    if (def.type === "number" || def.type === "bar") {
-        const n = parseFloat(def.def);
-        return Number.isFinite(n) ? n : 0;
-    }
-    return def.def != null ? String(def.def) : "";
-}
-function rpgClamp(def, val) {
-    if (!def) return val;
-    if (def.type === "number" || def.type === "bar") {
-        let n = parseFloat(val);
-        if (!Number.isFinite(n)) n = 0;
-        const lo = Number.isFinite(parseFloat(def.min)) ? parseFloat(def.min) : -Infinity;
-        const hi = def.type === "bar" ? rpgMax(def.id) : (Number.isFinite(parseFloat(def.max)) ? parseFloat(def.max) : Infinity);
-        return Math.min(hi, Math.max(lo, n));
-    }
-    return val;
-}
-function rpgLogPush(entry) {
-    const r = getRpg();
-    r.log.unshift(Object.assign({ ts: Date.now() }, entry));
-    if (r.log.length > 100) r.log.length = 100;
-}
-// ตั้งค่าตรงๆ (number/bar/text) — เก็บ log เฉพาะตอนค่าเปลี่ยนจริง
-function rpgSetStat(id, val, why) {
-    const def = rpgStatDef(id);
-    if (!def) return;
-    const r = getRpg();
-    const from = rpgVal(id);
-    let to = val;
-    if (def.type === "number" || def.type === "bar") to = rpgClamp(def, val);
-    else if (def.type === "text") to = String(val == null ? "" : val);
-    r.values[id] = to;
-    if (from !== to) rpgLogPush({ id, label: def.label, from, to, why: why || "" });
-    saveRpg();
-}
-function rpgSetTags(id, tags) {
-    const def = rpgStatDef(id);
-    if (!def || def.type !== "tag") return;
-    const r = getRpg();
-    r.values[id] = Array.isArray(tags) ? tags.slice() : [];
-    saveRpg();
-}
-// parser ล้วนของ delta: "+5" (บวก) / "-3" (ลบ) / "=42" หรือเลขเปล่า (ตั้งค่าตรงๆ) — คืน null ถ้า parse ไม่ได้
-// แยกออกมาเป็นฟังก์ชันกลาง เพราะ NPC (รอบ ②) ก็ใช้ตรรกะเดิมทุกตัวอักษร ต่างแค่ที่เก็บค่า
-function rpgParseDeltaStr(deltaStr) {
-    const s = String(deltaStr == null ? "" : deltaStr).trim();
-    const m = s.match(/^([+\-=]?)\s*(-?\d+(?:\.\d+)?)$/);
-    if (!m) return null;
-    const n = parseFloat(m[2]);
-    if (!Number.isFinite(n)) return null;
-    return { sign: m[1], n };
-}
-function rpgApplyDelta(id, deltaStr, why) {
-    const def = rpgStatDef(id);
-    if (!def || (def.type !== "number" && def.type !== "bar")) return false;
-    const p = rpgParseDeltaStr(deltaStr);
-    if (!p) return false;
-    const cur = Number(rpgVal(id)) || 0;
-    const next = p.sign === "+" ? cur + p.n : p.sign === "-" ? cur - p.n : p.n;
-    rpgSetStat(id, next, why);
-    return true;
-}
-// ข้อความค่าล้วน (ไม่มีชื่อ) — ใช้ทั้ง HUD chip และวิดเจ็ตหน้าโฮม
-function rpgStatValueText(def) {
-    const v = rpgVal(def.id);
-    if (def.type === "bar") return `${Math.round(Number(v) || 0)}/${Math.round(rpgMax(def.id))}`;
-    if (def.type === "tag") return (Array.isArray(v) && v.length) ? v.join(", ") : "—";
-    return (v == null || v === "") ? "—" : String(v);
-}
-// บรรทัดแสดงผลแบบมีชื่อ — ใช้ตอนแนบเข้า prompt RP (buildAppBlocks)
-function rpgStatDisplay(def) {
-    const val = rpgStatValueText(def);
-    return (def.type === "text" || def.type === "tag") ? `${def.label}: ${val}` : `${def.label} ${val}`;
-}
-
-// ===== TinyQuest (รอบ ②): สเตตัสของ NPC — schema.npcStats + ค่าต่อแชทใน rpg.npc[key].stats
-// เก็บแยกจากฝั่งผู้เล่นเพราะ NPC ไม่มี "max override" ต่อแชท (ไม่จำเป็นเท่าผู้เล่น) และ id ผูกกับ npcKey ไม่ใช่ค่าเดี่ยว
-function rpgNpcStatDef(id) { return getRpgSchema().npcStats.find((d) => d.id === id) || null; }
-function rpgNpcVal(npcKey, id) {
-    const def = rpgNpcStatDef(id);
-    if (!def) return "";
-    const n = getRpgNpc(npcKey);
-    const v = n.stats[id];
-    if (v !== undefined) return v;
-    if (def.type === "tag") return [];
-    if (def.type === "number" || def.type === "bar") {
-        const x = parseFloat(def.def);
-        return Number.isFinite(x) ? x : 0;
-    }
-    return def.def != null ? String(def.def) : "";
-}
-function rpgNpcClamp(def, val) {
-    if (!def) return val;
-    if (def.type === "number" || def.type === "bar") {
-        let x = parseFloat(val);
-        if (!Number.isFinite(x)) x = 0;
-        const lo = Number.isFinite(parseFloat(def.min)) ? parseFloat(def.min) : -Infinity;
-        const hi = Number.isFinite(parseFloat(def.max)) ? parseFloat(def.max) : Infinity;
-        return Math.min(hi, Math.max(lo, x));
-    }
-    return val;
-}
-function rpgNpcSetStat(npcKey, id, val, why) {
-    const def = rpgNpcStatDef(id);
-    if (!def) return;
-    const n = getRpgNpc(npcKey);
-    let to = val;
-    if (def.type === "number" || def.type === "bar") to = rpgNpcClamp(def, val);
-    else if (def.type === "text") to = String(val == null ? "" : val);
-    n.stats[id] = to;
-    saveRpg();
-}
-function rpgNpcSetTags(npcKey, id, tags) {
-    const def = rpgNpcStatDef(id);
-    if (!def || def.type !== "tag") return;
-    const n = getRpgNpc(npcKey);
-    n.stats[id] = Array.isArray(tags) ? tags.slice() : [];
-    saveRpg();
-}
-function rpgNpcApplyDelta(npcKey, id, deltaStr, why) {
-    const def = rpgNpcStatDef(id);
-    if (!def || (def.type !== "number" && def.type !== "bar")) return false;
-    const p = rpgParseDeltaStr(deltaStr);
-    if (!p) return false;
-    const cur = Number(rpgNpcVal(npcKey, id)) || 0;
-    const next = p.sign === "+" ? cur + p.n : p.sign === "-" ? cur - p.n : p.n;
-    rpgNpcSetStat(npcKey, id, next, why);
-    return true;
-}
-
-// ── กระเป๋าไอเทม (รอบ ③) — src: "shop"|"manual"|"ai" ──
-// รายชื่อ statId (number/bar) ที่มีในการ์ดนี้ ใช้แนบ prompt ให้ AI เลือกตอนสร้างสินค้า (ไม่มี = บอกตรงๆ ว่าไม่มี)
-function rpgAvailableStatIdsLine() {
-    const ids = getRpgSchema().stats.filter((d) => d.type === "number" || d.type === "bar").map((d) => d.id);
-    return ids.length ? ids.join(", ") : "(การ์ดนี้ยังไม่มีค่าสเตตัส — ใส่ - เสมอ)";
-}
-function getRpgInventory() { return getRpg().inventory; }
-function rpgItemId() { return "ri" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
-// ชื่อซ้ำ (ไม่สนตัวพิมพ์เล็ก/ใหญ่) → บวก qty แทนสร้างรายการใหม่
-function rpgAddItem(item) {
-    const name = String(item.name || "").trim();
-    if (!name) return;
-    const inv = getRpgInventory();
-    const qty = Math.max(1, parseInt(item.qty, 10) || 1);
-    const existing = inv.find((it) => it.name.trim().toLowerCase() === name.toLowerCase());
-    const fx = (item.fx && item.fx.stat) ? { stat: String(item.fx.stat), amount: Number(item.fx.amount) || 0 } : { stat: "", amount: 0 };
-    if (existing) {
-        existing.qty = (Number(existing.qty) || 0) + qty;
-    } else {
-        inv.push({
-            id: rpgItemId(), name, emoji: String(item.emoji || "").trim(), image: String(item.image || "").trim(),
-            desc: String(item.desc || "").trim(), qty, fx, src: item.src || "manual", ts: Date.now(),
-        });
-    }
-    saveRpg();
-}
-function rpgRemoveItem(id, n) {
-    const inv = getRpgInventory();
-    const idx = inv.findIndex((it) => it.id === id);
-    if (idx < 0) return;
-    inv[idx].qty -= Math.max(1, Number(n) || 1);
-    if (inv[idx].qty <= 0) inv.splice(idx, 1);
-    saveRpg();
-}
-// ใช้ 1 ชิ้น: มีเอฟเฟกต์ก็ apply เข้าสเตตัส (การ์ดคนละใบ/statId ไม่มีในschema = ใช้ได้แต่ไม่มีผล + toast บอกเหตุผล) แล้วลด qty
-function rpgUseItem(id) {
-    const inv = getRpgInventory();
-    const it = inv.find((x) => x.id === id);
-    if (!it) return;
-    if (it.fx && it.fx.stat) {
-        const amt = Number(it.fx.amount) || 0;
-        const ok = rpgApplyDelta(it.fx.stat, (amt >= 0 ? "+" : "") + amt, "ใช้ " + it.name);
-        if (!ok) toastr.info(`"${it.name}" ไม่มีผลกับสเตตัสชุดนี้ (การ์ดนี้ไม่มีค่านี้)`, "TinyQuest");
-    }
-    it.qty = (Number(it.qty) || 1) - 1;
-    if (it.qty <= 0) inv.splice(inv.indexOf(it), 1);
-    saveRpg();
-    toastr.success(`ใช้ "${it.name}" แล้ว`, "TinyQuest");
-}
-function rpgItemEffectText(fx) {
-    if (!fx || !fx.stat) return "";
-    const def = rpgStatDef(fx.stat);
-    const label = def ? def.label : fx.stat;
-    const amt = Number(fx.amount) || 0;
-    return `${label} ${amt >= 0 ? "+" : ""}${amt}`;
-}
-
-// ── เควส (รอบ ④) — CRUD ธรรมดา ──
-function getRpgQuests() { return getRpg().quests; }
-function rpgQuestId() { return "rq" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
-function rpgAddQuest({ title, desc, kind, reward }) {
-    const t = String(title || "").trim();
-    if (!t) return null;
-    const q = {
-        id: rpgQuestId(), title: t, desc: String(desc || "").trim(),
-        kind: kind === "side" ? "side" : "main", status: "active",
-        reward: String(reward || "").trim(), ts: Date.now(), doneTs: null,
-    };
-    getRpgQuests().push(q);
-    saveRpg();
-    return q;
-}
-function rpgSetQuestStatus(id, status) {
-    const q = getRpgQuests().find((x) => x.id === id);
-    if (!q) return;
-    q.status = ["active", "done", "failed"].includes(status) ? status : "active";
-    q.doneTs = q.status === "active" ? null : Date.now();
-    saveRpg();
-}
-function rpgDeleteQuest(id) {
-    const quests = getRpgQuests();
-    const i = quests.findIndex((x) => x.id === id);
-    if (i < 0) return;
-    quests.splice(i, 1);
-    saveRpg();
-}
-
-// ── เพิ่ม/ลบ/จัดเรียง/แก้ไข statDef ──
-// which = "player" (schema.stats) | "npc" (schema.npcStats) — เพิ่มในรอบ ② ให้ตัวแก้ schema เดิมใช้ร่วมกับสเตตัส NPC ได้
-function rpgStatList(which) {
-    const schema = getRpgSchema();
-    return which === "npc" ? schema.npcStats : schema.stats;
-}
-function rpgFindStatDef(which, id) {
-    return rpgStatList(which).find((d) => d.id === id) || null;
-}
-function rpgGenId(which, base) {
-    let id = String(base || "stat").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20) || "stat";
-    const list = rpgStatList(which);
-    let out = id, n = 1;
-    while (list.some((d) => d.id === out)) { out = `${id}${++n}`; }
-    return out;
-}
-// เหมือน rpgGenId แต่กันชนกับ id ของ schema.npcFields (คนละ namespace จาก stat id) — ใช้ตอนเพิ่มช่องข้อมูลตัวตนเอง
-function rpgGenFieldId(base) {
-    let id = String(base || "field").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20) || "field";
-    const fields = getRpgSchema().npcFields || [];
-    let out = id, n = 1;
-    while (fields.some((f) => f.id === out)) { out = `${id}${++n}`; }
-    return out;
-}
-function rpgAddStat(which) {
-    const list = rpgStatList(which);
-    list.push({
-        id: rpgGenId(which, "stat" + (list.length + 1)), label: "ค่าใหม่", type: "number",
-        min: 0, max: 100, def: 0, color: "#8b5cf6", icon: "fa-star", group: "ทั่วไป", hud: false, inject: true,
-    });
-    saveRpgSchema();
-    renderRpgSchemaEditor();
-}
-function rpgDeleteStat(which, id) {
-    const list = rpgStatList(which);
-    const i = list.findIndex((d) => d.id === id);
-    if (i < 0) return;
-    list.splice(i, 1);
-    saveRpgSchema();
-    renderRpgSchemaEditor();
-}
-function rpgMoveStat(which, id, dir) {
-    const list = rpgStatList(which);
-    const i = list.findIndex((d) => d.id === id);
-    if (i < 0) return;
-    const j = i + dir;
-    if (j < 0 || j >= list.length) return;
-    const tmp = list[i]; list[i] = list[j]; list[j] = tmp;
-    saveRpgSchema();
-    renderRpgSchemaEditor();
-}
-function rpgSaveStatField(which, id, field, val) {
-    const def = rpgFindStatDef(which, id);
-    if (!def) return;
-    if (field === "min" || field === "max") {
-        const n = parseFloat(val);
-        def[field] = Number.isFinite(n) ? n : 0;
-    } else if (field === "hud" || field === "inject") {
-        def[field] = Boolean(val);
-    } else if (field === "type") {
-        def.type = ["bar", "number", "text", "tag"].includes(val) ? val : "number";
-    } else {
-        def[field] = String(val == null ? "" : val);
-    }
-    saveRpgSchema();
-}
-function rpgApplyPreset(which, key) {
-    const preset = RPG_PRESETS[key];
-    if (!preset) return;
-    const list = rpgStatList(which);
-    const existingIds = new Set(list.map((d) => d.id));
-    for (const s of preset.stats) {
-        let id = s.id, n = 1;
-        while (existingIds.has(id)) id = `${s.id}${++n}`;
-        existingIds.add(id);
-        list.push(Object.assign({}, s, { id }));
-    }
-    saveRpgSchema();
-    renderRpgSchemaEditor();
-    toastr.success(`เพิ่มชุด "${preset.name}" แล้ว (${preset.stats.length} ค่า)`, "TinyQuest");
-}
-
-// ── AI เสนอสเตตัสจากข้อมูลการ์ด — ต้องกดรับทีละรายการก่อนเขียนลง schema จริง ──
-let rpgBusy = false;
-let rpgProposed = [];   // [{id,label,type,min,max,def,group}] รอผู้ใช้กดรับ
-
-function parseRpgSchemaLines(raw) {
-    const s = stripReasoning(raw);
-    const re = /STAT:\s*(.+)/gi;
-    const out = [];
-    const seen = new Set();
-    let m;
-    while ((m = re.exec(s)) !== null) {
-        const parts = m[1].split("|").map((x) => x.trim());
-        if (parts.length < 3) continue;
-        const rawId = parts[0], label = parts[1];
-        let type = parts[2], min = parts[3], max = parts[4], def = parts[5], group = parts[6];
-        let id = String(rawId || "").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20);
-        if (!id) id = String(label || "stat").toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20) || "stat";
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
-        type = ["bar", "number", "text", "tag"].includes(String(type || "").toLowerCase()) ? String(type).toLowerCase() : "number";
-        const minN = parseFloat(min); const maxN = parseFloat(max);
-        out.push({
-            id, label: (label || rawId || "ค่าใหม่").trim().slice(0, 40),
-            type,
-            min: Number.isFinite(minN) ? minN : 0,
-            max: Number.isFinite(maxN) ? maxN : 100,
-            def: (def || "").trim() || (type === "text" ? "" : "0"),
-            group: (group || "ทั่วไป").trim().slice(0, 20) || "ทั่วไป",
-        });
-        if (out.length >= 12) break;   // กันมั่วยาวเกิน
-    }
-    return out;
-}
-
-async function rpgSuggestSchema() {
-    if (rpgBusy) return;
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { toastr.error("เวอร์ชัน ST นี้ใช้ AI ไม่ได้", "TinyQuest"); return; }
-    let charName = "ตัวละครนี้", bio = "";
-    try {
-        const charId = ctx.characterId;
-        const card = (charId !== undefined && charId !== null) ? ctx.characters[charId] : null;
-        if (card) { charName = card.name || charName; bio = cardBio(card); }
-    } catch (e) { /* ไม่มีการ์ด */ }
-    if (!bio) { toastr.info("เปิดแชทที่มีตัวละครก่อนนะ ถึงจะให้ AI อ่านข้อมูลได้", "TinyQuest"); return; }
-    rpgBusy = true;
-    setRpgGenerating(true);
-    try {
-        const extra = String(getSetting("rpgExtraPrompt") || "").trim();
-        const q = buildPrompt("rpgSchema", { charName, bio, extra: extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "" });
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("rpgTokens"), 10) || 350), "rpg");
-        const parsed = parseRpgSchemaLines(raw);
-        if (!parsed.length) { toastr.info("AI ไม่ได้เสนอสเตตัสมา ลองใหม่นะ", "TinyQuest"); return; }
-        rpgProposed = parsed;
-        renderRpgSchemaEditor();
-    } catch (e) {
-        console.error(`[${extensionName}] rpgSuggestSchema failed:`, e);
-        toastr.error("เสนอสเตตัสไม่สำเร็จ", "TinyQuest");
-    } finally {
-        rpgBusy = false;
-        setRpgGenerating(false);
-    }
-}
-function setRpgGenerating(on) {
-    $("#tinyfeed-rpg-suggest").prop("disabled", on).toggleClass("tinyfeed-generating", on);
-}
-function rpgAcceptProposals(ids) {
-    const schema = getRpgSchema();
-    const existingIds = new Set(schema.stats.map((d) => d.id));
-    let added = 0;
-    for (const p of rpgProposed) {
-        if (!ids.includes(p.id)) continue;
-        let id = p.id, n = 1;
-        while (existingIds.has(id)) id = `${p.id}${++n}`;
-        existingIds.add(id);
-        schema.stats.push({
-            id, label: p.label, type: p.type, min: p.min, max: p.max, def: p.def,
-            color: "#8b5cf6", icon: "fa-star", group: p.group, hud: false, inject: true,
-        });
-        added++;
-    }
-    saveRpgSchema();
-    rpgProposed = [];
-    renderRpgSchemaEditor();
-    if (added) toastr.success(`เพิ่มสเตตัสแล้ว ${added} รายการ`, "TinyQuest");
-}
-function rpgDiscardProposals() { rpgProposed = []; renderRpgSchemaEditor(); }
-
-// ===== TinyQuest (รอบ ②): สมุดรายชื่อ NPC + ความสัมพันธ์ =====
-// ใครอยู่ในสมุด = ตัวหลักของแชท + NPC ของการ์ดนี้ (getNpcs() เดิม) + ที่เพิ่มเองใน TinyQuest — ไม่ดึง roster ข้ามการ์ดจาก TinyVerse
-// ตัวตน NPC (วันเกิด/ของที่ชอบ ฯลฯ) ผูกกับการ์ด (รู้แล้วรู้เลย ข้ามแชทได้) ส่วนความสัมพันธ์ (affection/log) ผูกกับแชทนี้
-// ช่องข้อมูลตายตัวต้องเป็นกลางกับทุกฉาก (ไม่ใช่ทุกเรื่องเป็นโรงเรียน) — "ชมรม"/"เผ่าพันธุ์" ฯลฯ ให้ผู้ใช้เพิ่มเองต่อการ์ดแทน
-const RPG_NPC_FIELDS = [
-    { id: "birthday", label: "วันเกิด" }, { id: "age", label: "อายุ" }, { id: "height", label: "ส่วนสูง" },
-    { id: "role", label: "บทบาท/อาชีพ" }, { id: "likes", label: "ของที่ชอบ" },
-    { id: "dislikes", label: "ของที่ไม่ชอบ" }, { id: "note", label: "โน้ต" },
-];
-const RPG_DEFAULT_STAGES = [
-    { at: 0, label: "คนแปลกหน้า" }, { at: 20, label: "รู้จักกัน" }, { at: 45, label: "สนิท" },
-    { at: 70, label: "พิเศษ" }, { at: 90, label: "คนสำคัญ" },
-];
-
-function rpgNpcKey(name) { return String(name || "").trim().toLowerCase(); }
-
-function getRpgNpcInfoStore() {
-    extension_settings[extensionName] = extension_settings[extensionName] || {};
-    if (!extension_settings[extensionName].rpgNpcInfo || typeof extension_settings[extensionName].rpgNpcInfo !== "object") {
-        extension_settings[extensionName].rpgNpcInfo = {};
-    }
-    return extension_settings[extensionName].rpgNpcInfo;
-}
-// ตัวตน NPC ทั้งหมดของการ์ดปัจจุบัน — { <npcKey>: {name,avatar,birthday,...,extra,known} }
-function getRpgNpcInfoAll() {
-    const store = getRpgNpcInfoStore();
-    const charKey = getCharKey() || "__nochar__";
-    if (!store[charKey] || typeof store[charKey] !== "object") store[charKey] = {};
-    return store[charKey];
-}
-function defaultRpgNpcInfo(name, avatar) {
-    return {
-        name: String(name || ""), avatar: String(avatar || ""), birthday: "", age: "", height: "",
-        role: "", likes: "", dislikes: "", note: "", extra: {}, known: {},
-    };
-}
-// สร้างรายการถ้ายังไม่มี (ใช้ตอนดึง NPC จากการ์ด/เพิ่มเอง) — ไม่ทับข้อมูลเดิมถ้ามีอยู่แล้ว
-function rpgEnsureNpcInfo(name, avatar) {
-    const key = rpgNpcKey(name);
-    if (!key) return null;
-    const all = getRpgNpcInfoAll();
-    if (!all[key]) { all[key] = defaultRpgNpcInfo(name, avatar); saveRpgNpcInfo(); }
-    else if (avatar && !all[key].avatar) { all[key].avatar = avatar; saveRpgNpcInfo(); }
-    return all[key];
-}
-// อ่านอย่างเดียว — คืน object ว่างถ้ายังไม่มี (ไม่สร้าง/ไม่เซฟ กันโดน render เรียกพร่ำเพรื่อ)
-function getRpgNpcInfo(key) {
-    const all = getRpgNpcInfoAll();
-    const info = all[key];
-    if (!info) return defaultRpgNpcInfo("");
-    if (!info.extra || typeof info.extra !== "object") info.extra = {};
-    if (!info.known || typeof info.known !== "object") info.known = {};
-    return info;
-}
-function saveRpgNpcInfo() { saveSettingsDebounced(); }
-
-// รวมรายชื่อทั้งหมดในสมุด — dedupe ด้วย npcKey (ตัวหลักมาก่อน, แล้ว NPC การ์ด, แล้วที่เพิ่มเองใน TinyQuest)
-function rpgNpcList() {
-    const seen = new Set();
-    const out = [];
-    const mainName = getCharName();
-    if (mainName) {
-        const k = rpgNpcKey(mainName);
-        if (k && !seen.has(k)) { seen.add(k); out.push({ key: k, name: mainName, avatar: getCharacterAvatar(), isMain: true }); }
-    }
-    for (const n of getNpcs()) {
-        const k = rpgNpcKey(n.name);
-        if (!k || seen.has(k)) continue;
-        seen.add(k);
-        out.push({ key: k, name: n.name, avatar: n.avatar || "", isMain: false });
-    }
-    const all = getRpgNpcInfoAll();
-    for (const k of Object.keys(all)) {
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.push({ key: k, name: all[k].name || k, avatar: all[k].avatar || "", isMain: false, isCustom: true });
-    }
-    return out;
-}
-// ดึง NPC ใหม่จากการ์ด (getNpcs) เข้าสมุด — ไม่ทับของเดิมที่มีอยู่แล้ว
-function rpgSyncNpcs() {
-    let added = 0;
-    for (const n of getNpcs()) {
-        const key = rpgNpcKey(n.name);
-        if (!key) continue;
-        if (!getRpgNpcInfoAll()[key]) { rpgEnsureNpcInfo(n.name, n.avatar || ""); added++; }
-    }
-    renderRpgNpcList();
-    toastr.info(added ? `เพิ่ม NPC ใหม่ ${added} คน` : "ไม่มี NPC ใหม่จากการ์ด", "TinyQuest");
-}
-function rpgAddCustomNpc(name, avatar) {
-    const key = rpgNpcKey(name);
-    if (!key) { toastr.info("ใส่ชื่อก่อนนะ", "TinyQuest"); return null; }
-    if (key === rpgNpcKey(getCharName()) || getRpgNpcInfoAll()[key]) { toastr.info("มีชื่อนี้อยู่แล้ว", "TinyQuest"); return null; }
-    rpgEnsureNpcInfo(name, avatar || "");
-    return key;
-}
-function rpgDeleteNpc(key) {
-    const all = getRpgNpcInfoAll();
-    delete all[key];
-    saveRpgNpcInfo();
-    const r = getRpg();
-    if (r.npc && r.npc[key]) { delete r.npc[key]; saveRpg(); }
-}
-
-// ── ระดับความสัมพันธ์ — ตั้งชื่อ/คะแนนขั้นต่ำเองได้ต่อการ์ด (schema.stages) ──
-function rpgStageList() {
-    const schema = getRpgSchema();
-    return (schema.stages && schema.stages.length) ? schema.stages : RPG_DEFAULT_STAGES;
-}
-// ใช้ตอนจะ "แก้" รายการระดับ (ต่างจาก rpgStageList ตรงที่ materialize ค่า default ลง schema จริงก่อน ไม่ใช่แค่ fallback ตอนอ่าน)
-function rpgEnsureStages() {
-    const schema = getRpgSchema();
-    if (!schema.stages || !schema.stages.length) schema.stages = RPG_DEFAULT_STAGES.map((s) => Object.assign({}, s));
-    return schema.stages;
-}
-function rpgStageFor(aff) {
-    const stages = rpgStageList().slice().sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0));
-    let cur = stages[0] || { at: 0, label: "" };
-    for (const s of stages) { if ((Number(aff) || 0) >= (Number(s.at) || 0)) cur = s; }
-    return cur;
-}
-function rpgHearts(aff) { return Math.max(0, Math.min(5, Math.round((Number(aff) || 0) / 20))); }
-
-// ── ช่องข้อมูลตัวตนที่ใช้งานอยู่จริง (ตายตัวที่ไม่ถูกซ่อน + ที่เพิ่มเอง) ──
-// custom field คั่นด้วย prefix "extra:" กันชนกับ id ของช่องตายตัว (เก็บค่าจริงแยกใน info.extra ไม่ใช่ flat property)
-function rpgActiveNpcFields() {
-    const schema = getRpgSchema();
-    const hidden = new Set(schema.npcFieldsHidden || []);
-    const fixed = RPG_NPC_FIELDS.filter((f) => !hidden.has(f.id));
-    const custom = (schema.npcFields || []).map((f) => ({ id: "extra:" + f.id, label: f.label }));
-    return fixed.concat(custom);
-}
-function rpgFieldLabelFor(fieldId) {
-    if (String(fieldId).startsWith("extra:")) {
-        const rawId = fieldId.slice(6);
-        const f = (getRpgSchema().npcFields || []).find((x) => x.id === rawId);
-        return f ? f.label : rawId;
-    }
-    const f = RPG_NPC_FIELDS.find((x) => x.id === fieldId);
-    return f ? f.label : fieldId;
-}
-function rpgFieldValue(npcKey, fieldId) {
-    const info = getRpgNpcInfo(npcKey);
-    if (String(fieldId).startsWith("extra:")) {
-        const rawId = fieldId.slice(6);
-        return (info.extra && info.extra[rawId] != null) ? info.extra[rawId] : "";
-    }
-    return info[fieldId] != null ? info[fieldId] : "";
-}
-function rpgFieldKnown(npcKey, fieldId) {
-    const info = getRpgNpcInfo(npcKey);
-    return !!(info.known && info.known[fieldId]);
-}
-// เซ็ตค่า + ปลดล็อก (known=true) — แจ้งเตือนเฉพาะตอนปลดล็อกครั้งแรก (แก้ไขค่าที่รู้แล้วไม่ยิงซ้ำ)
-function rpgRevealField(npcKey, fieldId, value) {
-    const key = rpgNpcKey(npcKey);
-    const all = getRpgNpcInfoAll();
-    if (!all[key]) all[key] = defaultRpgNpcInfo(npcKey);
-    const info = all[key];
-    if (!info.extra || typeof info.extra !== "object") info.extra = {};
-    if (!info.known || typeof info.known !== "object") info.known = {};
-    if (String(fieldId).startsWith("extra:")) info.extra[fieldId.slice(6)] = value;
-    else info[fieldId] = value;
-    const wasKnown = !!info.known[fieldId];
-    info.known[fieldId] = true;
-    saveRpgNpcInfo();
-    if (!wasKnown) {
-        const label = rpgFieldLabelFor(fieldId);
-        showNotif(makeAvatar({ avatar: info.avatar || "", author: info.name || npcKey }), info.name || npcKey, `ปลดล็อกข้อมูลใหม่: ${label}`, "rpg", "rpg");
-    }
-}
-
-// ── ความสัมพันธ์ต่อแชท (ความรู้สึก/ไทม์ไลน์) — ผูกกับ getRpg() เดิม คีย์ npcKey ──
-function getRpgNpc(key) {
-    const r = getRpg();
-    if (!r.npc[key] || typeof r.npc[key] !== "object") {
-        r.npc[key] = { affection: 0, stats: {}, events: [], firstMetTs: Date.now() };
-    }
-    if (!r.npc[key].stats || typeof r.npc[key].stats !== "object") r.npc[key].stats = {};
-    if (!Array.isArray(r.npc[key].events)) r.npc[key].events = [];
-    return r.npc[key];
-}
-function rpgAffectionAdd(key, delta, why) { rpgSetAffection(key, (getRpgNpc(key).affection || 0) + (Number(delta) || 0), why); }
-function rpgSetAffection(key, val, why) {
-    const n = getRpgNpc(key);
-    const from = n.affection;
-    n.affection = Math.max(0, Math.min(100, Number(val) || 0));
-    if (n.affection !== from) {
-        n.events.unshift({ ts: Date.now(), delta: n.affection - from, text: why || "" });
-        if (n.events.length > 50) n.events.length = 50;
-    }
-    saveRpg();
-}
-
-// ── หน้าจอแอป: แท็บสถานะ / กระเป๋า / สมุด (ใช้ .tinyfeed-tabs กลางเหมือน TinyVerse) ──
-// รอบ ③: ย้าย "ตั้งค่าสเตตัส" ออกจากแท็บ (แท็บจะล้นที่ 320px เมื่อเพิ่มกระเป๋า) ไปเป็นหน้าจอแยกที่เปิดจากไอคอนเฟืองในแท็บสถานะแทน
-let rpgTab = "status";   // status | bag | npc
-let rpgSchemaOpen = false;   // true = กำลังเปิดหน้าตั้งค่าสเตตัสแบบเต็มจอ (ไม่ใช่แท็บ)
-let rpgNpcView = null;   // npcKey ที่กางดูรายละเอียดอยู่ในแท็บสมุด (null = หน้ารายการ) — รอบ ②
-let rpgFieldEditing = null;   // {key, field} — ช่องข้อมูล ??? ที่กำลังแตะกรอกอยู่ (รอบ ②)
-
-function openRpg() { rpgSchemaOpen = false; renderRpg(); }
-
-// หน้าตั้งค่าสเตตัส — ทำตัวเหมือนหน้ารายละเอียดของแอปอื่น (โชว์ปุ่มย้อนกลับ ซ่อนโฮม/เฟือง) ดูแพตเทิร์นที่ openVersePost ใช้
-function openRpgSchema() {
-    rpgSchemaOpen = true;
-    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
-    $("#tinyfeed-back").removeClass("tinyfeed-hidden");
-    renderRpg();
-}
-function closeRpgSchema() {
-    rpgSchemaOpen = false;
-    $("#tinyfeed-back").addClass("tinyfeed-hidden");
-    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
-    renderRpg();
-}
-
-function renderRpg() {
-    const body = $("#tinyfeed-rpg-body");
-    if (!body.length) return;
-    if (rpgSchemaOpen) {
-        body.html(`<div id="tinyfeed-rpg-tabbody" class="tinyfeed-rpg-tabbody"></div>`);
-        renderRpgSchemaEditor();
-        return;
-    }
-    body.html(`
-        <div class="tinyfeed-tabs">
-            <div class="tinyfeed-tab${rpgTab === "status" ? " tinyfeed-tab-active" : ""}" data-rtab="status"><i class="fa-solid fa-chart-simple"></i> สถานะ</div>
-            <div class="tinyfeed-tab${rpgTab === "bag" ? " tinyfeed-tab-active" : ""}" data-rtab="bag"><i class="fa-solid fa-bag-shopping"></i> กระเป๋า</div>
-            <div class="tinyfeed-tab${rpgTab === "npc" ? " tinyfeed-tab-active" : ""}" data-rtab="npc"><i class="fa-solid fa-address-book"></i> สมุด</div>
-            <div class="tinyfeed-tab${rpgTab === "quest" ? " tinyfeed-tab-active" : ""}" data-rtab="quest"><i class="fa-solid fa-scroll"></i> เควส</div>
-        </div>
-        <div id="tinyfeed-rpg-tabbody" class="tinyfeed-rpg-tabbody"></div>
-    `);
-    if (rpgTab === "status") renderRpgStatus();
-    else if (rpgTab === "bag") renderRpgBag();
-    else if (rpgTab === "quest") renderRpgQuests();
-    else renderRpgNpcTab();
-}
-
-function rpgGroupStats(defs) {
-    const groups = [];
-    const byGroup = {};
-    for (const d of defs) {
-        const g = d.group || "ทั่วไป";
-        if (!byGroup[g]) { byGroup[g] = []; groups.push(g); }
-        byGroup[g].push(d);
-    }
-    return groups.map((g) => ({ group: g, defs: byGroup[g] }));
-}
-
-// npcKey ว่าง/undefined = สเตตัสของผู้เล่น (ค่าเดิม) · มีค่า = สเตตัสของ NPC ตัวนั้น (รอบ ②)
-// data-npc ติดไปกับทุกปุ่ม/ช่องกรอก ให้ handler ที่ผูกไว้ครั้งเดียวรู้ว่าจะแก้ค่าฝั่งไหน
-function rpgStatRowHtml(def, npcKey) {
-    const v = npcKey ? rpgNpcVal(npcKey, def.id) : rpgVal(def.id);
-    const icon = def.icon ? `<i class="fa-solid ${escapeAttr(def.icon)}"></i> ` : "";
-    const npcAttr = npcKey ? ` data-npc="${escapeAttr(npcKey)}"` : "";
-    if (def.type === "bar") {
-        const max = (npcKey ? (Number(def.max) || 0) : rpgMax(def.id)) || 1;
-        const pct = Math.max(0, Math.min(100, (Number(v) / max) * 100));
-        return `<div class="tinyfeed-rpg-stat" data-id="${escapeAttr(def.id)}"${npcAttr}>
-            <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
-            <span class="tinyfeed-rpg-stat-bar"><span style="width:${pct}%;background:${escapeAttr(def.color || "#8b5cf6")}"></span></span>
-            <span class="tinyfeed-rpg-stat-num">${Math.round(Number(v) || 0)}/${Math.round(max)}</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-minus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="-1">−</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-plus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="1">+</span>
-        </div>`;
-    }
-    if (def.type === "number") {
-        return `<div class="tinyfeed-rpg-stat" data-id="${escapeAttr(def.id)}"${npcAttr}>
-            <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
-            <span class="tinyfeed-rpg-stat-num tinyfeed-rpg-stat-numval">${escapeText(String(v))}</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-minus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="-1">−</span>
-            <span class="tinyfeed-rpg-stat-btn tinyfeed-rpg-stat-plus" data-id="${escapeAttr(def.id)}"${npcAttr} data-step="1">+</span>
-        </div>`;
-    }
-    if (def.type === "tag") {
-        const tags = Array.isArray(v) ? v : [];
-        return `<div class="tinyfeed-rpg-stat tinyfeed-rpg-stat-tagrow" data-id="${escapeAttr(def.id)}"${npcAttr}>
-            <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
-            <div class="tinyfeed-rpg-tags">
-                ${tags.map((t, i) => `<span class="tinyfeed-rpg-tag">${escapeText(t)}<i class="fa-solid fa-xmark tinyfeed-rpg-tag-del" data-id="${escapeAttr(def.id)}"${npcAttr} data-idx="${i}"></i></span>`).join("")}
-                <input class="tinyfeed-rpg-tag-input" data-id="${escapeAttr(def.id)}"${npcAttr} type="text" placeholder="+ เพิ่ม" />
-            </div>
-        </div>`;
-    }
-    // text
-    return `<div class="tinyfeed-rpg-stat tinyfeed-rpg-stat-textrow" data-id="${escapeAttr(def.id)}"${npcAttr}>
-        <span class="tinyfeed-rpg-stat-label">${icon}${escapeText(def.label)}</span>
-        <input class="tinyfeed-rpg-stat-textinput" data-id="${escapeAttr(def.id)}"${npcAttr} type="text" value="${escapeAttr(String(v))}" />
-    </div>`;
-}
-
-function renderRpgStatus() {
-    const body = $("#tinyfeed-rpg-tabbody");
-    if (!body.length) return;
-    const schema = getRpgSchema();
-    const gearHtml = `<span id="tinyfeed-rpg-schema-gear" class="tinyfeed-rpg-headgear" title="ตั้งค่าสเตตัส"><i class="fa-solid fa-gear"></i></span>`;
-    // มีผลสแกนค้างรอตรวจ (รอบ ④) — ค้างได้ข้ามการเปิด/ปิดโทรศัพท์ ต้องมีทางกลับมาดูเสมอ ไม่ใช่แค่ตอนแจ้งเตือนโผล่
-    const pendingBanner = rpgPending.length
-        ? `<div id="tinyfeed-rpg-pending-banner" class="tinyfeed-rpg-pending-banner"><i class="fa-solid fa-triangle-exclamation"></i> มีผลสแกนรอตรวจ ${rpgPending.length} รายการ <span id="tinyfeed-rpg-pending-open">ดูเลย</span></div>`
-        : "";
-    if (!schema.stats.length) {
-        body.html(`
-            <div class="tinyfeed-rpg-head tinyfeed-rpg-head-empty">${gearHtml}</div>
-            ${pendingBanner}
-            ${emptyStateHtml("fa-dice-d20", "ยังไม่มีสเตตัส", "แตะไอคอนเฟืองด้านบนเพื่อเลือกชุดสำเร็จรูป หรือให้ AI เสนอให้")}
-        `);
-        return;
-    }
-    const r = getRpg();
-    const groups = rpgGroupStats(schema.stats);
-    const groupsHtml = groups.map((g) => `
-        <div class="tinyfeed-rpg-group">
-            <div class="tinyfeed-rpg-group-title">${escapeText(g.group)}</div>
-            ${g.defs.map((d) => rpgStatRowHtml(d)).join("")}
-        </div>`).join("");
-    const log = (r.log || []).slice(0, 20);
-    const logHtml = log.length
-        ? log.map((e) => `<div class="tinyfeed-rpg-log-item"><span class="tinyfeed-rpg-log-time">${timeAgo(e.ts)}</span> ${escapeText(e.label || e.id)}: ${escapeText(String(e.from))} → ${escapeText(String(e.to))}${e.why ? ` <span class="tinyfeed-rpg-log-why">(${escapeText(e.why)})</span>` : ""}</div>`).join("")
-        : `<div class="tinyfeed-rpg-log-empty">ยังไม่มีประวัติการเปลี่ยนแปลง</div>`;
-    body.html(`
-        <div class="tinyfeed-rpg-head">
-            ${makeAvatar({ isUser: true, author: getUserName() })}
-            <div class="tinyfeed-rpg-headname">${escapeText(getUserName())}</div>
-            ${gearHtml}
-        </div>
-        ${pendingBanner}
-        <button id="tinyfeed-rpg-scan-btn" class="tinyfeed-ai-link tinyfeed-rpg-scanbtn"><i class="fa-solid fa-magnifying-glass"></i> <span>สแกนบทหาการเปลี่ยนแปลง</span></button>
-        ${groupsHtml}
-        <div class="tinyfeed-rpg-logbox">
-            <div class="tinyfeed-rpg-group-title">ประวัติ</div>
-            ${logHtml}
-        </div>
-    `);
-}
-
-// ── แท็บกระเป๋า (รอบ ③): กริดไอเทม + ป๊อปรายละเอียด (ใช้/ทิ้ง) + เพิ่มเอง ──
-let rpgItemModalId = null;   // id ไอเทมที่กางป๊อปรายละเอียดอยู่ (null = ปิด)
-// thumbnail: รูป > อิโมจิ > ไอคอนกล่อง (แพตเทิร์นเดียวกับ shopThumbHtml)
-function rpgItemThumbHtml(it) {
-    if (it.image) return `<img class="tinyfeed-rpg-bag-thumb" src="${escapeAttr(it.image)}" alt="${escapeText(it.name)}" onerror="this.classList.add('tinyfeed-img-broken')" />`;
-    if (it.emoji) return `<div class="tinyfeed-rpg-bag-thumb tinyfeed-rpg-bag-emoji-thumb">${escapeText(it.emoji)}</div>`;
-    return `<div class="tinyfeed-rpg-bag-thumb tinyfeed-rpg-bag-noimg"><i class="fa-solid fa-cube"></i></div>`;
-}
-function renderRpgBag() {
-    const body = $("#tinyfeed-rpg-tabbody");
-    if (!body.length) return;
-    const inv = getRpgInventory();
-    const addBtn = `<button id="tinyfeed-rpg-item-add-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มไอเทมเอง</span></button>`;
-    if (!inv.length) {
-        body.html(`${emptyStateHtml("fa-bag-shopping", "กระเป๋าว่างเปล่า", 'ซื้อของจาก TinyShop หรือกด "เพิ่มไอเทมเอง" ด้านล่าง')}${addBtn}`);
-        return;
-    }
-    body.html(`
-        <div class="tinyfeed-rpg-bag-grid">
-            ${inv.map((it) => `
-                <div class="tinyfeed-rpg-bag-item" data-id="${escapeAttr(it.id)}">
-                    <div class="tinyfeed-rpg-bag-thumb-wrap">
-                        ${rpgItemThumbHtml(it)}
-                        <span class="tinyfeed-rpg-bag-qty">×${it.qty}</span>
-                    </div>
-                    <div class="tinyfeed-rpg-bag-name">${escapeText(it.name)}</div>
-                </div>`).join("")}
-        </div>
-        ${addBtn}
-    `);
-}
-function openRpgItemModal(id) {
-    const it = getRpgInventory().find((x) => String(x.id) === String(id));
-    if (!it) return;
-    rpgItemModalId = id;
-    const fxText = rpgItemEffectText(it.fx);
-    $("#tinyfeed-rpg-item-title").text(it.name);
-    $("#tinyfeed-rpg-item-body").html(`
-        <div class="tinyfeed-rpg-itemview-thumbwrap">${rpgItemThumbHtml(it)}</div>
-        <div class="tinyfeed-rpg-itemview-qty">มี ${it.qty} ชิ้น${it.src === "shop" ? " · ซื้อจากร้าน" : it.src === "ai" ? " · ได้รับในเรื่อง" : ""}</div>
-        ${it.desc ? `<div class="tinyfeed-rpg-itemview-desc">${escapeText(it.desc)}</div>` : ""}
-        ${fxText ? `<div class="tinyfeed-rpg-itemview-fx"><i class="fa-solid fa-bolt"></i> ${escapeText(fxText)}</div>` : ""}
-        <div class="tinyfeed-rpg-itemview-btns">
-            <button id="tinyfeed-rpg-item-use" class="tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}"><i class="fa-solid fa-hand-sparkles"></i> ใช้</button>
-            <button id="tinyfeed-rpg-item-drop" class="tinyfeed-btn-ghost" data-id="${escapeAttr(it.id)}"><i class="fa-solid fa-trash"></i> ทิ้ง</button>
-        </div>
-    `);
-    $("#tinyfeed-rpg-item-modal").removeClass("tinyfeed-hidden");
-}
-function closeRpgItemModal() { $("#tinyfeed-rpg-item-modal").addClass("tinyfeed-hidden"); rpgItemModalId = null; }
-function openRpgItemAddModal() {
-    $("#tinyfeed-rpg-item-add-name, #tinyfeed-rpg-item-add-emoji, #tinyfeed-rpg-item-add-image, #tinyfeed-rpg-item-add-desc, #tinyfeed-rpg-item-add-fx-amount").val("");
-    $("#tinyfeed-rpg-item-add-qty").val(1);
-    fillRpgStatSelect($("#tinyfeed-rpg-item-add-fx-stat"));
-    $("#tinyfeed-rpg-item-add-modal").removeClass("tinyfeed-hidden");
-}
-function closeRpgItemAddModal() { $("#tinyfeed-rpg-item-add-modal").addClass("tinyfeed-hidden"); }
-function saveRpgItemAdd() {
-    const name = String($("#tinyfeed-rpg-item-add-name").val() || "").trim();
-    if (!name) { toastr.info("ตั้งชื่อไอเทมก่อนนะ", "TinyQuest"); return; }
-    const qty = Math.max(1, parseInt($("#tinyfeed-rpg-item-add-qty").val(), 10) || 1);
-    const fx = rpgFxFromForm("#tinyfeed-rpg-item-add-fx-stat", "#tinyfeed-rpg-item-add-fx-amount");
-    rpgAddItem({
-        name,
-        emoji: String($("#tinyfeed-rpg-item-add-emoji").val() || "").trim(),
-        image: String($("#tinyfeed-rpg-item-add-image").val() || "").trim(),
-        desc: String($("#tinyfeed-rpg-item-add-desc").val() || "").trim(),
-        qty, fx, src: "manual",
-    });
-    closeRpgItemAddModal();
-    renderRpgBag();
-    toastr.success(`เพิ่ม "${name}" แล้ว`, "TinyQuest");
-}
-
-// ── แท็บเควส (รอบ ④): filter ตามสถานะ + CRUD ──
-let rpgQuestFilter = "active";   // "active" | "done" | "failed" | "all"
-const RPG_QUEST_STATUS_LABEL = { active: "กำลังทำ", done: "สำเร็จ", failed: "ล้มเหลว" };
-function renderRpgQuests() {
-    const body = $("#tinyfeed-rpg-tabbody");
-    if (!body.length) return;
-    const quests = getRpgQuests();
-    const filtered = rpgQuestFilter === "all" ? quests : quests.filter((q) => q.status === rpgQuestFilter);
-    const chip = (val, label) => `<div class="tinyfeed-rpg-quest-chip${rpgQuestFilter === val ? " tinyfeed-rpg-quest-chip-active" : ""}" data-qf="${val}">${escapeText(label)}</div>`;
-    const chipsHtml = `<div class="tinyfeed-rpg-quest-filterbar">${chip("active", "กำลังทำ")}${chip("done", "สำเร็จ")}${chip("failed", "ล้มเหลว")}${chip("all", "ทั้งหมด")}</div>`;
-    const addBtn = `<button id="tinyfeed-rpg-quest-add-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มเควสเอง</span></button>`;
-    if (!filtered.length) {
-        body.html(`${chipsHtml}${emptyStateHtml("fa-scroll", "ยังไม่มีเควส", rpgQuestFilter === "active" ? 'เพิ่มเอง หรือให้ AI สแกนบทจากหน้าสถานะ' : "ไม่มีเควสในหมวดนี้")}${addBtn}`);
-        return;
-    }
-    const rows = filtered.slice().sort((a, b) => b.ts - a.ts).map((q) => `
-        <div class="tinyfeed-rpg-quest-card" data-id="${escapeAttr(q.id)}">
-            <div class="tinyfeed-rpg-quest-head">
-                <span class="tinyfeed-rpg-quest-kind tinyfeed-rpg-quest-kind-${escapeAttr(q.kind)}">${q.kind === "main" ? "หลัก" : "รอง"}</span>
-                <span class="tinyfeed-rpg-quest-title">${escapeText(q.title)}</span>
-                <span class="tinyfeed-rpg-quest-status tinyfeed-rpg-quest-status-${escapeAttr(q.status)}">${RPG_QUEST_STATUS_LABEL[q.status] || q.status}</span>
-            </div>
-            ${q.desc ? `<div class="tinyfeed-rpg-quest-desc">${escapeText(q.desc)}</div>` : ""}
-            ${q.reward ? `<div class="tinyfeed-rpg-quest-reward"><i class="fa-solid fa-gift"></i> ${escapeText(q.reward)}</div>` : ""}
-            <div class="tinyfeed-rpg-quest-btns">
-                ${q.status !== "active"
-                    ? `<span class="tinyfeed-rpg-quest-act" data-id="${escapeAttr(q.id)}" data-status="active"><i class="fa-solid fa-rotate-left"></i> เปิดใหม่</span>`
-                    : `<span class="tinyfeed-rpg-quest-act" data-id="${escapeAttr(q.id)}" data-status="done"><i class="fa-solid fa-check"></i> สำเร็จ</span>
-                       <span class="tinyfeed-rpg-quest-act" data-id="${escapeAttr(q.id)}" data-status="failed"><i class="fa-solid fa-xmark"></i> ล้มเหลว</span>`}
-                <span class="tinyfeed-rpg-quest-del" data-id="${escapeAttr(q.id)}"><i class="fa-solid fa-trash"></i></span>
-            </div>
-        </div>`).join("");
-    body.html(`${chipsHtml}<div class="tinyfeed-rpg-quest-list">${rows}</div>${addBtn}`);
-}
-function openRpgQuestAddModal() {
-    $("#tinyfeed-rpg-quest-add-title, #tinyfeed-rpg-quest-add-desc, #tinyfeed-rpg-quest-add-reward").val("");
-    $("#tinyfeed-rpg-quest-add-kind").val("main");
-    $("#tinyfeed-rpg-quest-add-modal").removeClass("tinyfeed-hidden");
-}
-function closeRpgQuestAddModal() { $("#tinyfeed-rpg-quest-add-modal").addClass("tinyfeed-hidden"); }
-function saveRpgQuestAdd() {
-    const title = String($("#tinyfeed-rpg-quest-add-title").val() || "").trim();
-    if (!title) { toastr.info("ตั้งชื่อเควสก่อนนะ", "TinyQuest"); return; }
-    rpgAddQuest({
-        title,
-        desc: String($("#tinyfeed-rpg-quest-add-desc").val() || "").trim(),
-        kind: $("#tinyfeed-rpg-quest-add-kind").val(),
-        reward: String($("#tinyfeed-rpg-quest-add-reward").val() || "").trim(),
-    });
-    closeRpgQuestAddModal();
-    renderRpgQuests();
-    toastr.success(`เพิ่มเควส "${title}" แล้ว`, "TinyQuest");
-}
-
-// ── AI สแกนบท (รอบ ④) — แม่แบบคือ scanMemo()/parseMemoLines() แต่ต้องผ่านรีวิวก่อน apply เสมอ (กันโมเดลมั่วสะสม) ──
-let isRpgScanBusy = false;
-let rpgPending = [];   // [{key,type,label,meta,isNew}] — ผลสแกนที่รอตรวจสอบ (ค้างได้ข้ามการเปิด/ปิดโทรศัพท์จนกว่าจะ apply/ปฏิเสธ)
-
-function rpgNotifAvatar() {
-    return `<div class="tinyfeed-avatar tinyfeed-avatar-anon" style="background:linear-gradient(135deg,#f43f5e,#be123c)"><i class="fa-solid fa-dice-d20"></i></div>`;
-}
-
-// loop ทีละบรรทัดแบบ parseMemoLines (ไม่ใช่ regex ก้อนเดียว) — ทนบรรทัดขยะ/ฟิลด์ขาด
-function parseRpgScanLines(raw) {
-    const text = stripReasoning(raw);
-    const out = { stats: [], affects: [], npcInfos: [], itemAdds: [], itemRemoves: [], questAdds: [], questDones: [], questFails: [] };
-    for (const line of text.split("\n")) {
-        const l = line.trim();
-        if (!l) continue;
-        let m;
-        if ((m = l.match(/^STAT:\s*(.+)$/i))) {
-            const p = m[1].split("|").map((x) => x.trim());
-            if (p[0] && p[1]) out.stats.push({ id: p[0], delta: p[1] });
-        } else if ((m = l.match(/^AFFECT:\s*(.+)$/i))) {
-            const p = m[1].split("|").map((x) => x.trim());
-            if (p[0] && p[1]) out.affects.push({ name: p[0], delta: p[1], why: (p[2] || "").trim() });
-        } else if ((m = l.match(/^NPCINFO:\s*(.+)$/i))) {
-            const p = m[1].split("|").map((x) => x.trim());
-            if (p[0] && p[1] && p[2]) out.npcInfos.push({ name: p[0], fieldLabel: p[1], value: p[2] });
-        } else if ((m = l.match(/^ITEM\+:\s*(.+)$/i))) {
-            const p = m[1].split("|").map((x) => x.trim());
-            if (p[0]) out.itemAdds.push({ name: p[0], qty: Math.max(1, parseInt(p[1], 10) || 1) });
-        } else if ((m = l.match(/^ITEM-:\s*(.+)$/i))) {
-            const p = m[1].split("|").map((x) => x.trim());
-            if (p[0]) out.itemRemoves.push({ name: p[0], qty: Math.max(1, parseInt(p[1], 10) || 1) });
-        } else if ((m = l.match(/^QUEST\+:\s*(.+)$/i))) {
-            const p = m[1].split("|").map((x) => x.trim());
-            if (p[0]) out.questAdds.push({ title: p[0], desc: (p[1] || "").trim() });
-        } else if ((m = l.match(/^QUESTDONE:\s*(\d+)/i))) {
-            out.questDones.push(parseInt(m[1], 10));
-        } else if ((m = l.match(/^QUESTFAIL:\s*(\d+)/i))) {
-            out.questFails.push(parseInt(m[1], 10));
-        }
-    }
-    return out;
-}
-
-// แปลงผล parse ดิบ → รายการรีวิว พร้อม guard ทุกจุด (statId/fieldLabel ไม่ตรงจริง = ข้าม, ไอเทมไม่มีจริง = ข้าม,
-// หมายเลขเควสเกินขอบ = ข้าม) — NPC ที่ยังไม่มีในสมุด สร้างให้ได้ (เจอตัวใหม่จากบทเป็นเรื่องดี) แต่ติดป้าย "ใหม่" ให้ผู้ใช้เห็นตอนรีวิว
-function rpgBuildPending(parsed, activeQuestsSnapshot) {
-    const pending = [];
-    const schema = getRpgSchema();
-    const knownNpcKeys = new Set(rpgNpcList().map((n) => n.key));
-    const fields = rpgActiveNpcFields();
-    let i = 0;
-
-    for (const s of parsed.stats) {
-        const def = schema.stats.find((d) => d.id === s.id);
-        if (!def || (def.type !== "number" && def.type !== "bar")) continue;
-        if (!rpgParseDeltaStr(s.delta)) continue;
-        pending.push({ key: "p" + (i++), type: "stat", label: `${def.label} ${s.delta}`, meta: { id: s.id, deltaStr: s.delta }, isNew: false });
-    }
-    for (const a of parsed.affects) {
-        const key = rpgNpcKey(a.name);
-        if (!key || !Number.isFinite(Number(a.delta))) continue;
-        const isNew = !knownNpcKeys.has(key);
-        pending.push({ key: "p" + (i++), type: "affect", label: `${a.name} ${a.delta}${a.why ? " (" + a.why + ")" : ""}`, meta: { name: a.name, key, delta: a.delta, why: a.why }, isNew });
-    }
-    for (const n of parsed.npcInfos) {
-        const field = fields.find((f) => f.label.trim().toLowerCase() === n.fieldLabel.trim().toLowerCase());
-        if (!field) continue;   // ชื่อช่องไม่ตรงกับที่มีจริง (การ์ดนี้อาจซ่อน/ไม่มีช่องนี้) → ข้าม
-        const key = rpgNpcKey(n.name);
-        if (!key) continue;
-        const isNew = !knownNpcKeys.has(key);
-        pending.push({ key: "p" + (i++), type: "npcinfo", label: `${n.name} · ${field.label}: ${n.value}`, meta: { name: n.name, key, fieldId: field.id, value: n.value }, isNew });
-    }
-    for (const it of parsed.itemAdds) {
-        pending.push({ key: "p" + (i++), type: "itemadd", label: `+ ${it.name} ×${it.qty}`, meta: it, isNew: false });
-    }
-    for (const it of parsed.itemRemoves) {
-        const owned = getRpgInventory().find((x) => x.name.trim().toLowerCase() === it.name.trim().toLowerCase());
-        if (!owned) continue;   // ไอเทมนี้ไม่มีอยู่จริง (AI มั่วชื่อ) → ข้าม
-        const qty = Math.min(it.qty, owned.qty);
-        pending.push({ key: "p" + (i++), type: "itemrm", label: `− ${it.name} ×${qty}`, meta: { name: it.name, qty }, isNew: false });
-    }
-    for (const q2 of parsed.questAdds) {
-        pending.push({ key: "p" + (i++), type: "questadd", label: `+ เควส: ${q2.title}`, meta: q2, isNew: false });
-    }
-    for (const n of parsed.questDones) {
-        const q2 = activeQuestsSnapshot[n - 1];
-        if (!q2) continue;   // อ้างหมายเลขเกินขอบลิสต์ที่ส่งไป → ข้าม
-        pending.push({ key: "p" + (i++), type: "qdone", label: `สำเร็จ: ${q2.title}`, meta: { id: q2.id }, isNew: false });
-    }
-    for (const n of parsed.questFails) {
-        const q2 = activeQuestsSnapshot[n - 1];
-        if (!q2) continue;
-        pending.push({ key: "p" + (i++), type: "qfail", label: `ล้มเหลว: ${q2.title}`, meta: { id: q2.id }, isNew: false });
-    }
-    return pending;
-}
-
-function rpgInventoryIdByName(name) {
-    const it = getRpgInventory().find((x) => x.name.trim().toLowerCase() === String(name).trim().toLowerCase());
-    return it ? it.id : null;
-}
-function rpgApplyPendingItem(item) {
-    switch (item.type) {
-        case "stat": rpgApplyDelta(item.meta.id, item.meta.deltaStr, "จากการสแกนบท"); break;
-        case "affect": rpgEnsureNpcInfo(item.meta.name); rpgAffectionAdd(item.meta.key, item.meta.delta, item.meta.why || "จากการสแกนบท"); break;
-        case "npcinfo": rpgEnsureNpcInfo(item.meta.name); rpgRevealField(item.meta.key, item.meta.fieldId, item.meta.value); break;
-        case "itemadd": rpgAddItem({ name: item.meta.name, qty: item.meta.qty, src: "manual" }); break;
-        case "itemrm": { const id = rpgInventoryIdByName(item.meta.name); if (id) rpgRemoveItem(id, item.meta.qty); break; }
-        case "questadd": rpgAddQuest({ title: item.meta.title, desc: item.meta.desc, kind: "side" }); break;
-        case "qdone": rpgSetQuestStatus(item.meta.id, "done"); break;
-        case "qfail": rpgSetQuestStatus(item.meta.id, "failed"); break;
-    }
-}
-
-async function rpgScan(opts) {
-    opts = opts || {};
-    if (isRpgScanBusy) return;
-    const ctx = getContext();
-    if (typeof ctx.generateQuietPrompt !== "function") { if (!opts.silent) toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyQuest"); return; }
-    if (!getCurrentCharacter()) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyQuest"); return; }
-    const schema = getRpgSchema();
-    if (!schema.stats.length) { if (!opts.silent) toastr.info("ยังไม่มีสเตตัสให้สแกน ไปตั้งค่าก่อนนะ (ไอคอนเฟือง)", "TinyQuest"); return; }
-    isRpgScanBusy = true;
-    const btn = $("#tinyfeed-rpg-scan-btn");
-    btn.addClass("tinyfeed-generating").prop("disabled", true);
-    try {
-        const statIds = schema.stats.filter((d) => d.type === "number" || d.type === "bar").map((d) => d.id).join(", ") || "(ยังไม่มี)";
-        const npcNames = rpgNpcList().map((n) => n.name).join(", ") || "(ยังไม่มี)";
-        const fieldLabels = rpgActiveNpcFields().map((f) => f.label).join(", ") || "(ไม่มี)";
-        const itemNames = getRpgInventory().map((it) => it.name).join(", ") || "(ยังไม่มี)";
-        const activeQuestsSnapshot = getRpgQuests().filter((q) => q.status === "active");
-        const questLines = activeQuestsSnapshot.length
-            ? activeQuestsSnapshot.map((q, idx) => `[${idx + 1}] ${q.title}`).join("\n") : "(ยังไม่มี)";
-        const extra = String(getSetting("rpgScanExtraPrompt") || "").trim();
-        const q = buildPrompt("rpgScan", {
-            stats: statIds, npcs: npcNames, fields: fieldLabels, items: itemNames,
-            quests: questLines, extra: extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "",
-            context: crossAppContext("rpg"),
-        });
-        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("rpgScanTokens"), 10) || 400), "rpg");
-        const parsed = parseRpgScanLines(raw);
-        const pending = rpgBuildPending(parsed, activeQuestsSnapshot);
-        if (!pending.length) { if (opts.manual && !opts.silent) toastr.info("รอบนี้ยังไม่มีอะไรใหม่จากบท", "TinyQuest"); return; }
-        if (getSetting("rpgScanAutoApply")) {
-            pending.forEach(rpgApplyPendingItem);
-            if (currentApp === "rpg") renderRpg();
-            if (opts.notify) showNotif(rpgNotifAvatar(), "TinyQuest", `อัปเดตอัตโนมัติ ${pending.length} รายการจากบท`, "rpg", "rpg");
-        } else {
-            // 🔴 ต้องผ่านรีวิวก่อน apply เสมอ — เก็บไว้ใน rpgPending จนกว่าผู้ใช้จะตรวจ ไม่ apply เงียบๆ ไม่ทิ้งเงียบๆ
-            rpgPending = pending;
-            if (currentApp === "rpg") { rpgTab = "status"; renderRpg(); openRpgReviewModal(); }
-            if (opts.notify) showNotif(rpgNotifAvatar(), "TinyQuest", `พบ ${pending.length} รายการรอตรวจสอบจากบท`, "rpg", "rpg");
-        }
-    } catch (e) {
-        console.error(`[${extensionName}] rpgScan failed:`, e);
-        if (!opts.silent) toastr.error("สแกนไม่สำเร็จ ลองใหม่นะ", "TinyQuest");
-    } finally {
-        isRpgScanBusy = false;
-        btn.removeClass("tinyfeed-generating").prop("disabled", false);
-    }
-}
-
-// ── modal รีวิวผลสแกน (ก๊อป flow rpgProposed/renderRpgProposalsHtml/rpgAcceptProposals จากรอบ ①) ──
-const RPG_PENDING_TYPE_ICON = { stat: "fa-chart-simple", affect: "fa-heart", npcinfo: "fa-address-book", itemadd: "fa-plus", itemrm: "fa-minus", questadd: "fa-scroll", qdone: "fa-check", qfail: "fa-xmark" };
-function renderRpgReviewModal() {
-    const rows = rpgPending.map((p) => `
-        <label class="tinyfeed-rpg-review-row">
-            <input type="checkbox" class="tinyfeed-rpg-review-check" data-key="${escapeAttr(p.key)}" checked />
-            <i class="fa-solid ${RPG_PENDING_TYPE_ICON[p.type] || "fa-circle"}"></i>
-            <span class="tinyfeed-rpg-review-label">${escapeText(p.label)}</span>
-            ${p.isNew ? `<span class="tinyfeed-rpg-review-newtag">ใหม่</span>` : ""}
-        </label>`).join("");
-    $("#tinyfeed-rpg-review-body").html(rows || emptyInlineHtml("ไม่มีรายการ"));
-}
-function openRpgReviewModal() {
-    if (!rpgPending.length) return;
-    renderRpgReviewModal();
-    $("#tinyfeed-rpg-review-modal").removeClass("tinyfeed-hidden");
-}
-function closeRpgReviewModal() { $("#tinyfeed-rpg-review-modal").addClass("tinyfeed-hidden"); }
-function rpgAcceptPending(selectedKeys) {
-    const toApply = rpgPending.filter((p) => selectedKeys.includes(p.key));
-    toApply.forEach(rpgApplyPendingItem);
-    rpgPending = [];
-    closeRpgReviewModal();
-    if (currentApp === "rpg") renderRpg();
-    if (toApply.length) toastr.success(`รับ ${toApply.length} รายการแล้ว`, "TinyQuest");
-}
-function rpgDiscardPending() {
-    rpgPending = [];
-    closeRpgReviewModal();
-    if (currentApp === "rpg") renderRpg();
-    toastr.info("ปฏิเสธผลสแกนแล้ว", "TinyQuest");
-}
-
-// ── แท็บสมุด (รอบ ②): หน้ารายการ / หน้ารายละเอียด ──
-// หน้ารายละเอียด NPC ต้องมีปุ่มย้อนกลับจริง (เหมือน openVersePost/closeVersePost) — เดิมลืมโชว์ #tinyfeed-back
-// เลยกดย้อนกลับจากหน้ารายละเอียดไม่ได้ ทำจุดเดียวตรงนี้ให้ครอบคลุมทุกทางเข้า/ออกแทนการเรียกซ้ำหลายที่
-function rpgShowNpcBack() {
-    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
-    $("#tinyfeed-back").removeClass("tinyfeed-hidden");
-}
-function rpgHideNpcBack() {
-    $("#tinyfeed-back").addClass("tinyfeed-hidden");
-    $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
-}
-function renderRpgNpcTab() {
-    if (rpgNpcView) { rpgShowNpcBack(); renderRpgNpcProfile(rpgNpcView); }
-    else { rpgHideNpcBack(); renderRpgNpcList(); }
-}
-function npcHeartsHtml(aff) {
-    const hearts = rpgHearts(aff);
-    return Array.from({ length: 5 }, (_, i) => `<i class="fa-solid fa-heart${i < hearts ? "" : " tinyfeed-rpg-heart-empty"}"></i>`).join("");
-}
-function renderRpgNpcList() {
-    const body = $("#tinyfeed-rpg-tabbody");
-    if (!body.length) return;
-    const list = rpgNpcList();
-    const r = getRpg();
-    const cards = list.map((n) => {
-        const aff = (r.npc && r.npc[n.key]) ? (r.npc[n.key].affection || 0) : 0;
-        return `<div class="tinyfeed-rpg-npc-card" data-key="${escapeAttr(n.key)}">
-            ${makeAvatar({ avatar: n.avatar || "", author: n.name })}
-            <span class="tinyfeed-rpg-npc-name">${escapeText(n.name)}${n.isMain ? ` <small>(ตัวเอง)</small>` : ""}</span>
-            <span class="tinyfeed-rpg-npc-hearts">${npcHeartsHtml(aff)}</span>
-        </div>`;
-    }).join("");
-    body.html(`
-        <div class="tinyfeed-rpg-npc-bar">
-            <span class="tinyfeed-rpg-npc-count">ทั้งหมด ${list.length} คน</span>
-            <button id="tinyfeed-rpg-npc-sync" class="tinyfeed-btn-ghost"><i class="fa-solid fa-rotate"></i> ดึงจากการ์ด</button>
-        </div>
-        <div class="tinyfeed-rpg-npc-addform">
-            <input id="tinyfeed-rpg-npc-addname" type="text" placeholder="ชื่อ NPC ใหม่..." />
-            <button id="tinyfeed-rpg-npc-addbtn" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i></button>
-        </div>
-        ${list.length ? `<div class="tinyfeed-rpg-npc-grid">${cards}</div>` : emptyStateHtml("fa-address-book", "ยังไม่มีใครในสมุด", 'กด "ดึงจากการ์ด" หรือเพิ่มเอง')}
-    `);
-}
-function renderRpgNpcProfile(key) {
-    const body = $("#tinyfeed-rpg-tabbody");
-    if (!body.length) return;
-    const meta = rpgNpcList().find((n) => n.key === key);
-    if (!meta) { rpgNpcView = null; renderRpgNpcTab(); return; }
-    const info = getRpgNpcInfo(key);
-    const n = getRpgNpc(key);
-    const aff = n.affection || 0;
-    const stage = rpgStageFor(aff);
-    const fields = rpgActiveNpcFields();
-    const fieldsHtml = fields.map((f) => {
-        const known = rpgFieldKnown(key, f.id);
-        const isEditing = rpgFieldEditing && rpgFieldEditing.key === key && rpgFieldEditing.field === f.id;
-        let control;
-        if (known) {
-            control = `<input class="tinyfeed-rpg-npcfield-input" type="text" value="${escapeAttr(rpgFieldValue(key, f.id))}" data-key="${escapeAttr(key)}" data-field="${escapeAttr(f.id)}" />`;
-        } else if (isEditing) {
-            control = `<input class="tinyfeed-rpg-npcfield-reveal" type="text" placeholder="กรอกแล้วกด Enter" data-key="${escapeAttr(key)}" data-field="${escapeAttr(f.id)}" />`;
-        } else {
-            control = `<span class="tinyfeed-rpg-npcfield-unknown" data-key="${escapeAttr(key)}" data-field="${escapeAttr(f.id)}" title="แตะเพื่อกรอก">???</span>`;
-        }
-        return `<div class="tinyfeed-rpg-npcfield">
-            <span class="tinyfeed-rpg-npcfield-label">${escapeText(f.label)}</span>
-            ${control}
-        </div>`;
-    }).join("");
-    const npcStats = getRpgSchema().npcStats || [];
-    const statsHtml = npcStats.length
-        ? `<div class="tinyfeed-rpg-group"><div class="tinyfeed-rpg-group-title">สเตตัส</div>${npcStats.map((d) => rpgStatRowHtml(d, key)).join("")}</div>`
-        : "";
-    const events = (n.events || []).slice(0, 20);
-    const eventsHtml = events.length
-        ? events.map((e) => `<div class="tinyfeed-rpg-log-item"><span class="tinyfeed-rpg-log-time">${timeAgo(e.ts)}</span> ${e.delta >= 0 ? "+" : ""}${e.delta}${e.text ? ` <span class="tinyfeed-rpg-log-why">(${escapeText(e.text)})</span>` : ""}</div>`).join("")
-        : `<div class="tinyfeed-rpg-log-empty">ยังไม่มีความเคลื่อนไหว</div>`;
-    body.html(`
-        <div class="tinyfeed-rpg-npc-profile-head">
-            ${makeAvatar({ avatar: info.avatar || meta.avatar || "", author: meta.name })}
-            <div class="tinyfeed-rpg-npc-profile-name">${escapeText(meta.name)}</div>
-            <div class="tinyfeed-rpg-npc-profile-stage">${escapeText(stage.label)}</div>
-            <div class="tinyfeed-rpg-npc-profile-hearts">${npcHeartsHtml(aff)} <span class="tinyfeed-rpg-npc-aff-num">(${Math.round(aff)})</span></div>
-            <div class="tinyfeed-rpg-npc-affbar"><span style="width:${Math.max(0, Math.min(100, aff))}%"></span></div>
-            <div class="tinyfeed-rpg-npc-affbtns">
-                <span class="tinyfeed-rpg-aff-btn" data-key="${escapeAttr(key)}" data-step="-5">−5</span>
-                <span class="tinyfeed-rpg-aff-btn" data-key="${escapeAttr(key)}" data-step="5">+5</span>
-            </div>
-            <span class="tinyfeed-rpg-npc-viewfull" data-name="${escapeAttr(meta.name)}">ดูโปรไฟล์เต็ม</span>
-        </div>
-        <div class="tinyfeed-rpg-npcfields-list">${fieldsHtml}</div>
-        ${statsHtml}
-        <div class="tinyfeed-rpg-logbox">
-            <div class="tinyfeed-rpg-group-title">ไทม์ไลน์</div>
-            ${eventsHtml}
-        </div>
-        ${meta.isMain ? "" : `<button id="tinyfeed-rpg-npc-delete" class="tinyfeed-btn-ghost tinyfeed-rpg-npc-delbtn" data-key="${escapeAttr(key)}"><i class="fa-solid fa-trash"></i> ลบออกจากสมุด</button>`}
-    `);
-    if (rpgFieldEditing && rpgFieldEditing.key === key) $(".tinyfeed-rpg-npcfield-reveal").trigger("focus");
-}
-
-function rpgSchemaRowHtml(def, idx, total) {
-    const typeOptions = Object.keys(RPG_TYPE_LABEL).map((t) =>
-        `<option value="${t}"${def.type === t ? " selected" : ""}>${RPG_TYPE_LABEL[t]}</option>`).join("");
-    const showMinMax = def.type === "number" || def.type === "bar";
-    return `<div class="tinyfeed-rpg-schema-row" data-id="${escapeAttr(def.id)}">
-        <div class="tinyfeed-rpg-schema-row-top">
-            <input class="tinyfeed-rpg-sf" data-field="label" type="text" value="${escapeAttr(def.label)}" placeholder="ชื่อค่า" />
-            <select class="tinyfeed-rpg-sf" data-field="type">${typeOptions}</select>
-            <span class="tinyfeed-rpg-schema-up${idx === 0 ? " tinyfeed-hidden" : ""}" data-id="${escapeAttr(def.id)}" title="เลื่อนขึ้น"><i class="fa-solid fa-chevron-up"></i></span>
-            <span class="tinyfeed-rpg-schema-down${idx === total - 1 ? " tinyfeed-hidden" : ""}" data-id="${escapeAttr(def.id)}" title="เลื่อนลง"><i class="fa-solid fa-chevron-down"></i></span>
-            <span class="tinyfeed-rpg-schema-del" data-id="${escapeAttr(def.id)}" title="ลบ"><i class="fa-solid fa-trash"></i></span>
-        </div>
-        <div class="tinyfeed-rpg-schema-row-bottom${showMinMax ? "" : " tinyfeed-hidden"}">
-            <input class="tinyfeed-rpg-sf" data-field="min" type="number" value="${def.min}" placeholder="ต่ำสุด" />
-            <input class="tinyfeed-rpg-sf" data-field="max" type="number" value="${def.max}" placeholder="สูงสุด" />
-            <input class="tinyfeed-rpg-sf" data-field="def" type="number" value="${def.def}" placeholder="เริ่มต้น" />
-        </div>
-        <div class="tinyfeed-rpg-schema-row-bottom">
-            <input class="tinyfeed-rpg-sf" data-field="group" type="text" value="${escapeAttr(def.group || "")}" placeholder="กลุ่ม" />
-            <label class="tinyfeed-rpg-sf-check"><input type="checkbox" class="tinyfeed-rpg-sf" data-field="hud" ${def.hud ? "checked" : ""} /> ปักหมุด (HUD/วิดเจ็ต)</label>
-            <label class="tinyfeed-rpg-sf-check"><input type="checkbox" class="tinyfeed-rpg-sf" data-field="inject" ${def.inject ? "checked" : ""} /> ส่งเข้า RP</label>
-        </div>
-    </div>`;
-}
-
-function renderRpgProposalsHtml() {
-    const rows = rpgProposed.map((p) => `
-        <label class="tinyfeed-rpg-proposal-row">
-            <input type="checkbox" class="tinyfeed-rpg-proposal-check" data-id="${escapeAttr(p.id)}" checked />
-            <span class="tinyfeed-rpg-proposal-name">${escapeText(p.label)}</span>
-            <span class="tinyfeed-rpg-proposal-meta">${RPG_TYPE_LABEL[p.type] || p.type}${(p.type === "number" || p.type === "bar") ? ` · ${p.min}-${p.max}` : ""} · ${escapeText(p.group)}</span>
-        </label>`).join("");
-    return `<div class="tinyfeed-rpg-proposals-box">
-        <div class="tinyfeed-rpg-group-title">AI เสนอสเตตัส — เลือกที่จะรับ</div>
-        ${rows}
-        <div class="tinyfeed-rpg-proposals-actions">
-            <button id="tinyfeed-rpg-proposal-accept" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> รับที่เลือก</button>
-            <button id="tinyfeed-rpg-proposal-discard" class="tinyfeed-btn-ghost"><i class="fa-solid fa-xmark"></i> ยกเลิกทั้งหมด</button>
-        </div>
-    </div>`;
-}
-
-let rpgSchemaWhich = "player";   // "player" | "npc" — สลับว่ากำลังแก้ schema สเตตัสของฝั่งไหน (รอบ ②)
-
-function renderRpgSchemaEditor() {
-    const body = $("#tinyfeed-rpg-tabbody");
-    if (!body.length) return;
-    const list = rpgStatList(rpgSchemaWhich);
-    const presetOptions = Object.keys(RPG_PRESETS).map((k) => `<option value="${k}">${escapeText(RPG_PRESETS[k].name)}</option>`).join("");
-    const rows = list.map((d, i) => rpgSchemaRowHtml(d, i, list.length)).join("");
-    const proposalsHtml = (rpgSchemaWhich === "player" && rpgProposed.length) ? renderRpgProposalsHtml() : "";
-    const npcExtrasHtml = rpgSchemaWhich === "npc" ? renderRpgNpcFieldsEditorHtml() : "";
-    body.html(`
-        <div class="tinyfeed-field-hint">ชุดสเตตัสนี้ผูกกับตัวละคร: <b>${escapeText(getCharName())}</b> (การ์ดอื่นมีชุดของตัวเอง)</div>
-        <div class="tinyfeed-rpg-schema-switch">
-            <span class="tinyfeed-rpg-schema-switch-btn${rpgSchemaWhich === "player" ? " tinyfeed-rpg-schema-switch-active" : ""}" data-which="player">สเตตัสผู้เล่น</span>
-            <span class="tinyfeed-rpg-schema-switch-btn${rpgSchemaWhich === "npc" ? " tinyfeed-rpg-schema-switch-active" : ""}" data-which="npc">สเตตัส NPC</span>
-        </div>
-        <div class="tinyfeed-rpg-schema-toolbar">
-            <select id="tinyfeed-rpg-preset-pick">${presetOptions}</select>
-            <button id="tinyfeed-rpg-preset-apply" class="tinyfeed-btn-generate"><i class="fa-solid fa-layer-group"></i> <span>ใช้ชุดนี้</span></button>
-            ${rpgSchemaWhich === "player" ? `<button id="tinyfeed-rpg-suggest" class="tinyfeed-btn-generate"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI เสนอสเตตัส</span></button>` : ""}
-        </div>
-        <div id="tinyfeed-rpg-proposals">${proposalsHtml}</div>
-        <div id="tinyfeed-rpg-schema-list">${rows || emptyInlineHtml("ยังไม่มีสเตตัส<br><small>เลือกชุดสำเร็จรูปด้านบน หรือเพิ่มเอง</small>")}</div>
-        <button id="tinyfeed-rpg-add-stat" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มค่าเอง</span></button>
-        ${npcExtrasHtml}
-    `);
-}
-
-// ── ตัวจัดการช่องข้อมูลตัวตน NPC (ตายตัว/เพิ่มเอง) + ระดับความสัมพันธ์ — โผล่เฉพาะตอนแก้ schema ฝั่ง NPC ──
-function renderRpgNpcFieldsEditorHtml() {
-    const schema = getRpgSchema();
-    const hidden = new Set(schema.npcFieldsHidden || []);
-    const stages = rpgStageList();
-    const fixedRows = RPG_NPC_FIELDS.map((f) => `
-        <label class="tinyfeed-rpg-fieldtoggle">
-            <input type="checkbox" class="tinyfeed-rpg-fieldhide" data-field="${escapeAttr(f.id)}" ${hidden.has(f.id) ? "" : "checked"} />
-            <span>${escapeText(f.label)}</span>
-        </label>`).join("");
-    const customRows = (schema.npcFields || []).map((f, i) => `
-        <div class="tinyfeed-rpg-customfield-row" data-idx="${i}">
-            <input class="tinyfeed-rpg-customfield-label" type="text" value="${escapeAttr(f.label)}" placeholder="ชื่อช่อง เช่น ชมรม" />
-            <span class="tinyfeed-rpg-customfield-del" data-idx="${i}"><i class="fa-solid fa-trash"></i></span>
-        </div>`).join("");
-    const stageRows = stages.map((s, i) => `
-        <div class="tinyfeed-rpg-stage-row" data-idx="${i}">
-            <input class="tinyfeed-rpg-stage-at" type="number" min="0" max="100" value="${s.at}" placeholder="คะแนนขั้นต่ำ" />
-            <input class="tinyfeed-rpg-stage-label" type="text" value="${escapeAttr(s.label)}" placeholder="ชื่อระดับ" />
-            <span class="tinyfeed-rpg-stage-del" data-idx="${i}"><i class="fa-solid fa-trash"></i></span>
-        </div>`).join("");
-    return `
-        <div class="tinyfeed-rpg-npcfields-box">
-            <div class="tinyfeed-rpg-group-title">ช่องข้อมูลตัวตน (ตายตัว) — ซ่อนช่องที่ไม่เกี่ยวกับเรื่องนี้ได้</div>
-            ${fixedRows}
-            <div class="tinyfeed-rpg-group-title" style="margin-top:var(--tf-sp-4)">ช่องข้อมูลที่เพิ่มเอง (เช่น ชมรม, เผ่าพันธุ์, สังกัด)</div>
-            <div id="tinyfeed-rpg-customfield-list">${customRows}</div>
-            <button id="tinyfeed-rpg-customfield-add" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มช่อง</span></button>
-            <div class="tinyfeed-rpg-group-title" style="margin-top:var(--tf-sp-4)">ระดับความสัมพันธ์ (คะแนนขั้นต่ำ → ชื่อระดับ)</div>
-            <div id="tinyfeed-rpg-stage-list">${stageRows}</div>
-            <button id="tinyfeed-rpg-stage-add" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มระดับ</span></button>
-        </div>`;
-}
-
-// ===== TinyQuest HUD: แถบสถานะเหนือช่องพิมพ์ในหน้าแชทหลักของ ST (นอก #tinyfeed-phone — ต้องใส่ธีมเอง) =====
-function mountRpgHud() {
-    if (document.getElementById("tinyfeed-hud")) return;
-    const formSheld = document.getElementById("form_sheld");
-    const sendForm = document.getElementById("send_form");
-    if (!formSheld || !sendForm) return;   // เวอร์ชัน ST ที่ไม่มี id เหล่านี้ = ข้ามไปเงียบๆ ไม่พังทั้งส่วน
-    const hud = document.createElement("div");
-    hud.id = "tinyfeed-hud";
-    hud.className = "tinyfeed-hidden";
-    formSheld.insertBefore(hud, sendForm);
-    updateRpgHudTheme();
-}
-function updateRpgHudTheme() {
-    const hud = document.getElementById("tinyfeed-hud");
-    if (!hud) return;
-    const theme = extension_settings[extensionName].theme || "dark";
-    hud.classList.remove("tinyfeed-theme-dark", "tinyfeed-theme-light");
-    hud.classList.add(`tinyfeed-theme-${theme}`);
-    const accent = String(getSetting("accentColor") || "").trim();
-    if (accent) hud.style.setProperty("--tf-accent", accent);
-    else hud.style.removeProperty("--tf-accent");
-}
-function updateRpgHud() {
-    const hud = $("#tinyfeed-hud");
-    if (!hud.length) return;
-    const on = Boolean(getSetting("hudEnabled"));
-    hud.toggleClass("tinyfeed-hidden", !on);
-    if (!on) return;
-    const schema = getRpgSchema();
-    const defs = schema.stats.filter((d) => d.hud);
-    const collapsed = Boolean(getSetting("hudCollapsed"));
-    if (!defs.length) {
-        hud.html(`<div class="tinyfeed-hud-empty tinyfeed-hud-open">TinyQuest — ยังไม่ได้ปักหมุดค่าไหนไว้ <i class="fa-solid fa-gear"></i></div>`);
-        return;
-    }
-    const chips = defs.map((d) => {
-        const text = rpgStatDisplay(d);   // มีชื่อค่ากำกับด้วยเสมอ (ไม่ใช่แค่ตัวเลขเดี่ยวๆ ดูไม่ออกว่าเป็นค่าอะไร)
-        return `<span class="tinyfeed-hud-chip" style="--hud-c:${escapeAttr(d.color || "#8b5cf6")}">${d.icon ? `<i class="fa-solid ${escapeAttr(d.icon)}"></i> ` : ""}${escapeText(text)}</span>`;
-    }).join("");
-    hud.html(`
-        <div class="tinyfeed-hud-bar">
-            <span id="tinyfeed-hud-toggle" class="tinyfeed-hud-toggle"><i class="fa-solid ${collapsed ? "fa-chevron-up" : "fa-chevron-down"}"></i></span>
-            <div class="tinyfeed-hud-chips tinyfeed-hud-open${collapsed ? " tinyfeed-hidden" : ""}">${chips}</div>
-        </div>
-    `);
-}
 
 // เก็บใน extension_settings.tinyfeed.pet (ไม่ใช่ chat_metadata) → เพ็ทตัวเดียวตามผู้เล่นทุกแชท
 const PET_DECAY_DEFAULTS = { hunger: 0.5, energy: 0.35, cleanliness: 0.3 };   // ต่อนาที
@@ -5715,6 +2956,7 @@ function openPetItemEdit(id) {
     $("#tinyfeed-pet-item-price").val(it ? it.price : "");
     $("#tinyfeed-pet-item-emoji").val(it ? (it.emoji || "") : "");
     $("#tinyfeed-pet-item-image").val(it ? (it.image || "") : "");
+    updateUploadPreview($("#tinyfeed-pet-item-image"));
     $("#tinyfeed-pet-item-type").val(it ? (it.type || "food") : "food");
     $("#tinyfeed-pet-item-amount").val(it ? it.amount : 40);
     $("#tinyfeed-pet-item-desc").val(it ? (it.desc || "") : "");
@@ -6432,7 +3674,13 @@ function renderPetSpriteCfg() {
         <div class="tinyfeed-pet-sprite-row">
             <span class="tinyfeed-pet-sprite-emoji">${PET_STATE_EMOJI[st]}</span>
             <span class="tinyfeed-pet-sprite-label">${labels[st] || st}</span>
-            <input class="tinyfeed-pet-sprite-url" data-key="${escapeAttr(key)}" type="text" placeholder="ลิงก์รูป (ว่าง = ใช้ไฟล์ในตัว)" value="${escapeAttr(map[key] || "")}" />
+            <div class="tinyfeed-uploadrow">
+                <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap${map[key] ? "" : " tinyfeed-hidden"}">
+                    <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="${escapeAttr(map[key] || "")}" onerror="this.classList.add('tinyfeed-img-broken')" />
+                </div>
+                <input class="tinyfeed-pet-sprite-url" data-key="${escapeAttr(key)}" type="text" placeholder="ลิงก์รูป (ว่าง = ใช้ไฟล์ในตัว)" value="${escapeAttr(map[key] || "")}" />
+                <span class="tinyfeed-upload-btn" data-kind="sprite" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+            </div>
         </div>`;
     }).join("");
     $("#tinyfeed-pet-sprite-list").html(`
@@ -6539,7 +3787,13 @@ function renderNpcList() {
     const rows = getNpcs().map((npc, i) => `
         <div class="tinyfeed-npc-row" data-index="${i}">
             <input class="tinyfeed-npc-name" type="text" placeholder="ชื่อ NPC" value="${escapeAttr(npc.name)}" />
-            <input class="tinyfeed-npc-avatar" type="text" placeholder="ลิงก์รูป (optional)" value="${escapeAttr(npc.avatar)}" />
+            <div class="tinyfeed-uploadrow">
+                <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap${npc.avatar ? "" : " tinyfeed-hidden"}">
+                    <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="${escapeAttr(npc.avatar)}" onerror="this.classList.add('tinyfeed-img-broken')" />
+                </div>
+                <input class="tinyfeed-npc-avatar" type="text" placeholder="ลิงก์รูป (optional)" value="${escapeAttr(npc.avatar)}" />
+                <span class="tinyfeed-upload-btn" data-kind="avatar" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+            </div>
             <span class="tinyfeed-npc-del" title="ลบ NPC"><i class="fa-solid fa-trash"></i></span>
         </div>
     `).join("");
@@ -6552,6 +3806,7 @@ function populateProfileSettings() {
     const up = getUserProfile();
     $("#tinyfeed-cfg-persona-name").text(getRawUserName());
     $("#tinyfeed-cfg-user-avatar").val(up.avatarUrl);
+    updateUploadPreview($("#tinyfeed-cfg-user-avatar"));
     $("#tinyfeed-cfg-user-username").val(up.username);
     $("#tinyfeed-cfg-user-alias").val(up.alias);
     $("#tinyfeed-cfg-user-primary").val(up.primary);
@@ -6570,6 +3825,7 @@ function populateProfileSettings() {
         $("#tinyfeed-cfg-char-name").text("(ไม่มีตัวละครในแชทนี้)");
         charFields.prop("disabled", true).val("");
     }
+    updateUploadPreview($("#tinyfeed-cfg-char-avatar"));
 }
 
 // สกุลเงิน — ผูกกับตัวละครปัจจุบัน (เหมือนโปรไฟล์ตัวละคร) disable ฟิลด์เมื่อไม่มีการ์ดให้ผูก
@@ -6585,6 +3841,258 @@ function populateCurrencySettings() {
     } else {
         $("#tinyfeed-cfg-currency-charname").text("(ไม่มีตัวละคร — ใช้ค่าเริ่มต้นไปก่อน)");
         fields.prop("disabled", true);
+    }
+}
+
+// ===== TinyAsk: ถาม-ตอบนิรนาม สไตล์ NGL/ask.fm (ผูกกับแชท) =====
+// สองทาง: กล่องของเรา (owner=POSTER_USER, AI ส่งคำถามเข้ามาเอง เราตอบเอง)
+//         + กล่องของตัวละคร/NPC (owner=ชื่อ, byUser:true, เราส่งคำถามไป ให้ AI ตอบในบทบาท)
+// ทุกคำถามที่ "ตอบแล้ว" ขึ้นฟีดคำตอบสาธารณะร่วมกัน
+function askId() { return "ak" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+function getAsk() {
+    const data = getFeedData();
+    if (!Array.isArray(data.ask)) data.ask = [];
+    return data.ask;
+}
+function saveAsk() { saveFeedDataDebounced(); }
+
+let askTab = "inbox";   // "inbox" | "feed"
+let isAskBusy = false;
+
+function openAsk() { switchAskTab(askTab); }
+
+function switchAskTab(tab) {
+    askTab = tab === "feed" ? "feed" : "inbox";
+    $(".tinyfeed-tab[data-asktab]").removeClass("tinyfeed-tab-active");
+    $(`.tinyfeed-tab[data-asktab="${askTab}"]`).addClass("tinyfeed-tab-active");
+    $("#tinyfeed-ask-inbox").toggleClass("tinyfeed-hidden", askTab !== "inbox");
+    $("#tinyfeed-ask-feed").toggleClass("tinyfeed-hidden", askTab !== "feed");
+    if (askTab === "inbox") renderAskInbox(); else renderAskFeed();
+}
+
+function renderAskInbox() {
+    const box = $("#tinyfeed-ask-inbox-list");
+    if (!box.length) return;
+    const items = getAsk().filter((q) => q.owner === POSTER_USER && !q.answer);
+    if (!items.length) {
+        box.html(emptyStateHtml("fa-circle-question", "ยังไม่มีคำถามใหม่",
+            'กด "ให้คนส่งคำถามเข้ามา" ด้านบน หรือรอทริกเกอร์อัตโนมัติ'));
+        return;
+    }
+    box.html(items.slice().reverse().map((q) => `
+        <div class="tinyfeed-ask-card" data-id="${escapeAttr(q.id)}">
+            <div class="tinyfeed-ask-q-box">
+                ${makeAnonAvatar("?")}
+                <div class="tinyfeed-ask-q-text">${renderRich(q.text)}</div>
+            </div>
+            <textarea class="tinyfeed-ask-answer-input" placeholder="พิมพ์คำตอบ..."></textarea>
+            <div class="tinyfeed-ask-actions">
+                <span class="tinyfeed-ask-del" data-id="${escapeAttr(q.id)}" title="ทิ้งคำถามนี้"><i class="fa-solid fa-trash"></i></span>
+                <button class="tinyfeed-btn-primary tinyfeed-ask-answer-btn" data-id="${escapeAttr(q.id)}">ตอบ</button>
+            </div>
+        </div>`).join(""));
+}
+
+function renderAskFeed() {
+    const box = $("#tinyfeed-ask-feed-list");
+    if (!box.length) return;
+    const items = getAsk().filter((q) => q.answer || q.byUser);
+    if (!items.length) {
+        box.html(emptyStateHtml("fa-comment-dots", "ยังไม่มีคำถาม-คำตอบ", "ตอบคำถามในกล่องของคุณ หรือกด + เพื่อถามตัวละคร"));
+        return;
+    }
+    box.html(items.slice().reverse().map((q) => {
+        const askerLabel = q.anon && !q.revealed ? "ไม่ระบุตัวตน" : escapeText(q.from);
+        const revealBtn = (q.anon && !q.revealed && getSetting("askReveal"))
+            ? `<span class="tinyfeed-ask-reveal" data-id="${escapeAttr(q.id)}" title="เฉลยคนถาม"><i class="fa-solid fa-eye"></i></span>` : "";
+        const ownerLabel = q.owner === POSTER_USER ? "" : `<span class="tinyfeed-ask-owner">ถึง ${escapeText(q.owner)}</span>`;
+        const answerBlock = q.answer
+            ? `<div class="tinyfeed-ask-a-box">${makeAvatar({ author: q.owner, isUser: q.owner === POSTER_USER })}<div class="tinyfeed-ask-a-text">${renderRich(q.answer)}</div></div>`
+            : `<div class="tinyfeed-ask-pending"><span class="tinyfeed-ai-link tinyfeed-ask-getanswer" data-id="${escapeAttr(q.id)}"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ ${escapeText(q.owner)} ตอบ</span></div>`;
+        return `
+        <div class="tinyfeed-ask-card" data-id="${escapeAttr(q.id)}">
+            <div class="tinyfeed-ask-q-box">
+                ${makeAnonAvatar(askerLabel)}
+                <div class="tinyfeed-ask-q-meta">
+                    <span class="tinyfeed-ask-asker">${askerLabel}</span>${revealBtn}${ownerLabel}
+                </div>
+                <div class="tinyfeed-ask-q-text">${renderRich(q.text)}</div>
+            </div>
+            ${answerBlock}
+            <div class="tinyfeed-ask-actions">
+                <span class="tinyfeed-ask-like${q.liked ? " tinyfeed-liked" : ""}" data-id="${escapeAttr(q.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(q.likes || 0)}</span>
+                <span class="tinyfeed-ask-del" data-id="${escapeAttr(q.id)}" title="ลบ"><i class="fa-solid fa-trash"></i></span>
+            </div>
+        </div>`;
+    }).join(""));
+}
+
+function answerAskQuestion(id, text) {
+    const q = getAsk().find((x) => x.id === id);
+    if (!q) return;
+    const answer = String(text || "").trim();
+    if (!answer) { toastr.info("พิมพ์คำตอบก่อนนะ", "TinyAsk"); return; }
+    q.answer = escapeHtml(answer);
+    q.answerTs = Date.now();
+    saveAsk();
+    renderAskInbox();
+    updateChatInjection();
+    toastr.success("ตอบคำถามแล้ว", "TinyAsk");
+}
+
+function deleteAskQuestion(id) {
+    const arr = getAsk();
+    const i = arr.findIndex((x) => x.id === id);
+    if (i < 0) return;
+    arr.splice(i, 1);
+    saveAsk();
+    if (askTab === "inbox") renderAskInbox(); else renderAskFeed();
+}
+
+function revealAskAsker(id) {
+    const q = getAsk().find((x) => x.id === id);
+    if (!q) return;
+    q.revealed = true;
+    saveAsk();
+    renderAskFeed();
+}
+
+function toggleAskLike(id) {
+    const q = getAsk().find((x) => x.id === id);
+    if (!q) return;
+    q.liked = !q.liked;
+    q.likes = Math.max(0, (q.likes || 0) + (q.liked ? 1 : -1));
+    saveAsk();
+    renderAskFeed();
+}
+
+// ===== ส่งคำถามนิรนามไปหาตัวละคร/NPC (modal +) =====
+let askSendTarget = null;
+function openAskSendModal() {
+    openCharPicker({ title: "ส่งคำถามถึงใคร", includeUser: false, includeMain: true, includeAuto: false }, (value) => {
+        askSendTarget = value;
+        $("#tinyfeed-ask-send-to").text(value);
+        $("#tinyfeed-ask-send-text").val("");
+        $("#tinyfeed-ask-send-anon").prop("checked", true);
+        $("#tinyfeed-ask-send-modal").removeClass("tinyfeed-hidden");
+    });
+}
+function closeAskSendModal() { $("#tinyfeed-ask-send-modal").addClass("tinyfeed-hidden"); askSendTarget = null; }
+function sendAskQuestion() {
+    const text = String($("#tinyfeed-ask-send-text").val() || "").trim();
+    if (!askSendTarget) { closeAskSendModal(); return; }
+    if (!text) { toastr.info("พิมพ์คำถามก่อนนะ", "TinyAsk"); return; }
+    const anon = $("#tinyfeed-ask-send-anon").prop("checked");
+    getAsk().push({
+        id: askId(), owner: askSendTarget, from: getUserName(), anon, revealed: false, byUser: true,
+        text: escapeHtml(text), answer: "", ts: Date.now(), answerTs: 0, likes: randomInitialLikes(), liked: false,
+    });
+    saveAsk();
+    closeAskSendModal();
+    switchAskTab("feed");
+    toastr.success("ส่งคำถามแล้ว", "TinyAsk");
+}
+
+// ===== AI: ให้คนส่งคำถามนิรนามเข้ากล่องของเรา (auto ทุก N ข้อความ / AI ตัดสินใจ / คีย์เวิร์ด) =====
+function parseAskQuestions(raw) {
+    const s = stripReasoning(raw);
+    const out = [];
+    for (const line of s.split("\n")) {
+        const m = line.trim().match(/^ASK:\s*(.+)$/i);
+        if (!m) continue;
+        const parts = m[1].split("|");
+        if (parts.length < 2) continue;
+        const from = parts[0].replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const text = parts.slice(1).join("|").trim();
+        if (from && text) out.push({ from, text });
+    }
+    return out;
+}
+
+async function generateAskQuestions(opts) {
+    opts = opts || {};
+    if (isAskBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        if (!opts.silent) toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyAsk");
+        return;
+    }
+    const char = getCurrentCharacter();
+    if (!char) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyAsk"); return; }
+    const charName = getCharName();
+    isAskBusy = true;
+    const btn = $("#tinyfeed-ask-generate");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const extra = String(getSetting("askExtraPrompt") || "").trim();
+        const q = buildPrompt("askInbox", {
+            roster: npcRosterLine(charName),
+            count: "ขอ 2-4 คำถาม ",
+            extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
+            context: crossAppContext("ask"),
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("askTokens"), 10) || 200), "ask");
+        const items = parseAskQuestions(raw);
+        if (!items.length) { if (!opts.silent) toastr.warning("AI ไม่ได้ส่งคำถามกลับมา ลองใหม่นะ", "TinyAsk"); return; }
+        for (const it of items) {
+            getAsk().push({
+                id: askId(), owner: POSTER_USER, from: it.from, anon: true, revealed: false, byUser: false,
+                text: escapeHtml(it.text), answer: "", ts: Date.now(), answerTs: 0, likes: 0, liked: false,
+            });
+        }
+        saveAsk();
+        if (currentApp === "ask" && askTab === "inbox") renderAskInbox();
+        updateChatInjection();
+        if (opts.notify) showNotif(makeAnonAvatar("?"), "ไม่ระบุตัวตน", htmlToPlain(items[0].text), "inbox", "ask");
+        if (!opts.silent) toastr.success(`มีคำถามใหม่ ${items.length} ข้อ`, "TinyAsk");
+    } catch (e) {
+        console.error(`[${extensionName}] generateAskQuestions failed:`, e);
+        if (!opts.silent) toastr.error("สร้างคำถามไม่สำเร็จ ลองใหม่นะ", "TinyAsk");
+    } finally {
+        isAskBusy = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+// ให้ตัวละคร/NPC เจ้าของกล่องตอบคำถามที่เราส่งไป
+async function generateAskAnswer(id) {
+    if (isAskBusy) return;
+    const q = getAsk().find((x) => x.id === id);
+    if (!q) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyAsk");
+        return;
+    }
+    const charName = getCharName();
+    isAskBusy = true;
+    const $btn = $(`.tinyfeed-ask-getanswer[data-id="${id}"]`);
+    $btn.addClass("tinyfeed-generating");
+    try {
+        const extra = String(getSetting("askExtraPrompt") || "").trim();
+        const prompt = buildPrompt("askAnswer", {
+            owner: q.owner, question: htmlToPlain(q.text),
+            roster: npcRosterLine(charName),
+            extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
+            context: crossAppContext("ask"),
+        });
+        const raw = await tinyGenerate(prompt, Math.max(1, parseInt(getSetting("askTokens"), 10) || 200), "ask");
+        const s = stripReasoning(raw);
+        const m = s.match(/ANSWER:\s*([\s\S]+)/i);
+        const answer = m ? m[1].trim() : s.trim();
+        if (!answer) { toastr.warning("AI ไม่ได้ตอบกลับมา ลองใหม่นะ", "TinyAsk"); return; }
+        q.answer = escapeHtml(answer);
+        q.answerTs = Date.now();
+        saveAsk();
+        renderAskFeed();
+        updateChatInjection();
+    } catch (e) {
+        console.error(`[${extensionName}] generateAskAnswer failed:`, e);
+        toastr.error("ตอบคำถามไม่สำเร็จ ลองใหม่นะ", "TinyAsk");
+    } finally {
+        isAskBusy = false;
+        $btn.removeClass("tinyfeed-generating");
     }
 }
 
@@ -6896,55 +4404,6 @@ function buildAppBlocks(want) {
             .map((x) => `- ${htmlToPlain(x.it.name)}${x.n > 1 ? ` ×${x.n}` : ""}${x.it.desc ? ` (${htmlToPlain(x.it.desc)})` : ""}`);
         if (items.length) blocks.push(`ของที่ซื้อไว้จากแอป TinyShop:\n${items.join("\n")}`);
     }
-    if (want.theater) {
-        // global — เรื่องที่เขียนไว้ในมินิเธียเตอร์ (ตัวละครอ้างถึงได้ว่า "เคยดู/เคยเขียนเรื่องนี้")
-        const shows = (getTheater().shows || []).slice(0, count).map((sh) => {
-            const eps = (sh.episodes || []).length;
-            return `- "${htmlToPlain(sh.title)}"${sh.genre ? ` (${htmlToPlain(sh.genre)})` : ""} — ${eps} ตอน`
-                + (sh.whatIf ? `\n  โจทย์: ${htmlToPlain(sh.whatIf)}` : "")
-                + (sh.castNames && sh.castNames.length ? `\n  นักแสดง: ${sh.castNames.map(htmlToPlain).join(", ")}` : "");
-        });
-        if (shows.length) blocks.push(`เรื่องในแอปมินิเธียเตอร์ TinyTheater:\n${shows.join("\n")}`);
-    }
-    if (want.novel) {
-        // global — นิยายที่อ่านอยู่ (แนบเรื่องย่อ + ความคืบหน้า ไม่แนบเนื้อเต็มเพราะยาวมาก)
-        const books = (getNovel().books || []).slice(0, count).map((b) => {
-            const read = Math.min(b.lastReadEp || 0, (b.episodes || []).length);
-            const done = (b.episodes || []).length >= (b.totalEps || 0);
-            return `- "${htmlToPlain(b.title)}"${b.genre ? ` (${htmlToPlain(b.genre)})` : ""} — ${done ? "อ่านจบแล้ว" : `อ่านถึงตอน ${read}/${b.totalEps}`}`
-                + (b.synopsis ? `\n  เรื่องย่อ: ${htmlToPlain(b.synopsis)}` : "");
-        });
-        if (books.length) blocks.push(`นิยายในแอป TinyNovel:\n${books.join("\n")}`);
-    }
-    if (want.rpg) {
-        // ต่อแชท — เอาเฉพาะค่าที่ผู้ใช้ติ๊ก "ส่งเข้า RP" ไว้ในหน้าตั้งค่าสเตตัส
-        const parts = [];
-        const stats = (getRpgSchema().stats || []).filter((d) => d.inject);
-        if (stats.length) {
-            const line = stats.map(rpgStatDisplay).join(" · ");
-            if (line) parts.push(`สถานะผู้เล่น: ${line}`);
-        }
-        // ไอเทมในกระเป๋า (รอบ ③)
-        const inv = getRpgInventory();
-        if (inv.length) parts.push(`ไอเทมในกระเป๋า: ${inv.map((it) => `${it.name}×${it.qty}`).join(", ")}`);
-        // เควสที่ยัง active (รอบ ④)
-        const activeQuests = getRpgQuests().filter((q) => q.status === "active");
-        if (activeQuests.length) parts.push(`เควสที่กำลังทำ: ${activeQuests.map((q) => q.title).join(", ")}`);
-        // ความสัมพันธ์ NPC (รอบ ②) — sub-toggle แยก เพราะเป็นข้อมูลที่ยาวขึ้นเรื่อยๆ ตามจำนวน NPC
-        if (want.rpgNpc) {
-            const r = getRpg();
-            const relLines = rpgNpcList().filter((n) => !n.isMain).map((n) => {
-                const rec = r.npc && r.npc[n.key];
-                const aff = rec ? (rec.affection || 0) : 0;
-                if (!aff) return "";   // ยังไม่เคยมีความสัมพันธ์เลย ไม่ต้องแนบให้รก
-                const hearts = rpgHearts(aff);
-                const heartStr = "♥".repeat(hearts) + "♡".repeat(5 - hearts);
-                return `${n.name} ${heartStr} (${Math.round(aff)}) ${rpgStageFor(aff).label}`;
-            }).filter(Boolean);
-            if (relLines.length) parts.push(`ความสัมพันธ์: ${relLines.join(" · ")}`);
-        }
-        if (parts.length) blocks.push(`สถานะผู้เล่นในแอป TinyQuest:\n${parts.join("\n")}`);
-    }
     if (want.pet) {
         // เพ็ทเป็น global (ตัวเดียวข้ามแชท) — สถานะสดตอนนี้ ให้ตัวละครอ้างถึงได้
         const p = getPet();
@@ -6961,6 +4420,11 @@ function buildAppBlocks(want) {
                     + `- ความผูกพันกับเรา: เลเวล ${lv}`);
             }
         }
+    }
+    if (want.ask) {
+        const answered = getAsk().filter((q) => q.answer).slice(0, count).map((q) =>
+            `- ${q.anon ? "มีคนถามนิรนาม" : `${q.from}ถาม`}${q.owner === POSTER_USER ? "" : ` (ถึง ${q.owner})`}: "${htmlToPlain(q.text)}" → ตอบว่า: "${htmlToPlain(q.answer)}"`);
+        if (answered.length) blocks.push(`คำถาม-คำตอบล่าสุดในแอป TinyAsk:\n${answered.join("\n")}`);
     }
     return blocks;
 }
@@ -7337,80 +4801,11 @@ const PROMPT_DEFS = {
             `เขียนโพสต์สั้นๆ 1 โพสต์ (1-2 ประโยค) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
             `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
     },
-    versePost: {
-        label: "โพสต์ฟีดโกลบอล (TinyVerse)", marker: "POST:", tokens: ["charName", "persona", "guidance", "context"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{charName}} กำลังจะโพสต์ลงฟีดโซเชียลส่วนตัวในมุมมองของตัวเอง. ข้อมูลตัวละคร (ใช้กำหนดนิสัย/น้ำเสียง): {{persona}}. ` +
-            `{{context}}` +
-            `เขียนโพสต์สั้นๆ 1 โพสต์ (1-3 ประโยค) ในน้ำเสียงและมุมมองของ {{charName}} ให้สมคาแรกเตอร์ เป็นธรรมชาติเหมือนโพสต์โซเชียลจริง. {{guidance}}ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
-            `ตอบรูปแบบนี้เท่านั้น:\nPOST: <ข้อความโพสต์>`,
-    },
-    verseComments: {
-        label: "คอมเมนต์ข้ามการ์ด (TinyVerse)", marker: "COMMENT:", tokens: ["author", "post", "roster"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ในโซเชียลรวมที่ตัวละครจากหลายโลกมาเจอกัน {{author}} เพิ่งโพสต์ว่า: "{{post}}". ` +
-            `ตัวละครอื่นที่เห็นโพสต์นี้ (ใช้ข้อมูลกำหนดนิสัย/น้ำเสียงของแต่ละคน):\n{{roster}}\n` +
-            `แต่งคอมเมนต์ 2-4 อันจากตัวละครในรายชื่อข้างบน (คนละคนกัน ห้ามใช้ {{author}}) ให้สมคาแรกเตอร์แต่ละคน สั้นๆ 1-2 ประโยค เป็นธรรมชาติเหมือนคอมเมนต์โซเชียลจริง ตัวละครต่างโลกกันทักกันได้อย่างสนุก. ห้ามพูดหรือกระทำแทนผู้ใช้.\n` +
-            `ตอบบรรทัดละ 1 คอมเมนต์ในรูปแบบนี้เท่านั้น:\nCOMMENT: <ชื่อตัวละคร> | <ข้อความ>`,
-    },
-    theaterWhatIf: {
-        label: "คิดโจทย์ What if (TinyTheater)", marker: "WHATIF:", tokens: ["chars", "roster", "genre"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ช่วยคิดโจทย์ "What if" สำหรับมินิเธียเตอร์ (เรื่องสั้นแนวสมมติ) ที่มีนักแสดง: {{chars}}. ข้อมูลตัวละคร:\n{{roster}}\n` +
-            `แนวเรื่องที่อยากได้: {{genre}}\n` +
-            `เสนอโจทย์ 3 แบบที่ต่างกันชัดเจน แต่ละอันสั้นๆ 1 ประโยค ขึ้นต้นด้วย "ถ้า..." ให้เข้ากับนิสัย/ภูมิหลังของตัวละครเหล่านี้โดยเฉพาะ (ไม่ใช่โจทย์กลางๆ ที่ใครก็ใช้ได้) น่าสนใจและชวนให้อยากอ่านต่อ. ใช้ภาษาเดียวกับข้อมูลตัวละคร.\n` +
-            `ตอบบรรทัดละ 1 โจทย์ในรูปแบบนี้เท่านั้น:\nWHATIF: <โจทย์>`,
-    },
-    theaterEpisode: {
-        label: "ตอนแรก (TinyTheater)", marker: "NARRATION:", tokens: ["chars", "roster", "whatIf", "genre", "length", "userRule"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียน "มินิเธียเตอร์" (小劇場) — เรื่องสั้นแนว What if ที่ตัวละครจากต่างโลกมาเจอกัน. นักแสดง: {{chars}}. ข้อมูลตัวละครแต่ละคน (ใช้กำหนดนิสัย/น้ำเสียง):\n{{roster}}\n` +
-            `โจทย์ What if: {{whatIf}}\nแนวเรื่อง: {{genre}}\nความยาว: {{length}}\n` +
-            `ตั้งชื่อเรื่องให้น่าสนใจ + ชื่อตอนแรก แล้วเขียนเนื้อเรื่องสลับระหว่างคำบรรยายกับบทพูด ให้ตัวละครทุกคนมีบทบาท สมคาแรกเตอร์ มีจังหวะเปิดเรื่องที่ชวนติดตาม. ใช้ภาษาเดียวกับข้อมูลตัวละคร. {{userRule}}\n` +
-            `ตอบตามรูปแบบนี้เท่านั้น (บรรทัดละ 1 รายการ):\nTITLE: <ชื่อเรื่อง>\nEPTITLE: <ชื่อตอน>\nNARRATION: <คำบรรยาย>\nLINE: <ชื่อตัวละคร> | <บทพูด>`,
-    },
-    novelPlot: {
-        label: "คิดพล็อตให้ (TinyNovel)", marker: "PLOT:", tokens: ["genre"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เสนอพล็อตนิยายที่คนชอบอ่าน 3 เรื่อง แนว: {{genre}}. ` +
-            `แต่ละพล็อตเขียนเป็นประโยคเดียวที่เห็นภาพและชวนติดตาม อย่าซ้ำแนวกัน อย่าใส่ชื่อตัวละคร.\n` +
-            `ตอบบรรทัดละ 1 พล็อตในรูปแบบนี้เท่านั้น:\nPLOT: <พล็อต>`,
-    },
-    novelOutline: {
-        label: "สร้างเรื่อง + ตอนแรก (TinyNovel)", marker: "TITLE:", tokens: ["plot", "genre", "hero", "totalEps", "length", "extra"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] คุณคือนักเขียนนิยาย เขียนนิยายเรื่องใหม่ตามโจทย์นี้\n` +
-            `พล็อต: {{plot}}\nแนวเรื่อง: {{genre}}\nตัวเอก: {{hero}}\n` +
-            `เรื่องนี้จะจบใน {{totalEps}} ตอน — ตอนนี้คือตอนที่ 1 วางจังหวะให้เหมาะกับความยาวทั้งเรื่อง\n` +
-            `ความยาวตอน: {{length}}\n{{extra}}\n` +
-            `ตั้งชื่อเรื่อง เขียนเรื่องย่อสั้นๆ ระบุตัวละครหลัก แล้วเขียนเนื้อเรื่องตอนที่ 1 เป็นร้อยแก้ว (มีบทสนทนาได้) แบ่งย่อหน้าด้วยบรรทัดว่าง\n` +
-            `ตอบตามรูปแบบนี้ (ส่วนหัวบรรทัดละรายการ แล้วเว้นบรรทัดก่อนเริ่มเนื้อเรื่อง):\n` +
-            `TITLE: <ชื่อเรื่อง>\nSYNOPSIS: <เรื่องย่อ 1-2 ประโยค>\nCHAR: <ชื่อ> | <บทบาท> | <นิสัย/ปูมหลังสั้นๆ>\n(CHAR ใส่ได้หลายบรรทัด)\nEPTITLE: <ชื่อตอนที่ 1>\n\n<เนื้อเรื่อง>`,
-    },
-    novelEpisode: {
-        label: "ตอนต่อไป (TinyNovel)", marker: "EPTITLE:", tokens: ["title", "plot", "genre", "roster", "story", "epNo", "totalEps", "length", "endRule", "extra"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนนิยายเรื่อง "{{title}}" ตอนที่ {{epNo}} จากทั้งหมด {{totalEps}} ตอน\n` +
-            `พล็อตหลัก: {{plot}}\nแนวเรื่อง: {{genre}}\nตัวละคร:\n{{roster}}\n` +
-            `เนื้อเรื่องที่ผ่านมา:\n{{story}}\n` +
-            `{{endRule}}\nความยาวตอน: {{length}}\n{{extra}}\n` +
-            `เขียนต่อให้ต่อเนื่องกับของเดิม อย่าเล่าซ้ำ เป็นร้อยแก้ว (มีบทสนทนาได้) แบ่งย่อหน้าด้วยบรรทัดว่าง ใช้ภาษาเดียวกับเนื้อเรื่องเดิม\n` +
-            `ตอบตามรูปแบบนี้:\nEPTITLE: <ชื่อตอน>\n\n<เนื้อเรื่อง>`,
-    },
-    theaterNext: {
-        label: "ตอนต่อไป (TinyTheater)", marker: "NARRATION:", tokens: ["chars", "roster", "whatIf", "genre", "length", "epNo", "story", "userRule"],
-        default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนตอนที่ {{epNo}} ของมินิเธียเตอร์เรื่องนี้ต่อจากเดิม. นักแสดง: {{chars}}. ข้อมูลตัวละคร:\n{{roster}}\n` +
-            `โจทย์ What if: {{whatIf}}\nแนวเรื่อง: {{genre}}\nความยาว: {{length}}\n` +
-            `เนื้อเรื่องที่ผ่านมา:\n{{story}}\n` +
-            `เขียนตอนต่อไปให้ต่อเนื่องกับของเดิม (อ้างถึงสิ่งที่เกิดขึ้นแล้วได้) พัฒนาเรื่องให้คืบหน้า อย่าเล่าซ้ำ ตั้งชื่อตอนใหม่. ใช้ภาษาเดียวกับข้อมูลตัวละคร. {{userRule}}\n` +
-            `ตอบตามรูปแบบนี้เท่านั้น (บรรทัดละ 1 รายการ):\nEPTITLE: <ชื่อตอน>\nNARRATION: <คำบรรยาย>\nLINE: <ชื่อตัวละคร> | <บทพูด>`,
-    },
     shopItems: {
-        label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "stats", "extra", "context"],
+        label: "สร้างสินค้า (TinyShop)", marker: "ITEM:", tokens: ["cats", "extra", "context"],
         default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งรายการสินค้า 3-5 ชิ้นที่น่าจะมีขายในร้านค้าของโลกในเนื้อเรื่องนี้ ให้เข้ากับบรรยากาศ/ยุคสมัย/ธีมของเรื่อง ตั้งราคาสมเหตุสมผล เลือกหมวดจากรายการนี้เท่านั้น: {{cats}}. เลือกอิโมจิ 1 ตัวที่สื่อถึงสินค้า ถ้าสินค้าควรมีผลกับค่าสเตตัสตอนใช้ (เช่นยา/ของกิน/อาวุธ) เลือก id จากรายการนี้: {{stats}} (ใส่ - ถ้าไม่มีผล) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
-            `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อสินค้า> | <ราคาเป็นตัวเลข> | <หมวด> | <อิโมจิ> | <รายละเอียดสั้น> | <statId หรือ -> | <จำนวนผล>`,
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งรายการสินค้า 3-5 ชิ้นที่น่าจะมีขายในร้านค้าของโลกในเนื้อเรื่องนี้ ให้เข้ากับบรรยากาศ/ยุคสมัย/ธีมของเรื่อง ตั้งราคาสมเหตุสมผล เลือกหมวดจากรายการนี้เท่านั้น: {{cats}}. เลือกอิโมจิ 1 ตัวที่สื่อถึงสินค้า ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้. {{extra}}{{context}}\n` +
+            `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อสินค้า> | <ราคาเป็นตัวเลข> | <หมวด> | <อิโมจิ> | <รายละเอียดสั้น>`,
     },
     petShopItems: {
         label: "สร้างไอเทมร้านเพ็ท (TinyPet)", marker: "ITEM:", tokens: ["petName", "types", "context"],
@@ -7418,27 +4813,17 @@ const PROMPT_DEFS = {
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งไอเทมสำหรับร้านสัตว์เลี้ยงของ {{petName}} จำนวน 4-6 ชิ้น (คละทั้งอาหาร/ของเล่น/ของใช้) ให้เข้ากับโลกของเนื้อเรื่อง ตั้งราคาเป็นเหรียญสมเหตุสมผล เลือกอิโมจิ 1 ตัว ประเภทเลือกจาก: {{types}}. ค่าพลัง 20-70 ตามความแรง ใช้ภาษาเดียวกับเนื้อเรื่อง.{{context}}\n` +
             `ตอบบรรทัดละ 1 ชิ้นในรูปแบบนี้เท่านั้น:\nITEM: <ชื่อ> | <ราคาเหรียญ> | <ประเภท food/toy/care/heal> | <อิโมจิ> | <ค่าพลัง> | <รายละเอียดสั้น>`,
     },
-    rpgSchema: {
-        label: "เสนอสเตตัส (TinyQuest)", marker: "STAT:", tokens: ["charName", "bio", "extra"],
+    askInbox: {
+        label: "คำถามนิรนามที่ส่งเข้ามา (TinyAsk)", marker: "ASK:", tokens: ["roster", "count", "extra", "context"],
         default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] อ่านข้อมูลตัวละคร "{{charName}}" แล้วออกแบบชุดค่าสเตตัสที่เหมาะกับโลก/แนวเรื่องนี้ (RPG/สายเลือด/พลัง/ทักษะ ฯลฯ ตามที่เข้ากับบริบท) สำหรับให้ผู้เล่นใช้ติดตามตัวเอง เสนอ 5-10 ค่า อย่าเกิน 10\nข้อมูลตัวละคร: {{bio}}\n{{extra}}` +
-            `ชนิดค่าเลือกจาก: bar (มีเพดาน เช่น HP/MP), number (ตัวเลขไม่มีเพดานตายตัว เช่น เลเวล/พลังโจมตี), text (ข้อความสั้น เช่น คลาส/ตำแหน่ง), tag (รายการคำ เช่น สกิล)\n` +
-            `ตอบบรรทัดละ 1 ค่าในรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\nSTAT: <id ภาษาอังกฤษล้วน ไม่มีเว้นวรรค> | <ชื่อที่แสดง> | <bar/number/text/tag> | <ค่าต่ำสุด> | <ค่าสูงสุด> | <ค่าเริ่มต้น> | <กลุ่ม>`,
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] เขียนคำถามนิรนามที่คนในโลกของเรื่องนี้ส่งเข้ากล่องคำถามของผู้ใช้ ให้เข้ากับบรรยากาศ/สถานการณ์ตอนนี้ {{roster}}ผสมคำถามจริงจัง/กวนๆ/น่ารักปนกันไป ห้ามหยาบคาย ห้ามพูดหรือกระทำแทนผู้ใช้ ตั้งชื่อผู้ถามให้ (จะเป็นตัวละครที่มีอยู่หรือคนทั่วไปก็ได้) {{count}}{{extra}}{{context}}\n` +
+            `ตอบบรรทัดละ 1 คำถามในรูปแบบนี้เท่านั้น:\nASK: <ชื่อผู้ถามจริง> | <คำถาม>`,
     },
-    rpgScan: {
-        label: "สแกนบท (TinyQuest)", marker: "STAT:", tokens: ["stats", "npcs", "fields", "items", "quests", "extra", "context"],
+    askAnswer: {
+        label: "ตัวละครตอบคำถามนิรนาม (TinyAsk)", marker: "ANSWER:", tokens: ["owner", "question", "roster", "extra", "context"],
         default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] อ่านเนื้อเรื่องล่าสุดแล้วสรุปการเปลี่ยนแปลงที่ควรบันทึกลงระบบ RP ทำเท่าที่มีจริงในบทเท่านั้น ห้ามมั่ว ถ้าไม่มีอะไรเปลี่ยนก็ไม่ต้องตอบเลย:\n` +
-            `1) ค่าสเตตัสที่เปลี่ยนไปจริงในบท (statId ที่มี: {{stats}}) ใช้ STAT\n` +
-            `2) ความสัมพันธ์กับตัวละครที่เปลี่ยนไปจากเหตุการณ์ในบท (ที่รู้จักแล้ว: {{npcs}} หรือตัวละครใหม่ที่เพิ่งเจอก็ได้) ใช้ AFFECT\n` +
-            `3) ข้อมูลตัวตนของตัวละครที่เพิ่งรู้จากบท (ชื่อช่องต้องตรงกับที่มี: {{fields}}) ใช้ NPCINFO\n` +
-            `4) ไอเทมที่ได้รับ/เสียไปในบท (ที่มีอยู่แล้ว: {{items}}) ใช้ ITEM+/ITEM-\n` +
-            `5) เควสใหม่ที่ได้รับในบท หรือเควสที่ค้างอยู่ (มีหมายเลข):\n{{quests}}\nที่สำเร็จ/ล้มเหลวแล้วในบท ใช้ QUEST+/QUESTDONE/QUESTFAIL (อ้างด้วยหมายเลข)\n` +
-            `{{extra}}{{context}}\n` +
-            `ตอบบรรทัดละ 1 รายการในรูปแบบนี้เท่านั้น (ตอบเฉพาะที่มีจริง ไม่มีก็ไม่ต้องตอบบรรทัดนั้นเลย):\n` +
-            `STAT: <statId> | <+5 หรือ -3 หรือ =42>\nAFFECT: <ชื่อตัวละคร> | <+3 หรือ -3> | <เหตุผลสั้นๆ>\n` +
-            `NPCINFO: <ชื่อตัวละคร> | <ชื่อช่อง> | <ค่า>\nITEM+: <ชื่อไอเทม> | <จำนวน>\nITEM-: <ชื่อไอเทม> | <จำนวน>\n` +
-            `QUEST+: <ชื่อเควส> | <รายละเอียดสั้น>\nQUESTDONE: <หมายเลข>\nQUESTFAIL: <หมายเลข>`,
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{owner}} ได้รับคำถามนิรนามในกล่องคำถามว่า: "{{question}}" {{roster}}ตอบในบทบาทของ {{owner}} สั้นๆ 1-3 ประโยค ให้สมคาแรกเตอร์ ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}\n` +
+            `ตอบรูปแบบนี้เท่านั้น:\nANSWER: <คำตอบ>`,
     },
 };
 
@@ -7492,7 +4877,7 @@ const KEYWORD_DEFS = [
     { app: "news", label: "ข่าวสาร", setting: "newsKeywords" },
     { app: "memo", label: "TinyMemo (โน้ต/กำหนดการ)", setting: "memoKeywords" },
     { app: "forum", label: "TinyForum (กระทู้)", setting: "forumKeywords" },
-    { app: "rpg", label: "TinyQuest (สแกนสเตตัส/เควส)", setting: "rpgKeywords" },
+    { app: "ask", label: "TinyAsk (คำถามนิรนาม)", setting: "askKeywords" },
 ];
 function renderKeywordEditors() {
     const html = KEYWORD_DEFS.map((d) => {
@@ -8153,23 +5538,6 @@ async function aiDecidesMemo() {
     }
 }
 
-// ตัดสินใจว่าควรสแกนบทหา TinyQuest ตอนนี้ไหม (โหมด "ai" ของ TinyQuest auto — รอบ ④)
-async function aiDecidesRpg() {
-    try {
-        const q =
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
-            `พิจารณาเนื้อเรื่องล่าสุด: มีการเปลี่ยนแปลงที่ควรบันทึก (ค่าสเตตัส, ความสัมพันธ์กับตัวละคร, ไอเทม, เควส) ไหม ` +
-            `ถ้ามีตอบ YES ถ้ายังไม่มีตอบ NO ตอบคำเดียว: YES หรือ NO`;
-        const res = await tinyGenerate(q, 120, "rpg");
-        const s = stripReasoning(res).toLowerCase();
-        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
-        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("มี")) return true;
-        return false;
-    } catch (e) {
-        console.error(`[${extensionName}] aiDecidesRpg failed:`, e);
-        return false;
-    }
-}
 
 function parseMemoLines(raw) {
     const text = stripReasoning(raw);
@@ -8726,8 +6094,8 @@ let autoMsgCount = 0;    // ตัวนับข้อความสำหร�
 let autoNewsCount = 0;   // ตัวนับข้อความสำหรับข่าว
 let autoMemoCount = 0;   // ตัวนับข้อความสำหรับ TinyMemo
 let autoForumCount = 0;  // ตัวนับข้อความสำหรับ TinyForum
-let autoRpgCount = 0;    // ตัวนับข้อความสำหรับ TinyQuest (รอบ ④)
 let autoConnectCount = 0; // ตัวนับข้อความสำหรับ TinyConnect (คู่แชททักเอง)
+let autoAskCount = 0;     // ตัวนับข้อความสำหรับ TinyAsk (คำถามนิรนามเข้ามาเอง)
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
 // ถาม AI แบบเงียบว่าควรมีโพสต์ใหม่ตอนนี้ไหม (โหมด ai)
@@ -8754,8 +6122,8 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 // ── ทริกเกอร์ด้วยคีย์เวิร์ด ──
-const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", rpg: "rpgKeywords" };
-const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, rpg: 0 };
+const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", ask: "askKeywords" };
+const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, ask: 0 };
 
 function keywordListFor(app) {
     return String(getSetting(KEYWORD_SETTING[app]) || "")
@@ -8810,6 +6178,24 @@ async function aiDecidesConnect() {
     }
 }
 
+// ตัดสินใจว่าควรมีคำถามนิรนามส่งเข้ากล่องคำถาม TinyAsk ตอนนี้ไหม (โหมด "ai")
+async function aiDecidesAsk() {
+    try {
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `พิจารณาสถานการณ์ล่าสุด: ตอนนี้เป็นจังหวะที่น่าจะมีคนส่งคำถามนิรนามเข้ากล่องคำถามของผู้ใช้ไหม ` +
+            `ถ้าใช่ตอบ YES ถ้ายังไม่ใช่ตอบ NO ตอบคำเดียว: YES หรือ NO`;
+        const res = await tinyGenerate(q, 120, "ask");
+        const s = stripReasoning(res).toLowerCase();
+        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
+        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("ควร")) return true;
+        return false;
+    } catch (e) {
+        console.error(`[${extensionName}] aiDecidesAsk failed:`, e);
+        return false;
+    }
+}
+
 async function onChatMessage() {
     lastRpMsgTs = Date.now();   // มี RP activity → รีเซ็ตตัวจับเวลา idle
     petOnRpMessage();           // เอ่ยถึงเพ็ทในบท → ความผูกพันขึ้น (global, ไม่ขึ้นกับ auto)
@@ -8833,9 +6219,9 @@ async function onChatMessage() {
         { on: "newsAutoGenerate", mode: "newsAutoMode", interval: "newsAutoInterval", defInt: 20, kw: "news",
             bump: () => ++autoNewsCount, get: () => autoNewsCount, reset: () => { autoNewsCount = 0; },
             decide: aiDecidesToPost, run: () => generateNews({ notify: true, silent: true }) },
-        { on: "rpgAutoScan", mode: "rpgAutoMode", interval: "rpgAutoInterval", defInt: 15, kw: "rpg",
-            bump: () => ++autoRpgCount, get: () => autoRpgCount, reset: () => { autoRpgCount = 0; },
-            decide: aiDecidesRpg, run: () => rpgScan({ notify: true, silent: true }) },
+        { on: "askAutoGenerate", mode: "askAutoMode", interval: "askAutoInterval", defInt: 18, kw: "ask",
+            bump: () => ++autoAskCount, get: () => autoAskCount, reset: () => { autoAskCount = 0; },
+            decide: aiDecidesAsk, run: () => generateAskQuestions({ notify: true, silent: true }) },
     ];
 
     // นับตัวนับก่อน (เฉพาะโหมด interval/ai) — คงพฤติกรรมเดิมที่ทุกแอปนับทุกข้อความ
@@ -9037,10 +6423,9 @@ function routeFromNotif(e) {
         if (e.key) openThread(e.key, e.name || e.author);
     } else if (e.app === "pet") {
         openApp("pet");
-    } else if (e.app === "rpg") {
-        rpgTab = "status";
-        openApp("rpg");
-        if (rpgPending.length) openRpgReviewModal();   // ผลสแกนรอตรวจ (รอบ ④) → พาไปตรวจตรงๆ
+    } else if (e.app === "ask") {
+        openApp("ask");
+        switchAskTab("inbox");
     } else {
         openApp("feed");
         switchTab(e.tab || "feed");
@@ -9348,8 +6733,7 @@ const SETTINGS_LAYOUT = [
             { id: "gallery", name: "TinyGallery", icon: "fa-images", desc: "อัลบั้มที่ AI มองเห็น" },
             { id: "shop", name: "TinyShop", icon: "fa-bag-shopping", desc: "หมวดสินค้า · prompt เสริม" },
             { id: "pet", name: "TinyPet", icon: "fa-paw", desc: "ค่าลด · สไปรต์ · เหรียญ · เกม" },
-            { id: "novel", name: "TinyNovel", icon: "fa-book-open", desc: "ความยาวตอน · คำสั่งเสริม" },
-            { id: "rpg", name: "TinyQuest (RPG)", icon: "fa-dice-d20", desc: "สเตตัส/schema ที่ปรับแต่งเอง + HUD หน้าแชท" },
+            { id: "ask", name: "TinyAsk", icon: "fa-circle-question", desc: "คำถามนิรนาม · ตอบอัตโนมัติ" },
         ],
     },
     {
@@ -9426,6 +6810,7 @@ function isSettingsOpen() {
 // เติมค่าปัจจุบันลงในฟอร์ม settings
 function populateSettings() {
     $("#tinyfeed-cfg-wallpaper").val(getSetting("wallpaperUrl") || "");
+    updateUploadPreview($("#tinyfeed-cfg-wallpaper"));
     const wpo = parseInt(getSetting("wallpaperOverlay"), 10);
     $("#tinyfeed-cfg-wp-overlay").val(Number.isFinite(wpo) ? wpo : 45);
     $("#tinyfeed-wp-overlay-val").text(`${Number.isFinite(wpo) ? wpo : 45}%`);
@@ -9483,6 +6868,7 @@ function populateSettings() {
 
     $("#tinyfeed-cfg-stream-mode").val(getSetting("streamCommentMode") || "manual");
     $("#tinyfeed-cfg-stream-bg").val(getSetting("streamBgUrl"));
+    updateUploadPreview($("#tinyfeed-cfg-stream-bg"));
     $("#tinyfeed-cfg-stream-bg-theme").prop("checked", Boolean(getSetting("streamBgTheme")));
     $("#tinyfeed-cfg-stream-interval").val(getSetting("streamAutoInterval"));
     $("#tinyfeed-cfg-stream-tokens").val(getSetting("streamTokens"));
@@ -9516,10 +6902,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-bank").prop("checked", Boolean(getSetting("injectBank")));
     $("#tinyfeed-cfg-inject-shop").prop("checked", Boolean(getSetting("injectShop")));
     $("#tinyfeed-cfg-inject-pet").prop("checked", Boolean(getSetting("injectPet")));
-    $("#tinyfeed-cfg-inject-theater").prop("checked", Boolean(getSetting("injectTheater")));
-    $("#tinyfeed-cfg-inject-novel").prop("checked", Boolean(getSetting("injectNovel")));
-    $("#tinyfeed-cfg-inject-rpg").prop("checked", Boolean(getSetting("injectRpg")));
-    $("#tinyfeed-cfg-inject-rpg-npc").prop("checked", Boolean(getSetting("injectRpgNpc")));
+    $("#tinyfeed-cfg-inject-ask").prop("checked", Boolean(getSetting("injectAsk")));
 
     $("#tinyfeed-cfg-memo-auto").prop("checked", Boolean(getSetting("memoAutoGenerate")));
     $("#tinyfeed-cfg-memo-mode").val(getSetting("memoAutoMode") || "interval");
@@ -9537,7 +6920,6 @@ function populateSettings() {
     renderShopCats();
     $("#tinyfeed-cfg-shop-tokens").val(getSetting("shopTokens"));
     $("#tinyfeed-cfg-shop-extra").val(getSetting("shopExtraPrompt"));
-    $("#tinyfeed-cfg-shop-to-inventory").prop("checked", Boolean(getSetting("shopToInventory")));
     $("#tinyfeed-cfg-kw-scope").val(getSetting("keywordScope") || "both");
     $("#tinyfeed-cfg-kw-cooldown").val(getSetting("keywordCooldownSec"));
     renderKeywordEditors();
@@ -9547,8 +6929,6 @@ function populateSettings() {
     $("#tinyfeed-cfg-pet-autopost").prop("checked", Boolean(getSetting("petAutoPost")));
     $("#tinyfeed-cfg-pet-tokens").val(getSetting("petTokens"));
     $("#tinyfeed-cfg-pet-extra").val(getSetting("petExtraPrompt"));
-    $("#tinyfeed-cfg-novel-tokens").val(getSetting("novelTokens"));
-    $("#tinyfeed-cfg-novel-extra").val(getSetting("novelExtraPrompt"));
     $("#tinyfeed-cfg-pet-decay-hunger").val(getSetting("petDecayHunger"));
     $("#tinyfeed-cfg-pet-decay-energy").val(getSetting("petDecayEnergy"));
     $("#tinyfeed-cfg-pet-decay-clean").val(getSetting("petDecayClean"));
@@ -9576,20 +6956,15 @@ function populateSettings() {
     $("#tinyfeed-cfg-crossapp-bank").prop("checked", Boolean(getSetting("crossAppBank")));
     $("#tinyfeed-cfg-crossapp-shop").prop("checked", Boolean(getSetting("crossAppShop")));
     $("#tinyfeed-cfg-crossapp-pet").prop("checked", Boolean(getSetting("crossAppPet")));
-    $("#tinyfeed-cfg-crossapp-theater").prop("checked", Boolean(getSetting("crossAppTheater")));
-    $("#tinyfeed-cfg-crossapp-novel").prop("checked", Boolean(getSetting("crossAppNovel")));
-    $("#tinyfeed-cfg-crossapp-rpg").prop("checked", Boolean(getSetting("crossAppRpg")));
+    $("#tinyfeed-cfg-crossapp-ask").prop("checked", Boolean(getSetting("crossAppAsk")));
     $("#tinyfeed-cfg-crossapp-count").val(getSetting("crossAppCount"));
-    $("#tinyfeed-cfg-widget-rpg").prop("checked", Boolean(getSetting("widgetRpg")));
-    $("#tinyfeed-cfg-hud-enabled").prop("checked", Boolean(getSetting("hudEnabled")));
-    $("#tinyfeed-cfg-rpg-tokens").val(getSetting("rpgTokens"));
-    $("#tinyfeed-cfg-rpg-extra").val(getSetting("rpgExtraPrompt"));
-    $("#tinyfeed-cfg-rpg-auto").prop("checked", Boolean(getSetting("rpgAutoScan")));
-    $("#tinyfeed-cfg-rpg-mode").val(getSetting("rpgAutoMode") || "interval");
-    $("#tinyfeed-cfg-rpg-interval").val(getSetting("rpgAutoInterval") || 15);
-    $("#tinyfeed-cfg-rpg-scan-tokens").val(getSetting("rpgScanTokens"));
-    $("#tinyfeed-cfg-rpg-scan-extra").val(getSetting("rpgScanExtraPrompt"));
-    $("#tinyfeed-cfg-rpg-scan-autoapply").prop("checked", Boolean(getSetting("rpgScanAutoApply")));
+
+    $("#tinyfeed-cfg-ask-auto").prop("checked", Boolean(getSetting("askAutoGenerate")));
+    $("#tinyfeed-cfg-ask-mode").val(getSetting("askAutoMode") || "interval");
+    $("#tinyfeed-cfg-ask-interval").val(getSetting("askAutoInterval") || 18);
+    $("#tinyfeed-cfg-ask-tokens").val(getSetting("askTokens"));
+    $("#tinyfeed-cfg-ask-extra").val(getSetting("askExtraPrompt"));
+    $("#tinyfeed-cfg-ask-reveal").prop("checked", Boolean(getSetting("askReveal")));
 }
 
 // เติมรายชื่อ connection profile ลง dropdown (จาก Connection Manager ของ ST)
@@ -9638,7 +7013,7 @@ function mountComposeBars() {
     }));
 }
 
-// แถบเขียนคอมเมนต์ใต้โพสต์ — ใช้ร่วมกันระหว่าง TinyFeed กับ TinyVerse (ต่างกันแค่ชื่อ data + คลาสปุ่ม)
+// แถบเขียนคอมเมนต์ใต้โพสต์ — ใช้ร่วมกันหลายแอป (ต่างกันแค่ชื่อ data + คลาสปุ่ม)
 function commentComposeHtml({ postId, dataKey, inputCls, stickerCls, sendCls }) {
     return `<div class="tinyfeed-comment-compose">${composeBarHtml({
         before: makeAvatar({ isUser: true, author: getUserName() }),
@@ -9729,9 +7104,7 @@ jQuery(async () => {
             autoMemoCount = 0;
             autoForumCount = 0;
             autoConnectCount = 0;
-            autoRpgCount = 0;
-            rpgPending = [];   // ผลสแกนค้างอ้างอิง NPC/เควส/ไอเทมของแชทเดิม สลับแชทแล้วต้องทิ้ง กัน apply ผิดที่
-            closeRpgReviewModal();
+            autoAskCount = 0;
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
@@ -9739,8 +7112,7 @@ jQuery(async () => {
             if (currentApp === "stream") { clearStreamTimer(); renderStream(); maybeStartStreamTimer(); }
             if (currentApp === "memo") switchMemoTab(memoTab);   // กำหนดการ/โน้ตเปลี่ยนตามแชท
             if (currentApp === "forum") openForumList();   // กระทู้เปลี่ยนตามแชท
-            updateRpgHud();   // ค่า HUD ผูกกับแชท (values ต่อแชท) — ต้องรีเฟรชตอนสลับแชท
-            if (currentApp === "rpg") renderRpg();   // สเตตัสเปลี่ยนตามแชท/ตามการ์ด
+            if (currentApp === "ask") switchAskTab(askTab);   // คำถาม-คำตอบเปลี่ยนตามแชท
             console.log(`[${extensionName}] Chat changed, feed reloaded`);
         });
 
@@ -9882,17 +7254,14 @@ jQuery(async () => {
             e.stopPropagation();
             deleteGroup($(this).data("key"));
         });
-        // ตั้ง/แก้รูปกลุ่มเดิม
+        // ตั้ง/แก้ชื่อ+รูปกลุ่มเดิม
         $(document).on("click", ".tinyfeed-group-edit", function (e) {
             e.stopPropagation();
-            const g = findGroup($(this).data("key"));
-            if (!g) return;
-            const url = prompt("วางลิงก์รูปกลุ่ม (เว้นว่าง = ลบรูป):", g.avatar || "");
-            if (url === null) return;   // กดยกเลิก
-            g.avatar = url.trim();
-            saveFeedDataDebounced();
-            renderConnectList();
+            openGroupEditModal($(this).data("key"));
         });
+        $(document).on("click", "#tinyfeed-group-edit-save", saveGroupEdit);
+        $(document).on("click", "#tinyfeed-group-edit-cancel, #tinyfeed-group-edit-close", closeGroupEditModal);
+        $(document).on("click", "#tinyfeed-group-edit-modal", function (e) { if (e.target === this) closeGroupEditModal(); });
         // ลบบับเบิลแชท
         $(document).on("click", ".tinyfeed-msg-del", function (e) {
             e.stopPropagation();
@@ -10088,246 +7457,8 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-spot-tile", function () { spotTap(parseInt($(this).data("idx"), 10)); });
         $(document).on("click", ".tinyfeed-whack-hole", function () { whackHit(parseInt($(this).data("idx"), 10)); });
 
-        // ===== TinyVerse: import / roster / หน้าโปรไฟล์ใช้ร่วม =====
-        $(document).on("click", "#tinyfeed-verse-import", openVerseImport);
-        $(document).on("click", "#tinyfeed-verse-import-close", closeVerseImport);
-        $(document).on("click", "#tinyfeed-verse-import-modal", function (e) { if (e.target === this) closeVerseImport(); });
-        $(document).on("click", "#tinyfeed-verse-import-do", verseDoImport);
-        $(document).on("change", "#tinyfeed-verse-selall", function () {
-            $(".tinyfeed-verse-imp-check").prop("checked", $(this).prop("checked"));
-        });
-        $(document).on("click", "#tinyfeed-verse-clear", function () {
-            if (!Object.keys(getVerse().chars).length) return;
-            if (!confirm("ลบตัวละครทั้งหมดออกจาก TinyVerse?")) return;
-            verseClearAll();
-            renderVerse();
-            toastr.success("เคลียร์ตัวละครทั้งหมดแล้ว", "TinyVerse");
-        });
-        $(document).on("click", ".tinyfeed-verse-card", function () { openCharProfile(String($(this).data("key"))); });
-        $(document).on("click", ".tinyfeed-tab[data-vtab]", function () {
-            const t = String($(this).data("vtab"));
-            if (t && t !== verseTab) { verseTab = t; renderVerse(); }
-        });
-        // ช่องเขียนแบบ TinyFeed: เลือกคนโพสต์ (แตะรูป) · พิมพ์เอง+แนบรูป/สติกเกอร์ · ตัวละคร=AI
-        $(document).on("input", "#tinyfeed-verse-input", function () {
-            autoGrowCompose(this);
-            if (versePoster === POSTER_USER) $("#tinyfeed-verse-post").prop("disabled", $(this).val().trim().length === 0);
-        });
-        $(document).on("click", "#tinyfeed-verse-compose-avatar", openVersePosterPicker);
-        $(document).on("click", ".tinyfeed-verse-poster-pick", function () {
-            versePoster = String($(this).data("vposter"));
-            closeVersePosterPicker();
-            applyVerseComposeMode();
-        });
-        $(document).on("click", "#tinyfeed-verse-poster-close", closeVersePosterPicker);
-        $(document).on("click", "#tinyfeed-verse-poster-modal", function (e) { if (e.target === this) closeVersePosterPicker(); });
-        $(document).on("click", "#tinyfeed-verse-img", function () {
-            openGalleryPicker("image", (token) => insertIntoInput("#tinyfeed-verse-input", token));
-        });
-        $(document).on("click", "#tinyfeed-verse-sticker", function () {
-            openGalleryPicker("sticker", (token) => insertIntoInput("#tinyfeed-verse-input", token));
-        });
-        $(document).on("click", "#tinyfeed-verse-post", function () {
-            if (verseBusy) return;
-            if (versePoster === POSTER_USER) {
-                addVerseUserPost($("#tinyfeed-verse-input").val());
-                $("#tinyfeed-verse-input").val("").css("height", "");
-                applyVerseComposeMode();
-            } else {
-                verseGeneratePost();
-            }
-        });
-        $(document).on("click", "#tinyfeed-verse-cancel", function () {
-            if (verseBusy) return;
-            $("#tinyfeed-verse-input").val("").css("height", "");
-            $("#tinyfeed-verse-guidance").val("");
-            versePoster = POSTER_USER;
-            applyVerseComposeMode();
-        });
-        $(document).on("keydown", "#tinyfeed-verse-guidance", function (e) { if (e.key === "Enter") { e.preventDefault(); verseGeneratePost(); } });
-        // แตะการ์ดโพสต์ = เปิดหน้ารายละเอียด (เหมือน TinyFeed) — ปุ่มย่อยด้านล่างต้อง stopPropagation
-        $(document).on("click", ".tinyfeed-post[data-vpost]:not(.tinyfeed-post-detail)", function () {
-            openVersePost(String($(this).data("vpost")));
-        });
-        $(document).on("click", ".tinyfeed-verse-like", function (e) {
-            e.stopPropagation();
-            const p = verseFeedPost(String($(this).data("vpost")));
-            if (!p) return;
-            p.liked = !p.liked;
-            p.likes = Math.max(0, (p.likes || 0) + (p.liked ? 1 : -1));
-            saveVerse();
-            renderVerseFeedList();
-        });
-        $(document).on("click", ".tinyfeed-verse-del", function (e) {
-            e.stopPropagation();
-            const id = String($(this).data("vpost"));
-            const v = getVerse();
-            const i = v.feed.findIndex((p) => p.id === id);
-            if (i < 0) return;
-            v.feed.splice(i, 1);
-            saveVerse();
-            if (versePostId === id) closeVersePost();   // ลบโพสต์ที่กางอยู่ → กลับหน้ารายการ
-            else renderVerseFeedList();
-        });
-        // ── ครอสโอเวอร์: คอมเมนต์ข้ามการ์ด ──
-        $(document).on("click", ".tinyfeed-verse-aicomment", function (e) {
-            e.stopPropagation();
-            verseGenerateComments(String($(this).data("vpost")));
-        });
-        $(document).on("click", ".tinyfeed-verse-csticker", function (e) {
-            e.stopPropagation();
-            const id = String($(this).data("vpost"));
-            openGalleryPicker("sticker", (token) => addVerseComment(id, token));
-        });
-        $(document).on("click", ".tinyfeed-verse-csend", function (e) {
-            e.stopPropagation();
-            const id = String($(this).data("vpost"));
-            const $inp = $(`.tinyfeed-verse-cinput[data-vpost="${id}"]`);
-            addVerseComment(id, $inp.val());
-        });
-        $(document).on("keydown", ".tinyfeed-verse-cinput", function (e) {
-            if (e.key === "Enter") { e.preventDefault(); addVerseComment(String($(this).data("vpost")), $(this).val()); }
-        });
-        // ===== TinyTheater: มินิเธียเตอร์ What if =====
-        // ===== TinyNovel: แอปอ่านนิยาย =====
-        $(document).on("click", "#tinyfeed-novel-new", function () {
-            novelCover = ""; novelPlotIdeas = []; novelHero = NOVEL_HERO_AI;
-            novelScreen = "create"; renderNovel();
-        });
-        $(document).on("click", ".tinyfeed-novel-card", function () {
-            novelBookId = String($(this).data("book"));
-            const b = novelBook(novelBookId);
-            novelEpIdx = b ? Math.max(0, Math.min((b.lastReadEp || 1) - 1, b.episodes.length - 1)) : 0;
-            novelScreen = "read"; renderNovel();
-        });
-        $(document).on("click", "#tinyfeed-novel-dice", function () {
-            $("#tinyfeed-novel-plot").val(novelRandomTrope());
-        });
-        $(document).on("click", "#tinyfeed-novel-ai", novelSuggestPlots);
-        $(document).on("click", ".tinyfeed-novel-idea", function () {
-            $("#tinyfeed-novel-plot").val($(this).data("idea"));
-        });
-        $(document).on("click", ".tinyfeed-novel-chip", function () {
-            $("#tinyfeed-novel-genre").val($(this).data("genre"));
-        });
-        $(document).on("change", "#tinyfeed-novel-hero", function () { novelHero = String($(this).val()); });
-        $(document).on("click", "#tinyfeed-novel-pickcover", function () {
-            openGalleryPicker("image", (token) => {
-                const m = String(token).match(/\[img:([^\]]+)\]/i);
-                const img = m ? findGalleryImage(m[1]) : null;
-                if (!img) { toastr.info("เลือกรูปไม่สำเร็จ", "TinyNovel"); return; }
-                novelCover = img.url || "";
-                restoreNovelForm();   // วาดฟอร์มใหม่โดยคงค่าที่กรอกไว้
-            });
-        });
-        $(document).on("click", "#tinyfeed-novel-clearcover", function () { novelCover = ""; restoreNovelForm(); });
-        $(document).on("click", "#tinyfeed-novel-create", novelCreateBook);
-        $(document).on("click", "#tinyfeed-novel-next", novelNextEpisode);
-        $(document).on("click", ".tinyfeed-novel-epchip", function () {
-            novelEpIdx = parseInt($(this).data("ep"), 10) || 0;
-            renderNovel();
-        });
-        $(document).on("click", "#tinyfeed-novel-chars", function () { novelScreen = "chars"; renderNovel(); });
-        $(document).on("click", "#tinyfeed-novel-del", function () {
-            if (novelBookId) novelDeleteBook(novelBookId);
-        });
-
-        $(document).on("click", "#tinyfeed-th-new", function () {
-            theaterCastSel = []; theaterCover = ""; theaterWhatIfIdeas = []; theaterScreen = "create"; renderTheater();
-        });
-        $(document).on("click", "#tinyfeed-th-back", function () {
-            if (theaterScreen === "read") { theaterScreen = "browse"; theaterShowId = null; }
-            else theaterScreen = "browse";
-            renderTheater();
-        });
-        $(document).on("click", ".tinyfeed-th-card", function () {
-            theaterShowId = String($(this).data("show")); theaterEpIdx = 0; theaterScreen = "read"; renderTheater();
-        });
-        $(document).on("click", ".tinyfeed-th-castpick", function () {
-            const k = String($(this).data("key"));
-            const i = theaterCastSel.indexOf(k);
-            if (i >= 0) theaterCastSel.splice(i, 1);
-            else { if (theaterCastSel.length >= 4) { toastr.info("เลือกได้สูงสุด 4 ตัว", "TinyTheater"); return; } theaterCastSel.push(k); }
-            // คงค่าที่กรอกไว้ระหว่าง re-render
-            const w = String($("#tinyfeed-th-whatif").val() || ""), g = String($("#tinyfeed-th-genre").val() || ""), l = String($("#tinyfeed-th-length").val() || "medium");
-            renderTheaterCreate();
-            $("#tinyfeed-th-whatif").val(w); $("#tinyfeed-th-genre").val(g); $("#tinyfeed-th-length").val(l);
-        });
-        $(document).on("click", ".tinyfeed-th-genre", function () { $("#tinyfeed-th-genre").val(String($(this).data("genre"))); });
-        // โจทย์ What if: สุ่มจาก preset / ให้ AI คิดให้ / กดชิปเพื่อใช้
-        $(document).on("click", "#tinyfeed-th-dice", function () {
-            $("#tinyfeed-th-whatif").val(theaterRandomWhatIf()).focus();
-        });
-        $(document).on("click", "#tinyfeed-th-ai", theaterSuggestWhatIf);
-        $(document).on("click", ".tinyfeed-th-idea", function () {
-            const i = parseInt($(this).data("idea"), 10);
-            const t = theaterWhatIfIdeas[i];
-            if (t) $("#tinyfeed-th-whatif").val(t).focus();
-        });
-        $(document).on("click", "#tinyfeed-th-cover", function () {
-            openGalleryPicker("image", (token) => {
-                const m = String(token).match(/\[img:([^\]]+)\]/i);
-                const img = m ? findGalleryImage(m[1]) : null;
-                if (!img) { toastr.info("เลือกรูปไม่สำเร็จ", "TinyTheater"); return; }
-                theaterCover = img.url || "";
-                const w = String($("#tinyfeed-th-whatif").val() || ""), g = String($("#tinyfeed-th-genre").val() || ""), l = String($("#tinyfeed-th-length").val() || "medium");
-                renderTheaterCreate();
-                $("#tinyfeed-th-whatif").val(w); $("#tinyfeed-th-genre").val(g); $("#tinyfeed-th-length").val(l);
-            });
-        });
-        $(document).on("click", "#tinyfeed-th-coverclear", function () {
-            theaterCover = "";
-            const w = String($("#tinyfeed-th-whatif").val() || ""), g = String($("#tinyfeed-th-genre").val() || ""), l = String($("#tinyfeed-th-length").val() || "medium");
-            renderTheaterCreate();
-            $("#tinyfeed-th-whatif").val(w); $("#tinyfeed-th-genre").val(g); $("#tinyfeed-th-length").val(l);
-        });
-        $(document).on("click", "#tinyfeed-th-create", theaterCreateShow);
-        $(document).on("click", "#tinyfeed-th-next", theaterNextEpisode);
-        $(document).on("click", ".tinyfeed-th-epchip", function () { theaterEpIdx = parseInt($(this).data("ep"), 10) || 0; renderTheater(); });
-        $(document).on("click", ".tinyfeed-th-deleteshow", function () {
-            if (!confirm("ลบเรื่องนี้ทั้งหมด?")) return;
-            theaterDeleteShow(String($(this).data("show")));
-        });
-
-        $(document).on("click", ".tinyfeed-verse-cdel", function (e) {
-            e.stopPropagation();
-            const post = verseFeedPost(String($(this).data("vpost")));
-            const idx = parseInt($(this).data("cidx"), 10);
-            if (!post || !Array.isArray(post.comments) || !(idx >= 0)) return;
-            post.comments.splice(idx, 1);
-            saveVerse();
-            renderVerseFeedList();
-        });
         $(document).on("click", "#tinyfeed-char-profile-close", closeCharProfile);
         $(document).on("click", "#tinyfeed-char-profile", function (e) { if (e.target === this) closeCharProfile(); });
-        $(document).on("click", "#tinyfeed-vprofile-save", function () {
-            if (!charProfileCtx || !charProfileCtx.key) return;
-            const c = getVerse().chars[charProfileCtx.key];
-            if (!c) return;
-            c.persona = String($("#tinyfeed-vprofile-persona").val() || "").trim();
-            saveVerse();
-            toastr.success("บันทึก persona แล้ว", "TinyVerse");
-        });
-        $(document).on("click", "#tinyfeed-vprofile-add", function () {
-            if (!charProfileCtx || !charProfileCtx.key) return;
-            const v = getVerse();
-            v.chars[charProfileCtx.key] = {
-                key: charProfileCtx.key, name: charProfileCtx.name, avatar: charProfileCtx.avatar || "",
-                bio: charProfileCtx.bio || "", persona: charProfileCtx.persona || charProfileCtx.bio || "",
-                npcs: charProfileCtx.npcs || [], addedTs: Date.now(),
-            };
-            saveVerse();
-            charProfileCtx = v.chars[charProfileCtx.key];
-            renderCharProfile(charProfileCtx);
-            if (currentApp === "verse") renderVerse();
-            toastr.success("เพิ่มเข้า TinyVerse แล้ว", "TinyVerse");
-        });
-        $(document).on("click", "#tinyfeed-vprofile-remove", function () {
-            if (!charProfileCtx || !charProfileCtx.key) return;
-            verseRemoveChar(charProfileCtx.key);
-            closeCharProfile();
-            if (currentApp === "verse") renderVerse();
-        });
         // ใช้ซ้ำใน TinyFeed: แตะชื่อผู้โพสต์ → เปิดโปรไฟล์ตัวละคร
         $(document).on("click", ".tinyfeed-post-author", function () { openCharProfile($(this).text()); });
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
@@ -10337,6 +7468,70 @@ jQuery(async () => {
             if (e.key === "Enter") { e.preventDefault(); petAdopt($(this).val()); }
         });
         $(document).on("click", "#tinyfeed-pet-adopt-new", petAdoptNew);
+
+        // ===== TinyAsk: ถาม-ตอบนิรนาม =====
+        $(document).on("click", ".tinyfeed-tab[data-asktab]", function () {
+            switchAskTab(String($(this).data("asktab")));
+        });
+        $(document).on("click", "#tinyfeed-ask-generate", function () { generateAskQuestions({ notify: false, silent: false }); });
+        $(document).on("click", "#tinyfeed-ask-new", openAskSendModal);
+        $(document).on("click", "#tinyfeed-ask-send-close, #tinyfeed-ask-send-cancel", closeAskSendModal);
+        $(document).on("click", "#tinyfeed-ask-send-modal", function (e) { if (e.target === this) closeAskSendModal(); });
+        $(document).on("click", "#tinyfeed-ask-send-submit", sendAskQuestion);
+        $(document).on("click", ".tinyfeed-ask-answer-btn", function () {
+            const id = String($(this).data("id"));
+            const text = $(this).closest(".tinyfeed-ask-card").find(".tinyfeed-ask-answer-input").val();
+            answerAskQuestion(id, text);
+        });
+        $(document).on("keydown", ".tinyfeed-ask-answer-input", function (e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                answerAskQuestion(String($(this).closest(".tinyfeed-ask-card").data("id")), $(this).val());
+            }
+        });
+        $(document).on("click", ".tinyfeed-ask-del", function (e) {
+            e.stopPropagation();
+            if (!confirm("ลบคำถามนี้?")) return;
+            deleteAskQuestion(String($(this).data("id")));
+        });
+        $(document).on("click", ".tinyfeed-ask-reveal", function (e) {
+            e.stopPropagation();
+            revealAskAsker(String($(this).data("id")));
+        });
+        $(document).on("click", ".tinyfeed-ask-like", function (e) {
+            e.stopPropagation();
+            toggleAskLike(String($(this).data("id")));
+        });
+        $(document).on("click", ".tinyfeed-ask-getanswer", function () {
+            generateAskAnswer(String($(this).data("id")));
+        });
+
+        // ===== อัปโหลดรูปจากเครื่อง — ปุ่มเดียวใช้ได้ทุกช่อง (คลิก → เลือกไฟล์ → ย่อ → อัปโหลด → เติมค่าลง input) =====
+        $(document).on("click", ".tinyfeed-upload-btn", function () {
+            uploadTarget = { $input: $(this).closest(".tinyfeed-uploadrow").find("input").first() };
+            $("#tinyfeed-file-input").val("").data("kind", $(this).data("kind")).trigger("click");
+        });
+        $(document).on("change", "#tinyfeed-file-input", async function () {
+            const file = this.files && this.files[0];
+            const kind = String($(this).data("kind") || "image");
+            const target = uploadTarget;
+            if (!file || !target || !target.$input.length) return;
+            const $btn = target.$input.closest(".tinyfeed-uploadrow").find(".tinyfeed-upload-btn");
+            $btn.addClass("tinyfeed-generating").find("i").removeClass("fa-upload").addClass("fa-spinner fa-spin");
+            try {
+                const path = await uploadTinyImage(file, kind);
+                target.$input.val(path).trigger("input").trigger("change");
+                toastr.success("อัปโหลดรูปแล้ว", "TinyPhone");
+            } catch (e) {
+                console.error(`[${extensionName}] uploadTinyImage failed:`, e);
+                toastr.error(e && e.message ? e.message : "อัปโหลดรูปไม่สำเร็จ ลองใหม่นะ", "TinyPhone");
+            } finally {
+                $btn.removeClass("tinyfeed-generating").find("i").removeClass("fa-spinner fa-spin").addClass("fa-upload");
+                uploadTarget = null;
+            }
+        });
+        // พิมพ์ลิงก์เอง หรือ path ที่อัปโหลดเสร็จ (trigger("input") ด้านบน) → อัปเดตพรีวิวสด
+        $(document).on("input", ".tinyfeed-uploadrow input", function () { updateUploadPreview($(this)); });
 
         // ===== TinyGallery: จัดการคลัง + picker + ปุ่มสติกเกอร์ในแอปต่างๆ =====
         $(document).on("click", ".tinyfeed-tab[data-gtab]", function () {
@@ -10484,8 +7679,7 @@ jQuery(async () => {
         });
 
         // Stage 2.5: กดโพสต์/ข่าวเข้าหน้ารายละเอียด
-        // จำกัดด้วย [data-post] — โพสต์ TinyVerse ก็ใช้ .tinyfeed-post แต่เก็บ id ใน data-vpost
-        // (เดิมไม่จำกัด → กดโพสต์ TinyVerse แล้วเข้า openPostDetail(undefined) = เงียบ ไม่มีอะไรเกิดขึ้น)
+        // จำกัดด้วย [data-post] กัน selector กว้างเกินไปชนกับ .tinyfeed-post ของแอปอื่น
         $(document).on("click", ".tinyfeed-post[data-post]:not(.tinyfeed-post-detail)", function () {
             openPostDetail($(this).data("post"));
         });
@@ -10941,12 +8135,8 @@ jQuery(async () => {
             setSetting("injectPet", $(this).prop("checked"));
             updateChatInjection();
         });
-        $(document).on("change", "#tinyfeed-cfg-inject-theater", function () {
-            setSetting("injectTheater", $(this).prop("checked"));
-            updateChatInjection();
-        });
-        $(document).on("change", "#tinyfeed-cfg-inject-novel", function () {
-            setSetting("injectNovel", $(this).prop("checked"));
+        $(document).on("change", "#tinyfeed-cfg-inject-ask", function () {
+            setSetting("injectAsk", $(this).prop("checked"));
             updateChatInjection();
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp", function () {
@@ -10982,11 +8172,8 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-crossapp-pet", function () {
             setSetting("crossAppPet", $(this).prop("checked"));
         });
-        $(document).on("change", "#tinyfeed-cfg-crossapp-theater", function () {
-            setSetting("crossAppTheater", $(this).prop("checked"));
-        });
-        $(document).on("change", "#tinyfeed-cfg-crossapp-novel", function () {
-            setSetting("crossAppNovel", $(this).prop("checked"));
+        $(document).on("change", "#tinyfeed-cfg-crossapp-ask", function () {
+            setSetting("crossAppAsk", $(this).prop("checked"));
         });
         $(document).on("input", "#tinyfeed-cfg-crossapp-count", function () {
             let v = parseInt($(this).val(), 10);
@@ -11070,13 +8257,29 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-pet-extra", function () {
             setSetting("petExtraPrompt", $(this).val());
         });
-        $(document).on("input", "#tinyfeed-cfg-novel-tokens", function () {
+
+        // TinyAsk settings
+        $(document).on("change", "#tinyfeed-cfg-ask-auto", function () {
+            setSetting("askAutoGenerate", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-ask-mode", function () {
+            setSetting("askAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-ask-interval", function () {
             const v = parseInt($(this).val(), 10);
-            setSetting("novelTokens", Number.isFinite(v) && v > 0 ? v : 850);
+            setSetting("askAutoInterval", Number.isFinite(v) && v > 0 ? v : 18);
         });
-        $(document).on("input", "#tinyfeed-cfg-novel-extra", function () {
-            setSetting("novelExtraPrompt", $(this).val());
+        $(document).on("input", "#tinyfeed-cfg-ask-tokens", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("askTokens", Number.isFinite(v) && v > 0 ? v : 200);
         });
+        $(document).on("input", "#tinyfeed-cfg-ask-extra", function () {
+            setSetting("askExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-ask-reveal", function () {
+            setSetting("askReveal", $(this).prop("checked"));
+        });
+
         $(document).on("input", "#tinyfeed-cfg-pet-decay-hunger", function () {
             const v = parseFloat($(this).val());
             setSetting("petDecayHunger", Number.isFinite(v) && v >= 0 ? v : 0.5);
@@ -11232,311 +8435,6 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-shop-extra", function () {
             setSetting("shopExtraPrompt", $(this).val());
-        });
-        $(document).on("change", "#tinyfeed-cfg-shop-to-inventory", function () {
-            setSetting("shopToInventory", $(this).prop("checked"));
-        });
-
-        // ===== TinyQuest (RPG): แท็บ, สถานะ, ตั้งค่าสเตตัส, HUD, วิดเจ็ต =====
-        $(document).on("change", "#tinyfeed-cfg-inject-rpg", function () {
-            setSetting("injectRpg", $(this).prop("checked"));
-            updateChatInjection();
-        });
-        $(document).on("change", "#tinyfeed-cfg-inject-rpg-npc", function () {
-            setSetting("injectRpgNpc", $(this).prop("checked"));
-            updateChatInjection();
-        });
-        $(document).on("change", "#tinyfeed-cfg-crossapp-rpg", function () {
-            setSetting("crossAppRpg", $(this).prop("checked"));
-        });
-        $(document).on("change", "#tinyfeed-cfg-widget-rpg", function () {
-            setSetting("widgetRpg", $(this).prop("checked"));
-            if (currentApp === "home") renderHomeWidgets();
-        });
-        $(document).on("change", "#tinyfeed-cfg-hud-enabled", function () {
-            setSetting("hudEnabled", $(this).prop("checked"));
-            updateRpgHud();
-        });
-        $(document).on("input", "#tinyfeed-cfg-rpg-tokens", function () {
-            let v = parseInt($(this).val(), 10);
-            setSetting("rpgTokens", Number.isFinite(v) && v > 0 ? v : 350);
-        });
-        $(document).on("input", "#tinyfeed-cfg-rpg-extra", function () {
-            setSetting("rpgExtraPrompt", $(this).val());
-        });
-        $(document).on("change", "#tinyfeed-cfg-rpg-auto", function () {
-            setSetting("rpgAutoScan", $(this).prop("checked"));
-        });
-        $(document).on("change", "#tinyfeed-cfg-rpg-mode", function () {
-            setSetting("rpgAutoMode", $(this).val());
-        });
-        $(document).on("input", "#tinyfeed-cfg-rpg-interval", function () {
-            let v = parseInt($(this).val(), 10);
-            setSetting("rpgAutoInterval", Number.isFinite(v) && v > 0 ? v : 15);
-        });
-        $(document).on("input", "#tinyfeed-cfg-rpg-scan-tokens", function () {
-            let v = parseInt($(this).val(), 10);
-            setSetting("rpgScanTokens", Number.isFinite(v) && v > 0 ? v : 400);
-        });
-        $(document).on("input", "#tinyfeed-cfg-rpg-scan-extra", function () {
-            setSetting("rpgScanExtraPrompt", $(this).val());
-        });
-        $(document).on("change", "#tinyfeed-cfg-rpg-scan-autoapply", function () {
-            setSetting("rpgScanAutoApply", $(this).prop("checked"));
-        });
-        $(document).on("click", "#tinyfeed-widget-rpg", function () { openApp("rpg"); });
-        $(document).on("click", ".tinyfeed-tab[data-rtab]", function () {
-            const t = $(this).data("rtab");
-            if (t && t !== rpgTab) {
-                rpgTab = t;
-                rpgNpcView = null;      // สลับแท็บ = ออกจากหน้ารายละเอียด NPC เสมอ (กันปุ่มย้อนกลับค้างผิดสถานะ)
-                rpgFieldEditing = null;
-                rpgHideNpcBack();
-                renderRpg();
-            }
-        });
-        // รอบ ③: ไอคอนเฟืองในแท็บสถานะ → หน้าตั้งค่าสเตตัสแบบเต็มจอ (ย้ายออกจากแท็บ กันแท็บล้นตอนเพิ่มกระเป๋า)
-        $(document).on("click", "#tinyfeed-rpg-schema-gear", openRpgSchema);
-        // แท็บกระเป๋า: แตะการ์ด = เปิดป๊อปรายละเอียด
-        $(document).on("click", ".tinyfeed-rpg-bag-item", function () { openRpgItemModal(String($(this).data("id"))); });
-        $(document).on("click", "#tinyfeed-rpg-item-close", closeRpgItemModal);
-        $(document).on("click", "#tinyfeed-rpg-item-modal", function (e) { if (e.target === this) closeRpgItemModal(); });
-        $(document).on("click", "#tinyfeed-rpg-item-use", function () {
-            rpgUseItem(String($(this).data("id")));
-            closeRpgItemModal();
-            renderRpgBag();
-        });
-        $(document).on("click", "#tinyfeed-rpg-item-drop", function () {
-            rpgRemoveItem(String($(this).data("id")), 1);
-            closeRpgItemModal();
-            renderRpgBag();
-        });
-        $(document).on("click", "#tinyfeed-rpg-item-add-btn", openRpgItemAddModal);
-        $(document).on("click", "#tinyfeed-rpg-item-add-close", closeRpgItemAddModal);
-        $(document).on("click", "#tinyfeed-rpg-item-add-modal", function (e) { if (e.target === this) closeRpgItemAddModal(); });
-        $(document).on("click", "#tinyfeed-rpg-item-add-save", saveRpgItemAdd);
-        // แท็บเควส (รอบ ④): filter chip / เปลี่ยนสถานะ / ลบ / เพิ่มเอง
-        $(document).on("click", ".tinyfeed-rpg-quest-chip", function () {
-            const f = $(this).data("qf");
-            if (f && f !== rpgQuestFilter) { rpgQuestFilter = f; renderRpgQuests(); }
-        });
-        $(document).on("click", ".tinyfeed-rpg-quest-act", function () {
-            rpgSetQuestStatus(String($(this).data("id")), String($(this).data("status")));
-            renderRpgQuests();
-        });
-        $(document).on("click", ".tinyfeed-rpg-quest-del", function () {
-            rpgDeleteQuest(String($(this).data("id")));
-            renderRpgQuests();
-        });
-        $(document).on("click", "#tinyfeed-rpg-quest-add-btn", openRpgQuestAddModal);
-        $(document).on("click", "#tinyfeed-rpg-quest-add-close", closeRpgQuestAddModal);
-        $(document).on("click", "#tinyfeed-rpg-quest-add-modal", function (e) { if (e.target === this) closeRpgQuestAddModal(); });
-        $(document).on("click", "#tinyfeed-rpg-quest-add-save", saveRpgQuestAdd);
-        // AI สแกนบท (รอบ ④): ปุ่มแว่นขยายในแท็บสถานะ + แบนเนอร์ผลรอตรวจ + modal รีวิว
-        $(document).on("click", "#tinyfeed-rpg-scan-btn", function () { rpgScan({ manual: true }); });
-        $(document).on("click", "#tinyfeed-rpg-pending-open", openRpgReviewModal);
-        $(document).on("click", "#tinyfeed-rpg-review-close", closeRpgReviewModal);
-        $(document).on("click", "#tinyfeed-rpg-review-modal", function (e) { if (e.target === this) closeRpgReviewModal(); });
-        $(document).on("click", "#tinyfeed-rpg-review-accept", function () {
-            const keys = $(".tinyfeed-rpg-review-check:checked").map(function () { return $(this).data("key"); }).get();
-            rpgAcceptPending(keys);
-        });
-        $(document).on("click", "#tinyfeed-rpg-review-discard", rpgDiscardPending);
-        // สถานะ: ปุ่ม +/- ของ number/bar — data-npc มีค่า = แก้สเตตัสของ NPC ตัวนั้นแทนผู้เล่น (รอบ ②)
-        function rpgRefreshStatScreen(npcKey) { if (npcKey) renderRpgNpcProfile(npcKey); else renderRpgStatus(); }
-        $(document).on("click", ".tinyfeed-rpg-stat-plus, .tinyfeed-rpg-stat-minus", function () {
-            const id = $(this).data("id");
-            const npc = $(this).data("npc");
-            const step = parseFloat($(this).data("step")) || 1;
-            const deltaStr = (step > 0 ? "+" : "") + step;
-            if (npc) rpgNpcApplyDelta(npc, id, deltaStr, "ปรับด้วยตนเอง");
-            else rpgApplyDelta(id, deltaStr, "ปรับด้วยตนเอง");
-            rpgRefreshStatScreen(npc);
-        });
-        // สถานะ: แก้ข้อความ (text) — บันทึกตอนพิมพ์เสร็จ (change) กันประวัติรก
-        $(document).on("change", ".tinyfeed-rpg-stat-textinput", function () {
-            const id = $(this).data("id");
-            const npc = $(this).data("npc");
-            if (npc) rpgNpcSetStat(npc, id, $(this).val(), "แก้ไขเอง");
-            else rpgSetStat(id, $(this).val(), "แก้ไขเอง");
-        });
-        // สถานะ: เพิ่ม/ลบแท็ก
-        $(document).on("keydown", ".tinyfeed-rpg-tag-input", function (e) {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            const id = $(this).data("id");
-            const npc = $(this).data("npc");
-            const val = String($(this).val() || "").trim();
-            if (!val) return;
-            if (npc) {
-                const cur = Array.isArray(rpgNpcVal(npc, id)) ? rpgNpcVal(npc, id).slice() : [];
-                cur.push(val);
-                rpgNpcSetTags(npc, id, cur);
-            } else {
-                const cur = Array.isArray(rpgVal(id)) ? rpgVal(id).slice() : [];
-                cur.push(val);
-                rpgSetTags(id, cur);
-                rpgLogPush({ id, label: (rpgStatDef(id) || {}).label || id, from: "", to: val, why: "เพิ่มแท็ก" });
-                saveRpg();
-            }
-            rpgRefreshStatScreen(npc);
-        });
-        $(document).on("click", ".tinyfeed-rpg-tag-del", function () {
-            const id = $(this).data("id");
-            const npc = $(this).data("npc");
-            const idx = parseInt($(this).data("idx"), 10);
-            if (npc) {
-                const cur = Array.isArray(rpgNpcVal(npc, id)) ? rpgNpcVal(npc, id).slice() : [];
-                if (idx < 0 || idx >= cur.length) return;
-                cur.splice(idx, 1);
-                rpgNpcSetTags(npc, id, cur);
-            } else {
-                const cur = Array.isArray(rpgVal(id)) ? rpgVal(id).slice() : [];
-                if (idx < 0 || idx >= cur.length) return;
-                const removed = cur.splice(idx, 1)[0];
-                rpgSetTags(id, cur);
-                rpgLogPush({ id, label: (rpgStatDef(id) || {}).label || id, from: removed, to: "", why: "ลบแท็ก" });
-                saveRpg();
-            }
-            rpgRefreshStatScreen(npc);
-        });
-        // ตั้งค่าสเตตัส: สลับผู้เล่น/NPC + preset / AI เสนอ / เพิ่มเอง — ทุกตัวใช้ rpgSchemaWhich ปัจจุบัน (มีแค่ตัวแก้เดียวเปิดอยู่ในจอ)
-        $(document).on("click", ".tinyfeed-rpg-schema-switch-btn", function () {
-            const w = $(this).data("which");
-            if (w && w !== rpgSchemaWhich) { rpgSchemaWhich = w; renderRpgSchemaEditor(); }
-        });
-        $(document).on("click", "#tinyfeed-rpg-preset-apply", function () {
-            rpgApplyPreset(rpgSchemaWhich, $("#tinyfeed-rpg-preset-pick").val());
-        });
-        $(document).on("click", "#tinyfeed-rpg-suggest", function () { rpgSuggestSchema(); });
-        $(document).on("click", "#tinyfeed-rpg-add-stat", function () { rpgAddStat(rpgSchemaWhich); });
-        $(document).on("click", ".tinyfeed-rpg-schema-del", function () { rpgDeleteStat(rpgSchemaWhich, $(this).data("id")); });
-        $(document).on("click", ".tinyfeed-rpg-schema-up", function () { rpgMoveStat(rpgSchemaWhich, $(this).data("id"), -1); });
-        $(document).on("click", ".tinyfeed-rpg-schema-down", function () { rpgMoveStat(rpgSchemaWhich, $(this).data("id"), 1); });
-        $(document).on("input change", ".tinyfeed-rpg-sf", function () {
-            const row = $(this).closest(".tinyfeed-rpg-schema-row");
-            const id = row.data("id");
-            const field = $(this).data("field");
-            const val = $(this).is(":checkbox") ? $(this).prop("checked") : $(this).val();
-            rpgSaveStatField(rpgSchemaWhich, id, field, val);
-            if (field === "type") renderRpgSchemaEditor();   // ชนิดเปลี่ยน → โชว์/ซ่อนช่อง min-max ใหม่
-        });
-        $(document).on("click", "#tinyfeed-rpg-proposal-accept", function () {
-            const ids = $(".tinyfeed-rpg-proposal-check:checked").map(function () { return $(this).data("id"); }).get();
-            rpgAcceptProposals(ids);
-        });
-        $(document).on("click", "#tinyfeed-rpg-proposal-discard", function () { rpgDiscardProposals(); });
-        // ตั้งค่าสเตตัส (โหมด NPC): ช่องข้อมูลตัวตน + ระดับความสัมพันธ์
-        $(document).on("change", ".tinyfeed-rpg-fieldhide", function () {
-            const schema = getRpgSchema();
-            const fid = $(this).data("field");
-            const hidden = new Set(schema.npcFieldsHidden || []);
-            if ($(this).prop("checked")) hidden.delete(fid); else hidden.add(fid);
-            schema.npcFieldsHidden = Array.from(hidden);
-            saveRpgSchema();
-        });
-        $(document).on("click", "#tinyfeed-rpg-customfield-add", function () {
-            const schema = getRpgSchema();
-            schema.npcFields.push({ id: rpgGenFieldId("field" + (schema.npcFields.length + 1)), label: "ช่องใหม่" });
-            saveRpgSchema();
-            renderRpgSchemaEditor();
-        });
-        $(document).on("input", ".tinyfeed-rpg-customfield-label", function () {
-            const i = $(this).closest(".tinyfeed-rpg-customfield-row").data("idx");
-            const schema = getRpgSchema();
-            if (schema.npcFields[i]) { schema.npcFields[i].label = $(this).val(); saveRpgSchema(); }
-        });
-        $(document).on("click", ".tinyfeed-rpg-customfield-del", function () {
-            const i = $(this).data("idx");
-            const schema = getRpgSchema();
-            schema.npcFields.splice(i, 1);
-            saveRpgSchema();
-            renderRpgSchemaEditor();
-        });
-        $(document).on("click", "#tinyfeed-rpg-stage-add", function () {
-            const stages = rpgEnsureStages();
-            stages.push({ at: 0, label: "ระดับใหม่" });
-            saveRpgSchema();
-            renderRpgSchemaEditor();
-        });
-        $(document).on("input", ".tinyfeed-rpg-stage-at", function () {
-            const i = $(this).closest(".tinyfeed-rpg-stage-row").data("idx");
-            const stages = rpgEnsureStages();
-            const n = parseInt($(this).val(), 10);
-            if (stages[i]) { stages[i].at = Number.isFinite(n) ? n : 0; saveRpgSchema(); }
-        });
-        $(document).on("input", ".tinyfeed-rpg-stage-label", function () {
-            const i = $(this).closest(".tinyfeed-rpg-stage-row").data("idx");
-            const stages = rpgEnsureStages();
-            if (stages[i]) { stages[i].label = $(this).val(); saveRpgSchema(); }
-        });
-        $(document).on("click", ".tinyfeed-rpg-stage-del", function () {
-            const i = $(this).data("idx");
-            const stages = rpgEnsureStages();
-            stages.splice(i, 1);
-            saveRpgSchema();
-            renderRpgSchemaEditor();
-        });
-        // สมุด NPC: หน้ารายการ
-        $(document).on("click", ".tinyfeed-rpg-npc-card", function () {
-            rpgNpcView = $(this).data("key");
-            rpgFieldEditing = null;
-            renderRpgNpcTab();
-        });
-        $(document).on("click", "#tinyfeed-rpg-npc-sync", function () { rpgSyncNpcs(); });
-        $(document).on("click", "#tinyfeed-rpg-npc-addbtn", function () {
-            const name = String($("#tinyfeed-rpg-npc-addname").val() || "").trim();
-            const key = rpgAddCustomNpc(name, "");
-            if (key) { $("#tinyfeed-rpg-npc-addname").val(""); renderRpgNpcList(); }
-        });
-        $(document).on("keydown", "#tinyfeed-rpg-npc-addname", function (e) {
-            if (e.key === "Enter") { e.preventDefault(); $("#tinyfeed-rpg-npc-addbtn").trigger("click"); }
-        });
-        // สมุด NPC: หน้ารายละเอียด
-        $(document).on("click", ".tinyfeed-rpg-aff-btn", function () {
-            const key = $(this).data("key");
-            const step = parseFloat($(this).data("step")) || 0;
-            rpgAffectionAdd(key, step, "ปรับด้วยตนเอง");
-            renderRpgNpcProfile(key);
-        });
-        $(document).on("click", ".tinyfeed-rpg-npcfield-unknown", function () {
-            rpgFieldEditing = { key: $(this).data("key"), field: $(this).data("field") };
-            renderRpgNpcProfile(rpgFieldEditing.key);
-        });
-        $(document).on("keydown", ".tinyfeed-rpg-npcfield-reveal", function (e) {
-            if (e.key !== "Enter") return;
-            e.preventDefault();
-            const key = $(this).data("key");
-            const field = $(this).data("field");
-            const val = String($(this).val() || "").trim();
-            rpgFieldEditing = null;
-            if (val) rpgRevealField(key, field, val);
-            renderRpgNpcProfile(key);
-        });
-        $(document).on("blur", ".tinyfeed-rpg-npcfield-reveal", function () {
-            if (!rpgFieldEditing) return;   // ถูก commit ไปแล้วจาก Enter (กันบันทึกซ้ำตอน blur ตามมา)
-            const key = $(this).data("key");
-            const field = $(this).data("field");
-            const val = String($(this).val() || "").trim();
-            rpgFieldEditing = null;
-            if (val) rpgRevealField(key, field, val);
-            renderRpgNpcProfile(key);
-        });
-        $(document).on("change", ".tinyfeed-rpg-npcfield-input", function () {
-            rpgRevealField($(this).data("key"), $(this).data("field"), $(this).val());
-        });
-        $(document).on("click", ".tinyfeed-rpg-npc-viewfull", function () { openCharProfile($(this).data("name")); });
-        $(document).on("click", "#tinyfeed-rpg-npc-delete", function () {
-            rpgDeleteNpc($(this).data("key"));
-            rpgNpcView = null;
-            renderRpgNpcTab();
-        });
-        // HUD ในหน้าแชทหลัก
-        $(document).on("click", ".tinyfeed-hud-open", function () { openPhone(); openApp("rpg"); });
-        $(document).on("click", "#tinyfeed-hud-toggle", function (e) {
-            e.stopPropagation();
-            setSetting("hudCollapsed", !getSetting("hudCollapsed"));
-            updateRpgHud();
         });
 
         // เดสก์ท็อป (มีเมาส์/คีย์บอร์ด): ใบ้ว่ากด Shift+Enter ขึ้นบรรทัดใหม่ได้

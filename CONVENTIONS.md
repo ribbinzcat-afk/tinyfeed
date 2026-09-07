@@ -2,7 +2,7 @@
 
 เอกสารนี้คือ **แหล่งความจริงเดียว** ว่าแอปใน TinyPhone ต้องหน้าตาแบบไหน เก็บข้อมูลที่ไหน ใช้คลาสอะไร
 
-> **ใช้ยังไง:** จะเพิ่มแอปที่ 12 หรือแก้แอปเดิม → อ่าน [บทที่ 2](#2-app-contract) กับ [บทที่ 4](#4-component-library) ก่อนเขียนโค้ด
+> **ใช้ยังไง:** จะเพิ่มแอปใหม่หรือแก้แอปเดิม → อ่าน [บทที่ 2](#2-app-contract) กับ [บทที่ 4](#4-component-library) ก่อนเขียนโค้ด
 > ถ้าต้องเขียน component ใหม่เพราะของกลางไม่พอ → **แก้ของกลาง ไม่ใช่เขียนของตัวเอง** แล้วอัปเดตเอกสารนี้
 
 **สถานะ:** เขียน 2026-08-11 · โค้ดปัจจุบัน **ยังไม่ตรงกับเอกสารนี้ทั้งหมด** — จุดที่ยังไม่ตรงถูกทำเครื่องหมาย ⚠️ ไว้ พร้อมเลขเฟสตามแผน migration ([บทที่ 8](#8-สถานะ-migration))
@@ -107,9 +107,7 @@
 | bank | `--tf-app-bank` | `#10b981` |
 | shop | `--tf-app-shop` | `#f97316` |
 | pet | `--tf-app-pet` | `#8b5cf6` |
-| verse | `--tf-app-verse` | `#6366f1` |
-| theater | `--tf-app-theater` | `#e11d48` |
-| novel | `--tf-app-novel` | `#0ea5e9` |
+| ask | `--tf-app-ask` | `#6366f1` |
 | *(news — ไม่ใช่แอป เป็นแท็บใน feed)* | `--tf-app-news` | `#f59e0b` |
 
 ไอคอนบนโฮมใช้ gradient `--app-a` → `--app-b` โดย `--app-b` = สีเดียวกันแบบเข้มขึ้น ให้ derive ด้วย `color-mix` ไม่ต้องเก็บค่าที่สอง:
@@ -137,7 +135,7 @@
 **บั๊ก 2 ตัวที่หายไปเพราะการรวมทะเบียน:**
 
 1. **หัวข้อ TinyForum หาย** — 10 แอปตั้ง `.tinyfeed-title` ใน `openApp` แต่ forum ลืม ต้องไปตั้งข้างใน `openForumList()` ส่วน connect ตั้งซ้ำสองที่ → ตอนนี้ shell ตั้งจาก `app.name` ให้ทุกแอปเท่ากัน ลืมไม่ได้อีก
-2. **ปุ่มย้อนกลับปิด overlay 3 ตัวไม่ได้** — `handleBack` เดิมเช็ค 14 selector ว่า "มีอะไรเปิดอยู่ไหม" แล้ว **return ทันที** แต่เรียก closer แค่ 11 ตัว → ถ้าเปิด **หน้าโปรไฟล์ตัวละคร / verse import / verse poster picker** อยู่ กดย้อนกลับแล้ว**ไม่มีอะไรเกิดขึ้นเลย** ต้องกดปิดที่กากบาทเท่านั้น → ตอนนี้ `OVERLAYS` เป็นทะเบียนคู่ `{sel, close}` ใช้ร่วมกันทั้ง `openApp` และ `handleBack` ผูกไม่ครบไม่ได้
+2. **ปุ่มย้อนกลับปิด overlay บางตัวไม่ได้** — `handleBack` เดิมเช็ค selector ว่า "มีอะไรเปิดอยู่ไหม" แล้ว **return ทันที** แต่เรียก closer ไม่ครบ → ถ้าเปิด **หน้าโปรไฟล์ตัวละคร** อยู่ กดย้อนกลับแล้ว**ไม่มีอะไรเกิดขึ้นเลย** ต้องกดปิดที่กากบาทเท่านั้น → ตอนนี้ `OVERLAYS` เป็นทะเบียนคู่ `{sel, close}` ใช้ร่วมกันทั้ง `openApp` และ `handleBack` ผูกไม่ครบไม่ได้
 
 **ผลข้างเคียงที่ตั้งใจ 2 อย่าง:**
 - สี TinyMemo ใน dashboard/keyword editor เปลี่ยนจาก `#14b8a6` (เขียวน้ำทะเล) → `#f59e0b` (ส้ม) ให้ตรงกับไอคอนหน้าโฮม
@@ -202,7 +200,7 @@
 ### กฎ
 
 - **เนื้อหาที่เลื่อนได้ต้องใช้ `.tinyfeed-screen`** — มันคือ `flex:1; overflow-y:auto; padding:16px` + สไตล์ scrollbar พร้อมแล้ว (`style.css:84` + `1026`)
-  ⚠️ ตอนนี้ใช้อยู่แค่ **7 ที่** ส่วนอีก **~12 ที่เขียน `flex:1; overflow-y:auto` เอง** (`.tinyfeed-connect-list`, `.tinyfeed-connect-messages`, `.tinyfeed-stream-comments`, `.tinyfeed-pet-body`, `.tinyfeed-verse-tabbody`, `.tinyfeed-theater-body`, `.tinyfeed-bank-txns`, `.tinyfeed-vprofile-body`, …)
+  ⚠️ ตอนนี้ใช้อยู่แค่ **7 ที่** ส่วนอีก **~10 ที่เขียน `flex:1; overflow-y:auto` เอง** (`.tinyfeed-connect-list`, `.tinyfeed-connect-messages`, `.tinyfeed-stream-comments`, `.tinyfeed-pet-body`, `.tinyfeed-bank-txns`, `.tinyfeed-vprofile-body`, …)
 - **`.tinyfeed-title` ตั้งโดย shell จาก `APPS[].title` เท่านั้น** — ห้ามตั้งในฟังก์ชัน render ของแอป
   ข้อยกเว้นเดียว: หน้าย่อยที่ title เปลี่ยนตามเนื้อหา (ห้องแชต `index.js:1755`, กระทู้ `index.js:6319`) — ตั้งได้ แต่ต้องคืนค่าเดิมตอนกลับ
 - **ทุกอย่างที่ซ่อน/แสดงใช้ `.tinyfeed-hidden`** (`display:none !important`, `style.css:157`) ห้ามใช้ `.hide()`/`.show()` ของ jQuery ปนกัน
@@ -246,7 +244,7 @@
 | แบบ | helper | ใช้เมื่อ | หน้าตา |
 |---|---|---|---|
 | **เต็มหน้าจอ** | `emptyStateHtml(icon, title, sub)` | เนื้อหาหลักของแอปว่าง | ไอคอน `2.4em` + หัวข้อ + คำอธิบาย · padding `52px 24px` |
-| **กะทัดรัด** | `emptyInlineHtml(html)` | กล่องเล็ก — กริดคลังรูป · ตัวเลือกใน modal · ลิ้นชักแจ้งเตือน · ฟีด TinyVerse | ข้อความกลางล้วน · padding `24px 16px` · `--tf-fs-sm` |
+| **กะทัดรัด** | `emptyInlineHtml(html)` | กล่องเล็ก — กริดคลังรูป · ตัวเลือกใน modal · ลิ้นชักแจ้งเตือน | ข้อความกลางล้วน · padding `24px 16px` · `--tf-fs-sm` |
 
 ```js
 $("#target").html(emptyStateHtml("fa-feather-pointed", "ยังไม่มีโพสต์",
@@ -258,7 +256,7 @@ $("#grid").html(emptyInlineHtml("อัลบั้มนี้ว่าง"));
 
 **ปัจจุบัน: `emptyStateHtml` 11 จุด · `emptyInlineHtml` 6 จุด · ไม่มี empty state ที่เขียนเองแล้ว**
 
-เดิมมี 6 คลาสแยกกัน (`-gallery-empty` `-verse-empty` `-verse-feed-empty` `-verse-import-empty` `-notif-drawer-empty` + widget) โดยแอปที่สร้างทีหลัง (gallery/verse/theater) ไม่รู้ว่ามีของกลางเลยเขียนเอง — **TinyTheater ถึงขั้นยืม `.tinyfeed-verse-empty` ของ TinyVerse มาใช้** ตอนนี้ลบทิ้งหมดแล้ว
+เดิมมีหลายคลาสแยกกัน (`-gallery-empty` `-notif-drawer-empty` + widget) โดยแอปที่สร้างทีหลังไม่รู้ว่ามีของกลางเลยเขียนเอง ตอนนี้ลบทิ้งหมดแล้ว
 
 **ข้อยกเว้นเดียวที่ยังเขียนเอง:** `.tinyfeed-widget-agenda-empty` (5 จุด) — เป็น *ข้อความจางในวิดเจ็ตหน้าโฮม* ไม่ใช่ empty state (ไม่มี padding/จัดกลาง) ถ้าเอา `.tinyfeed-empty-inline` ไปใส่ วิดเจ็ตจะบานเพราะ padding `24px` **ตั้งใจเก็บไว้**
 
@@ -268,8 +266,8 @@ $("#grid").html(emptyInlineHtml("อัลบั้มนี้ว่าง"));
 
 | แบบ | ใช้เมื่อ | ตัวอย่าง |
 |---|---|---|
-| `.tinyfeed-generating` บนปุ่ม | มีปุ่มที่กดแล้วรอ | 14 จุด — stream / shop / memo / forum / pet / verse … |
-| เปลี่ยนข้อความปุ่ม | งานนาน อยากบอกว่าทำอะไรอยู่ | `"กำลังเปิดม่าน..."` (theater) · `"กำลังเริ่ม..."` (stream) |
+| `.tinyfeed-generating` บนปุ่ม | มีปุ่มที่กดแล้วรอ | หลายจุด — stream / shop / memo / forum / pet … |
+| เปลี่ยนข้อความปุ่ม | งานนาน อยากบอกว่าทำอะไรอยู่ | `"กำลังเริ่ม..."` (stream) · `"กำลังสแกน..."` (memo) |
 | `"กำลังพิมพ์…"` | แชต/คอมเมนต์ ที่ควรรู้สึกเหมือนคนพิมพ์ | TinyConnect (`isConnectReplying`) · คอมเมนต์ฟีด (`isReplying`) |
 | `skeletonCardHtml()` | ของใหม่จะโผล่เป็น "การ์ด" ในลิสต์ | feed · news |
 | **ไม่ต้องมี** | งานเบื้องหลังที่ผู้ใช้ไม่ได้สั่ง | `aiDecides*` (ตอบ YES/NO) · `proactiveDM` · `groupSelfChat` · คอมเมนต์อัตโนมัติหลังโพสต์ |
@@ -315,12 +313,12 @@ try { … await tinyGenerate(…) … } finally { $("#tinyfeed-x-skel").remove()
 
 **Modifier ต่อท้ายได้ ไม่ใช่เขียนปุ่มใหม่** — ใส่คลาสเสริมคู่กับ base เสมอ:
 ```html
-<button class="tinyfeed-btn-primary tinyfeed-th-nextbtn">เขียนตอนต่อไป</button>
-<button class="tinyfeed-btn-ghost tinyfeed-verse-clearbtn">ล้าง</button>
+<button class="tinyfeed-btn-primary tinyfeed-shop-generate">ให้ AI สร้างสินค้า</button>
+<button class="tinyfeed-btn-ghost tinyfeed-shop-clearbtn">ล้าง</button>
 ```
 
-✅ **ตรวจแล้ว (เฟส 6): ไม่มีปุ่ม one-off ที่ต้องยุบ** — modifier ทั้ง 6 ตัว (`-th-newbtn` `-th-createbtn` `-th-nextbtn` `-vprofile-savebtn` `-th-toolbtn` `-verse-clearbtn`) ใช้คู่กับ base ถูกต้องอยู่แล้ว เป็นแค่ layout/สี ไม่ได้เขียนปุ่มใหม่
-*(`-th-backbtn` = ปุ่มกลมทับบนปกหนัง คนละ component จริง · `-shop-addbtns` = กล่อง flex ครอบปุ่ม ไม่ใช่ปุ่ม)*
+✅ **ตรวจแล้ว (เฟส 6): ไม่มีปุ่ม one-off ที่ต้องยุบ** — modifier ทุกตัวใช้คู่กับ base ถูกต้องอยู่แล้ว เป็นแค่ layout/สี ไม่ได้เขียนปุ่มใหม่
+*(`-shop-addbtns` = กล่อง flex ครอบปุ่ม ไม่ใช่ปุ่ม)*
 
 ### 4.4b หน้าตั้งค่า — 2 ระดับ ✅ (เฟส 3)
 
@@ -346,9 +344,9 @@ try { … await tinyGenerate(…) … } finally { $("#tinyfeed-x-skel").remove()
 </div>
 ```
 
-> **แยกแอปด้วย data attribute ไม่ใช่ชื่อคลาส** — `data-tab` (feed) · `data-mtab` (memo) · `data-fsort` (forum) · `data-gtab` (gallery) · `data-vtab` (verse)
+> **แยกแอปด้วย data attribute ไม่ใช่ชื่อคลาส** — `data-tab` (feed) · `data-mtab` (memo) · `data-fsort` (forum) · `data-gtab` (gallery)
 
-เดิมมี **5 ชุดคลาสแยกกัน** (`-tabs` / `-memo-tabs` / `-forum-tabs` / `-gallery-tabs` / `-verse-tabs`) — 4 ชุดแรกเป็น alias ของสไตล์เดียวกันอยู่แล้ว (เขียนเป็น grouped selector) มีแค่ `-verse-*` ที่หน้าตาต่างจริง สาเหตุที่ต้องแยกไม่ใช่ดีไซน์ แต่เพราะ `openSettings()` เคยซ่อน `.tinyfeed-tabs` แบบ global — **หมดไปแล้วในเฟส 3**
+เดิมมีหลายชุดคลาสแยกกัน (`-tabs` / `-memo-tabs` / `-forum-tabs` / `-gallery-tabs`) เป็น alias ของสไตล์เดียวกันอยู่แล้ว (เขียนเป็น grouped selector) สาเหตุที่ต้องแยกไม่ใช่ดีไซน์ แต่เพราะ `openSettings()` เคยซ่อน `.tinyfeed-tabs` แบบ global — **หมดไปแล้วในเฟส 3**
 
 **⚠️ กับดักที่ต้องระวังตลอดไป: ทุก selector ต้องจำกัดด้วย data attribute**
 
@@ -361,13 +359,9 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 
 เช่นเดียวกับการซ่อน/โชว์แถบแท็บ ต้องจำกัดด้วยแอป: `$("#tinyfeed-app-feed .tinyfeed-tabs")` ไม่ใช่ `$(".tinyfeed-tabs")`
 
-**หมายเหตุ TinyVerse:** แท็บถูก render ใหม่ทุกครั้งที่สลับ (อยู่ใน template ของ `renderVerse()`) — node เดิมถูกทิ้ง ถ้าจะเขียนเทสต้อง query ใหม่ทุกครั้ง อย่าเก็บ node ไว้ใช้ซ้ำ
-
-**ผลข้างเคียงที่ตั้งใจ:** แท็บ TinyVerse เปลี่ยนหน้าตามาตรงกับแอปอื่น — padding `10px`→`12px 0`, font `.85em`→`.9em`, แท็บที่เลือกอยู่จาก *ตัวอักษรสีฟ้า+ตัวหนา* → *ตัวอักษรขาว+ขีดใต้ฟ้า* เหมือนอีก 4 แอป
-
 ### 4.6 การ์ด — ไม่มี base ร่วม (ตั้งใจ)
 
-✅ ตรวจแล้ว (เฟส 6): `-bank-card` (การ์ดยอดเงินไล่เฉดเขียว ตัวอักษรขาว) · `-note-card` (แถวในลิสต์ มีเส้นคั่นล่าง ไม่ใช่การ์ด) · `-th-card` (กรอบโปสเตอร์ 2:3) · `-verse-card` (ไทล์ตัวละครแนวตั้ง มีอวาตาร์) · `-pet-game-card` (แถวเกมแนวนอน) — **เป็นคนละ component จริง ไม่ใช่โค้ดซ้ำ** บังคับให้มี base ร่วมจะได้ abstraction ปลอมๆ **จึงไม่ทำ**
+✅ ตรวจแล้ว (เฟส 6): `-bank-card` (การ์ดยอดเงินไล่เฉดเขียว ตัวอักษรขาว) · `-note-card` (แถวในลิสต์ มีเส้นคั่นล่าง ไม่ใช่การ์ด) · `-pet-game-card` (แถวเกมแนวนอน) — **เป็นคนละ component จริง ไม่ใช่โค้ดซ้ำ** บังคับให้มี base ร่วมจะได้ abstraction ปลอมๆ **จึงไม่ทำ**
 
 การ์ดใหม่ที่เป็น "กล่องขอบมุมมน" ธรรมดา ให้ประกอบจาก token: พื้น `var(--tf-topbar)` · ขอบ `1px solid var(--tf-border)` · `border-radius: var(--tf-r-md)` · `padding: var(--tf-sp-4)`
 
@@ -378,12 +372,11 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 | แอป | ในลิสต์ | หน้ารายละเอียด |
 |---|---|---|
 | TinyFeed | หัว + เนื้อ + `[❤][💬 จำนวน]` | คอมเมนต์ทั้งหมด + ช่องเขียน |
-| TinyVerse | เหมือนกัน | เหมือนกัน + ปุ่ม "ให้ตัวละครคอมเมนต์" |
 | TinyForum | รายการกระทู้ | หน้ากระทู้ + คอมเมนต์ + ช่องเขียน |
 
 **กติกาเวลาใช้ `.tinyfeed-post` ในแอปใหม่:**
 1. เก็บ id ใน data attribute **ของตัวเอง** (`data-post` / `data-vpost`) และ handler ต้องจำกัดด้วย attribute นั้น
-   ⚠️ handler กลางเดิมเขียน `.tinyfeed-post:not(.tinyfeed-post-detail)` ลอยๆ → **โพสต์ TinyVerse มี `cursor:pointer` แต่กดแล้วเงียบ** เพราะอ่าน `data-post` ไม่เจอ แก้เป็น `.tinyfeed-post[data-post]` แล้ว
+   ⚠️ handler กลางเดิมเขียน `.tinyfeed-post` ลอยๆ ไม่จำกัด `[data-post]` → เสี่ยงชนกับ `.tinyfeed-post` ของแอปอื่นที่เก็บ id ใน data attribute คนละชื่อ แก้เป็น `.tinyfeed-post[data-post]` แล้ว
 2. ปุ่มย่อยบนการ์ด (ไลก์ / ลบ / สติกเกอร์ / ส่ง) **ต้อง `e.stopPropagation()`** ไม่งั้นกดแล้วเด้งเข้าหน้ารายละเอียด
 3. การ์ดในหน้ารายละเอียดใส่ `.tinyfeed-post-detail` ด้วย เพื่อไม่ให้กดซ้ำเข้าตัวเอง
 4. ลงทะเบียน `back()` ใน `APPS` ให้ปุ่มย้อนกลับพากลับหน้ารายการ
@@ -394,7 +387,7 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 
 `.tinyfeed-inputwrap` (relative, flex:1) ครอบ input + `.tinyfeed-compose-inbtn` (absolute มุมขวาล่าง) ใช้ร่วมกันแล้วจริงที่: connect · stream viewer · stream streamer · forum comment · feed comment
 
-**ใช้ครบทั้ง 6 แถบแล้ว** (ตรวจ 2026-08-12): TinyConnect · TinyStream ผู้ชม · TinyStream สตรีมเมอร์ · TinyForum คอมเมนต์ · TinyFeed คอมเมนต์ · **TinyVerse คอมเมนต์** (เดิมเป็น `[input][ปุ่ม]` เปล่าๆ ไม่มีสติกเกอร์ — แก้แล้ว)
+**ใช้ครบทั้ง 5 แถบแล้ว**: TinyConnect · TinyStream ผู้ชม · TinyStream สตรีมเมอร์ · TinyForum คอมเมนต์ · TinyFeed คอมเมนต์
 
 โครงร่วม: `[ไอคอนนำหน้า 0–2 อัน][.tinyfeed-inputwrap: ช่องพิมพ์ + .tinyfeed-compose-inbtn สติกเกอร์][ปุ่มส่ง]`
 ต่างกันแค่ไอคอนนำหน้า (➕🖼 / 🎁 / avatar / ไม่มี) กับไอคอนปุ่มส่ง (✈ / 🎤)
@@ -435,8 +428,6 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 | gallery | `global` | `.gallery` | `getGallery()` / `saveGallery()` |
 | หมวดสินค้า (`shopCategories`) | `global` | setting | `getShopCategories()` — เหมือน `forumRooms` ของ TinyForum: ตั้งชื่อหมวดครั้งเดียวใช้ข้ามเรื่อง แต่สินค้าจริงแยกตามแชท |
 | pet + ร้านเพ็ท | `global` | `.pet` `.petShop` | `getPet()` / `savePet()` |
-| verse | `global` | `.verse` | `getVerse()` / `saveVerse()` |
-| theater | `global` | `.theater` | `getTheater()` / `saveTheater()` |
 | NPC | `global` (ผูกการ์ด) | `.npcsByChar` | `getNpcsStore()` / `saveNpcs()` |
 | โปรไฟล์ | `global` (ผูก persona/การ์ด) | `.userProfiles` `.charProfiles` | `getProfileStore()` |
 | สกุลเงิน (`bankCurrency`) | `global` (ผูกการ์ด) | `.charCurrency` | `getCharCurrency()` / `setCharCurrency()` |
@@ -453,7 +444,7 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 - **`flushAllSaves()`** (`src/store.js`, เพิ่ม 2026-08) เรียก `saveSettings()` + `saveFeedData()` แบบ**ข้าม debounce ทั้งคู่ทันที** ผูกกับ `document.visibilitychange` (`hidden`) ใน bootstrap — กันเคสมือถือสลับแอป/แช่แข็งแท็บกลางอากาศระหว่างที่ยังมีเซฟแบบ debounce ค้างอยู่ (1 วิ) ยังไม่ทันยิง แล้วดีเบาซ์นั้นหายไปเงียบๆ ตอนกลับมาเปิดใหม่/แท็บถูกเคลียร์ ก่อนหน้านี้มี flush ทันทีแค่ตอนกด "X" ปิดเครื่องเอง (`closePhone()`) ซึ่งไม่ครอบคลุมเคสสลับแอป — ตอนนี้ `closePhone()` ก็เรียก `flushAllSaves()` ตัวเดียวกันแทนที่จะเรียก `saveFeedData()` ตรงๆ
 - **ทุก getter ต้อง lazy-create + type-guard** (`if (!Array.isArray(d.feed)) d.feed = []`) เพราะผู้ใช้เก่าอาจไม่มีคีย์นั้น
 - **เพิ่มคีย์ใหม่ใน `defaultSettings` ได้เสมอ** — `getSetting()` fallback ให้อยู่แล้ว ไม่ต้องเขียน migration
-- **เปลี่ยน*ความหมาย*ของคีย์เดิมต้องมี migration** เรียกครั้งเดียวใน `loadSettings()` และต้อง idempotent (แม่แบบ: `migrateLegacyAvatars()`, `migrateVerseScenes()`)
+- **เปลี่ยน*ความหมาย*ของคีย์เดิมต้องมี migration** เรียกครั้งเดียวใน `loadSettings()` และต้อง idempotent (แม่แบบ: `migrateLegacyAvatars()`)
 
 ### การส่งข้อมูลออกนอกแอป — ทะเบียน `INJECT_SOURCES`
 
@@ -480,8 +471,6 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 | feed · news · connect · stream · memo · forum | ✅ | ✅ | ✅ |
 | **bank · shop · pet** | ✅ | ✅ | shop/pet ✅ · bank ไม่เจน |
 | gallery | — ใช้ทางของตัวเอง (`galleryPromptBlock`) | — | — |
-| verse | ❌ (เป็น global ข้ามการ์ด) | ❌ | ✅ |
-| theater · novel | ❌ **ตั้งใจ** — เป็นงานสร้างสรรค์ ไม่ใช่เหตุการณ์ในโลกของแชท | ❌ | ❌ |
 
 ### ⚠️ Known inconsistency — TinyBank ↔ TinyPet
 
@@ -513,7 +502,6 @@ try { … } finally { isXBusy = false; }
 | รูปแบบ | จำนวน | ตัวแปร |
 |---|---|---|
 | `isXBusy` ✅ | 6 | `isShopBusy` `isPetShopBusy` `isGenCommentsBusy` `isMemoBusy` `isForumBusy` `isAutoBusy` |
-| `xBusy` | 2 | `verseBusy` `theaterBusy` |
 | `isGeneratingX` | 2 | `isGeneratingStream` `isGeneratingNews` |
 | อื่นๆ | 2 | `isGenerating` (ของ feed) `isConnectReplying` |
 
@@ -601,7 +589,7 @@ path จาก `src/` ไปหา core ของ ST ลึกกว่า `inde
 | TinyPet ถูกเรียกจากนอกตัวเอง | 32 ฟังก์ชัน |
 | TinyGallery / TinyConnect | 21 ฟังก์ชัน |
 
-**แอปพันกันโดยธรรมชาติของฟีเจอร์** — TinyPet โพสต์ลง TinyFeed และ DM ผ่าน TinyConnect · ตัวเลือกรูปของ TinyGallery ถูกใช้ในทุกแถบพิมพ์ · TinyTheater ใช้ roster ของ TinyVerse
+**แอปพันกันโดยธรรมชาติของฟีเจอร์** — TinyPet โพสต์ลง TinyFeed และ DM ผ่าน TinyConnect · ตัวเลือกรูปของ TinyGallery ถูกใช้ในทุกแถบพิมพ์ · TinyShop ผูกกับ TinyBank
 
 และข้อจำกัดตายตัวของ ES module: **ตัวแปรที่ `import` มา แก้ค่าไม่ได้** (`currentApp = "feed"` ข้ามไฟล์ = TypeError) การแยกตามแอปจึงต้องรื้อ global 45 ตัวเป็น state object ก่อน = เสี่ยงสูง ผลตอบแทนต่ำ **จึงหยุดที่ leaf 3 ชั้น**
 

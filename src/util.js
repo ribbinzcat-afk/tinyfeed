@@ -116,6 +116,89 @@ export function stripWrapBrackets(s) {
     return s.trim();
 }
 
+// ===== อัปโหลดรูปจากเครื่อง: ย่อ+บีบใน browser ก่อนส่งขึ้นเซิร์ฟเวอร์ (ไม่ import อะไรเพิ่ม — canvas ล้วน) =====
+// ขนาด/คุณภาพเป้าหมายต่อชนิดการใช้งาน (ด้านยาวสุด px, คุณภาพ webp/jpeg 0-1)
+export const IMG_KINDS = {
+    image: { max: 1280, q: 0.82 },      // รูปในคลัง
+    sticker: { max: 320, q: 0.90 },     // สติกเกอร์ (มักโปร่งใส)
+    avatar: { max: 256, q: 0.85 },      // โปรไฟล์ / NPC / กลุ่ม
+    wallpaper: { max: 1440, q: 0.82 },  // วอลเปเปอร์ / พื้นหลังเวที
+    sprite: { max: 512, q: 0.90 },      // สไปรต์เพ็ท (มักโปร่งใส)
+    thumb: { max: 320, q: 0.85 },       // สินค้า / ไอเทม
+};
+const IMG_GIF_MAX_BYTES = 2 * 1024 * 1024;   // GIF เคลื่อนไหวห้ามผ่าน canvas (จะกลายเป็นภาพนิ่ง) — จำกัดขนาดแทน
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("อ่านไฟล์ไม่สำเร็จ"));
+        reader.readAsDataURL(file);
+    });
+}
+
+function loadImageEl(url) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("ไฟล์นี้ไม่ใช่รูปภาพที่เปิดได้"));
+        img.src = url;
+    });
+}
+
+// data:mime;base64,xxxx → { mime, base64 } (ตัด prefix ออกให้ ไม่งั้นเซิร์ฟเวอร์ decode ไม่ได้)
+function splitDataUrl(dataUrl) {
+    const m = String(dataUrl || "").match(/^data:([^;]+);base64,(.*)$/s);
+    if (!m) throw new Error("แปลงรูปเป็น base64 ไม่สำเร็จ");
+    return { mime: m[1], base64: m[2] };
+}
+
+const MIME_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+
+/**
+ * ย่อ+บีบไฟล์รูปจากเครื่องผู้ใช้ → { base64, ext } พร้อมส่งขึ้นเซิร์ฟเวอร์ (ไม่ persist base64 ที่ไหน)
+ * @param {File} file  ไฟล์จาก <input type="file">
+ * @param {keyof IMG_KINDS} kind  ใช้กำหนดขนาด/คุณภาพเป้าหมาย
+ */
+export async function downscaleImageFile(file, kind) {
+    if (!file || !(file.type || "").startsWith("image/")) {
+        throw new Error("เลือกไฟล์รูปภาพเท่านั้น");
+    }
+    const spec = IMG_KINDS[kind] || IMG_KINDS.image;
+
+    // GIF เคลื่อนไหว — ผ่าน canvas จะกลายเป็นภาพนิ่ง จึงส่งไฟล์ดิบขึ้นเลย (จำกัดขนาดกันหนักเกิน)
+    if (file.type === "image/gif") {
+        if (file.size > IMG_GIF_MAX_BYTES) {
+            throw new Error("ไฟล์ GIF ใหญ่เกิน 2MB — ลองไฟล์เล็กลง หรือแปลงเป็น WebP/PNG ก่อน");
+        }
+        const dataUrl = await readFileAsDataUrl(file);
+        const { base64 } = splitDataUrl(dataUrl);
+        return { base64, ext: "gif" };
+    }
+
+    const srcUrl = await readFileAsDataUrl(file);
+    const img = await loadImageEl(srcUrl);
+    const scale = Math.min(1, spec.max / Math.max(img.naturalWidth, img.naturalHeight));   // ไม่ขยายรูปที่เล็กอยู่แล้ว
+    const w = Math.max(1, Math.round(img.naturalWidth * scale));
+    const h = Math.max(1, Math.round(img.naturalHeight * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, w, h);
+
+    // เช็คว่าเบราว์เซอร์เข้ารหัส webp ได้จริง (บาง engine เก่าจะคืน png เงียบๆ)
+    let dataUrl = canvas.toDataURL("image/webp", spec.q);
+    if (!dataUrl.startsWith("data:image/webp")) {
+        // fallback: png (คงความโปร่งใส) เว้นแต่ไฟล์ต้นทางทึบแสงอยู่แล้ว → jpeg (เล็กกว่า)
+        const opaque = file.type === "image/jpeg" || file.type === "image/bmp";
+        dataUrl = canvas.toDataURL(opaque ? "image/jpeg" : "image/png", spec.q);
+    }
+    const { mime, base64 } = splitDataUrl(dataUrl);
+    return { base64, ext: MIME_EXT[mime] || "png" };
+}
+
 export function stripReasoning(raw) {
     let s = String(raw || "");
     // 1) ใช้ reasoning tag ที่ตั้งไว้ใน SillyTavern (ถ้ามี)

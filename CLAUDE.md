@@ -1,6 +1,6 @@
 # TinyPhone — คู่มือสำหรับ AI ที่มาแก้โค้ดนี้
 
-โทรศัพท์จำลองใน SillyTavern มี **13 แอปในตัว** อ่านไฟล์นี้ให้จบก่อนแตะโค้ด
+โทรศัพท์จำลองใน SillyTavern มี **10 แอปในตัว** อ่านไฟล์นี้ให้จบก่อนแตะโค้ด
 
 | ต้องการ | อ่านที่ |
 |---|---|
@@ -52,7 +52,7 @@
 --tf-app-xxx: #0ea5e9;
 ```
 
-### ③ `phone.html` — เพิ่ม panel (วางต่อจาก `#tinyfeed-app-novel`)
+### ③ `phone.html` — เพิ่ม panel (วางต่อจาก `#tinyfeed-app-pet`)
 
 ```html
 <div id="tinyfeed-app-xxx" class="tinyfeed-app tinyfeed-hidden">
@@ -65,7 +65,7 @@
 ### ④ `index.js` — เขียนตัวแอป
 
 ```js
-// ===== TinyXxx (แอปที่ 13): <คำอธิบายสั้นๆ> =====
+// ===== TinyXxx (แอปที่ 11): <คำอธิบายสั้นๆ> =====
 let xxxScreen = "main";          // state หน้าจอ (ถ้ามีหลายหน้า)
 
 function getXxx() {              // global → extension_settings
@@ -218,7 +218,7 @@ const raw = await tinyGenerate(q, 300, "xxx");   // ← ต้องส่ง "x
 | Modal | `.tinyfeed-modal` > `.tinyfeed-modal-card` > `.tinyfeed-modal-head` + ลงทะเบียนใน `OVERLAYS` |
 | แถบแท็บ | `.tinyfeed-tabs` > `.tinyfeed-tab` / `.tinyfeed-tab-active` — **แยกแอปด้วย data attribute** เช่น `data-xtab` |
 | ปุ่ม | `.tinyfeed-btn-primary` / `-ghost` / `-generate` (+ คลาส modifier ของตัวเองได้) |
-| ลิงก์สั่ง AI ในแถวใต้โพสต์ (ไม่อยากให้เด่นแย่งเนื้อหา) | `.tinyfeed-ai-link` — ใช้ร่วม TinyFeed + TinyVerse · รองรับ `.tinyfeed-generating` (จาง + ไอคอนหมุน) |
+| ลิงก์สั่ง AI ในแถวใต้โพสต์ (ไม่อยากให้เด่นแย่งเนื้อหา) | `.tinyfeed-ai-link` — ใช้ใน TinyFeed · รองรับ `.tinyfeed-generating` (จาง + ไอคอนหมุน) |
 | ไอคอนในแถบพิมพ์ | `.tinyfeed-compose-iconbtn` (นอกช่อง) · `.tinyfeed-compose-inbtn` (ในช่อง) |
 | รูปโปรไฟล์ | `makeAvatar(item)` — อ่าน `item.author` / `.avatar` / `.isUser` / `.isMain` |
 | ข้อความมี `[img:]` / `[sticker:]` | `renderRich(text)` — **ห้าม parse token เอง** |
@@ -237,7 +237,7 @@ const raw = await tinyGenerate(q, 300, "xxx");   // ← ต้องส่ง "x
 
 ต่อท้าย `style.css` เป็นบล็อกของตัวเอง ใช้ token ล้วน:
 ```css
-/* ===== TinyXxx (แอปที่ 13): คำอธิบาย ===== */
+/* ===== TinyXxx (แอปที่ 11): คำอธิบาย ===== */
 .tinyfeed-xxx-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tinyfeed-xxx-card {
     padding: var(--tf-sp-4);
@@ -287,7 +287,7 @@ assert len(re.findall(r'<div\b',h))==len(re.findall(r'</div>',h)), 'HTML ไม�
 print('OK')"
 ```
 
-**Pure-logic test** — parser / ตัวคำนวณ เขียนเทสใน scratchpad โดยดึงฟังก์ชันออกมาจาก `index.js` ด้วยการนับปีกกา แล้ว stub helper (ดูตัวอย่าง `test-novel.mjs`)
+**Pure-logic test** — parser / ตัวคำนวณ เขียนเทสใน scratchpad โดยดึงฟังก์ชันออกมาจาก `index.js` ด้วยการนับปีกกา แล้ว stub helper
 
 **รันใน SillyTavern จริง** — `.claude/launch.json` มี config `sillytavern` (port 8000) และ `tinyfeed/` ถูก symlink เข้า `third-party/` แล้ว แก้ไฟล์ → รีโหลดหน้าเว็บเห็นผลทันที
 
@@ -312,7 +312,6 @@ document.querySelectorAll('dialog[open]').forEach(d=>d.close()); // ปิด di
 | `Popup` / `callGenericPopup` ของ ST | เป็น `<dialog>` + top layer → **ทะลุกรอบโทรศัพท์** ทำลายภาพลวงตา |
 | slash command · `t\`\`` i18n · `renderExtensionTemplateAsync` | โปรเจกต์เป็นภาษาไทยล้วน เข้าถึงทุกอย่างผ่านตัวโทรศัพท์ |
 | แยก `index.js` ตามแอป | วัดแล้ว: เส้นเรียกข้ามโมดูล 570 · global ที่แก้ข้าม section 45/77 · `currentApp` ถูกแตะจาก 15 section — แอปพันกันโดยธรรมชาติ **ตัดสินใจแล้วว่าไม่ทำ** |
-| แทรก TinyTheater/TinyNovel เข้า RP โดยอัตโนมัติ | เป็นงานสร้างสรรค์ ไม่ใช่เหตุการณ์ในโลกของแชท — เปิดเองได้จากหน้าตั้งค่า |
 
 `{{token}}` ใน `PROMPT_DEFS` เป็นระบบของโปรเจกต์เอง (`buildPrompt` ใช้ `split().join()`) **ไม่ใช่ macro ของ ST**
 `sw.js` ไม่ใช่ PWA service worker — มีไว้ `showNotification()` บน Android เท่านั้น
@@ -323,7 +322,7 @@ document.querySelectorAll('dialog[open]').forEach(d=>d.close()); // ปิด di
 
 ```
 tinyfeed/
-├── index.js          ~9,500 บรรทัด — 12 แอป + shell + bootstrap
+├── index.js          ~8,500 บรรทัด — 10 แอป + shell + bootstrap
 ├── phone.html        โครง DOM (แอปเป็นพี่น้องกัน + หน้าตั้งค่า)
 ├── style.css         token block อยู่ต้นไฟล์ · CSS แต่ละแอปต่อท้าย
 ├── src/

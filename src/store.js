@@ -127,8 +127,7 @@ export const defaultSettings = {
     injectBank: false,            // แทรกยอดเงิน + ธุรกรรมล่าสุด เข้า RP
     injectShop: false,            // แทรกของที่ซื้อไว้ เข้า RP
     injectPet: false,             // แทรกสถานะสัตว์เลี้ยง เข้า RP
-    injectTheater: false,         // แทรกเรื่องในมินิเธียเตอร์ เข้า RP
-    injectNovel: false,           // แทรกนิยายที่อ่านอยู่ เข้า RP
+    injectAsk: false,             // แทรกคำถาม-คำตอบล่าสุดใน TinyAsk เข้า RP
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
     bankCurrency: "฿",            // (fallback เท่านั้น) สกุลเงินจริงผูกกับตัวละคร — ดู getCharCurrency() ใน index.js · ใช้ตอนไม่มีตัวละครในแชท
     bankCurrencyAfter: false,     // (fallback) ตำแหน่งสัญลักษณ์เมื่อไม่มีตัวละคร — ค่าจริงต่อตัวละครอยู่ที่ charCurrency
@@ -139,7 +138,6 @@ export const defaultSettings = {
     shopCategories: ["เสื้อผ้า", "ของกิน", "ไอเทม/ของใช้", "ของแต่งบ้าน", "อื่นๆ"],  // หมวดสินค้า (แก้ในตั้งค่า)
     shopTokens: 400,              // ความยาวผลลัพธ์ตอน AI สร้างสินค้า
     shopExtraPrompt: "",          // คำสั่งเสริมตอน AI สร้างสินค้า
-    shopToInventory: true,        // ซื้อสินค้าที่มีเอฟเฟกต์แล้วเข้ากระเป๋า TinyQuest อัตโนมัติ (รอบ ③)
     // tier โดเนทแบบ SuperChat: สีเปลี่ยนตามจำนวนเงิน (min = ยอดขั้นต่ำของ tier นั้น)
     donateTiers: [
         { min: 0, color: "#1d9bf0" },
@@ -171,8 +169,7 @@ export const defaultSettings = {
     crossAppBank: false,          // การเงิน TinyBank
     crossAppShop: false,          // ของที่ซื้อไว้ TinyShop
     crossAppPet: false,           // สถานะสัตว์เลี้ยง TinyPet
-    crossAppTheater: false,       // เรื่องในมินิเธียเตอร์ TinyTheater
-    crossAppNovel: false,         // นิยาย TinyNovel
+    crossAppAsk: false,           // คำถาม-คำตอบ TinyAsk
     // ── ทริกเกอร์ด้วยคีย์เวิร์ด: เมื่อโหมด auto ของแอปตั้งเป็น "keyword" ──
     // เจอคำเหล่านี้ในข้อความ RP ล่าสุด → สั่งแอปนั้นสร้างเนื้อหา (มี cooldown กันถี่)
     // ฟรี ทำงานฝั่งเบราว์เซอร์ ไม่มีดีเลย์/ไม่ต้องโหลดโมเดล (embedding เป็นแผนอนาคต)
@@ -181,6 +178,7 @@ export const defaultSettings = {
     memoKeywords: "จดไว้, โน้ตไว้, เตือนความจำ, กันลืม, นัดหมาย, กำหนดการ, ตารางงาน, memo, reminder, todo",
     forumKeywords: "กระทู้, เว็บบอร์ด, พันทิป, ตั้งกระทู้, ในบอร์ด, ชาวเน็ต, forum, pantip",
     connectKeywords: "แชต, ทักไลน์, ส่งไลน์, ทักมา, ส่งข้อความ, ไลน์มา, chat, line, dm, ทักหา",
+    askKeywords: "ถาม, สงสัย, กล่องคำถาม, มีคนถามว่า, ask, ngl",
     keywordCooldownSec: 45,       // เว้นระยะขั้นต่ำต่อแอป (วินาที) กันทริกเกอร์ถี่เกิน
     keywordScope: "both",         // ทริกเกอร์คีย์เวิร์ดจับข้อความฝั่งไหน: "both" | "char" | "user"
     // ── TinyPet (สัตว์เลี้ยงเสมือน — global ข้ามแชท, เก็บใน key "pet") ──
@@ -192,9 +190,6 @@ export const defaultSettings = {
     petAiReactions: true,         // ให้ AI แต่งบทพูดเพ็ทหลังกดปุ่ม
     petTokens: 60,                // ความยาวบทพูดเพ็ท
     petExtraPrompt: "",           // คำสั่งเสริมบทพูดเพ็ท (นิสัย/สายพันธุ์/โทน)
-    // TinyNovel (แอปอ่านนิยาย — global ไม่ผูกแชท)
-    novelTokens: 850,             // ความยาวตอนเริ่มต้น (ตัวเลือกในแอปทับค่านี้ได้)
-    novelExtraPrompt: "",         // คำสั่งเสริมเวลาแต่งนิยาย
     petAutoPost: false,           // ให้เพ็ทโพสต์ลงฟีดเองเป็นระยะ (ตอนอารมณ์ดี)
     // ร้านสัตว์เลี้ยง (แยกจาก TinyShop) — ซื้อด้วย "เหรียญเพ็ท" (เติมจาก TinyBank / รับจากมินิเกม)
     petCoinRate: 1,               // เหรียญที่ได้ต่อ 1 บาท TinyBank ตอนเติม
@@ -204,28 +199,13 @@ export const defaultSettings = {
         { id: "pi_toy1", name: "ลูกบอลนุ่ม", price: 12, emoji: "🎾", image: "", type: "toy", amount: 30, desc: "ของเล่นโปรด" },
         { id: "pi_care1", name: "สบู่หอม", price: 10, emoji: "🧼", image: "", type: "care", amount: 60, desc: "อาบน้ำหอมสะอาด" },
     ],
-    // TinyVerse
-    verseBioLimit: 1000,          // จำกัดจำนวนตัวอักษร bio ที่ดึงจากการ์ด (0 = ไม่จำกัด)
-    verseTokens: 120,             // ความยาวโพสต์ฟีดโกลบอล (โทเคน)
-    // TinyQuest (แอปที่ 13): สเตตัส/schema RPG ที่ตั้งเองได้ต่อการ์ด
-    rpgSchemas: {},                // { <charFile>: { stats:[statDef], stages:[] } } — schema ผูกกับการ์ด
-    injectRpg: false,              // แทรกสถานะผู้เล่นเข้า RP หลัก
-    injectRpgNpc: false,           // · รวมความสัมพันธ์กับ NPC ด้วย (รอบ ②)
-    crossAppRpg: false,            // ให้แอปอื่นอ้างอิงสถานะได้
-    rpgNpcInfo: {},                // { <charFile>: { <npcKey>: {name,avatar,birthday,...,extra,known} } } — ตัวตน NPC ผูกการ์ด (รอบ ②)
-    rpgTokens: 350,                // ความยาวผลลัพธ์ตอน AI เสนอสเตตัส
-    rpgExtraPrompt: "",            // คำสั่งเสริมตอน AI เสนอสเตตัส
-    hudEnabled: false,             // แถบ HUD เหนือช่องพิมพ์ในหน้าแชทหลักของ ST (ปิดโดยดีฟอลต์)
-    hudCollapsed: false,           // จำสถานะพับ/กาง HUD
-    widgetRpg: false,              // วิดเจ็ตสถานะบนหน้าโฮม
-    // รอบ ④: เควส + AI สแกนบท
-    rpgAutoScan: false,            // สแกนบทอัตโนมัติ (สเตตัส/ความสัมพันธ์/ไอเทม/เควส)
-    rpgAutoMode: "interval",       // "interval" | "ai" | "keyword"
-    rpgAutoInterval: 15,
-    rpgScanTokens: 400,            // ความยาวผลลัพธ์ตอนสแกนบท (คนละค่ากับ rpgTokens ที่ใช้ตอนเสนอสเตตัสครั้งแรก)
-    rpgScanExtraPrompt: "",        // คำสั่งเสริมตอนสแกนบท
-    rpgScanAutoApply: false,       // ข้ามหน้ารีวิว apply ผลสแกนทันที (ปิดโดยดีฟอลต์ — เชื่อ AI 100% เสี่ยงข้อมูลเพี้ยนสะสม)
-    rpgKeywords: "",               // คีย์เวิร์ดทริกเกอร์สแกน (โหมด keyword)
+    // TinyAsk (ถาม-ตอบนิรนาม สไตล์ NGL/ask.fm — ผูกกับแชท)
+    askAutoGenerate: false,       // ให้คนส่งคำถามนิรนามเข้ามาเองเป็นระยะ
+    askAutoMode: "interval",      // "interval" | "ai" | "keyword"
+    askAutoInterval: 18,
+    askTokens: 200,               // ความยาวผลลัพธ์ตอน AI สร้างคำถาม/คำตอบ
+    askExtraPrompt: "",           // คำสั่งเสริม (โทน/ธีมของคำถาม)
+    askReveal: false,             // เฉลยชื่อผู้ถามจริงได้ (ปุ่ม 👁 บนการ์ด) — ปิดโดยดีฟอลต์
 };
 
 export function getSetting(key) {
@@ -247,6 +227,7 @@ export function getSeedData() {
         agenda: [], // TinyMemo กำหนดการ [{ id, when, title, status, isAI, ts }]
         notes: [],  // TinyMemo โน้ต/ความจำ [{ id, text, kind, isAI, ts }]
         forum: [],  // TinyForum กระทู้ [{ id, room, title, body, author, likes, comments:[] }]
+        ask: [],    // TinyAsk คำถามนิรนาม [{ id, owner, from, anon, byUser, text, answer, ts, answerTs, likes, liked }]
     };
 }
 
