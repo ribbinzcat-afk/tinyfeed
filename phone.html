@@ -319,6 +319,22 @@
                         <input id="tinyfeed-cfg-connect-slip" type="checkbox" />
                     </label>
                     <small class="tinyfeed-field-hint">เราโอนออกเองได้เสมอจากปุ่ม 💸 ในแชท (หักจาก TinyBank) · เปิดตัวเลือกนี้ = ตอนกด "ให้ตอบกลับ" คู่แชทอาจโอนเงินเข้าบัญชีเรา (ตามเนื้อเรื่อง) เข้า TinyBank อัตโนมัติ</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สีบับเบิลแชทฝั่งเรา</span>
+                        <select id="tinyfeed-cfg-connect-bubble-mode">
+                            <option value="">เขียว (ค่าเริ่มต้น)</option>
+                            <option value="accent">ตามสีเน้น (accent)</option>
+                            <option value="custom">กำหนดเอง</option>
+                        </select>
+                    </label>
+                    <label id="tinyfeed-cfg-connect-bubble-custom-row" class="tinyfeed-field-row tinyfeed-hidden">
+                        <span>เลือกสี</span>
+                        <input id="tinyfeed-cfg-connect-bubble-custom" type="color" value="#22c55e" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เว้นระยะกี่นาทีถึงขึ้นเส้นคั่นเวลา</span>
+                        <input id="tinyfeed-cfg-connect-timegap" type="number" min="1" />
+                    </label>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="api">
@@ -556,6 +572,10 @@
                         <input id="tinyfeed-cfg-inject-shop" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field-row">
+                        <span>แทรกของในกระเป๋า TinyBag ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-bag" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
                         <span>แทรกสถานะสัตว์เลี้ยง TinyPet ด้วย</span>
                         <input id="tinyfeed-cfg-inject-pet" type="checkbox" />
                     </label>
@@ -613,6 +633,10 @@
                     <label class="tinyfeed-field-row">
                         <span>· ของที่ซื้อไว้ (TinyShop)</span>
                         <input id="tinyfeed-cfg-crossapp-shop" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· กระเป๋า (TinyBag)</span>
+                        <input id="tinyfeed-cfg-crossapp-bag" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field-row">
                         <span>· สัตว์เลี้ยง (TinyPet)</span>
@@ -789,6 +813,33 @@
                         <i class="fa-solid fa-plus"></i> <span>เพิ่ม tier</span>
                     </button>
                     <small class="tinyfeed-field-hint">ยอดเงิน + ประวัติธุรกรรม<b>ผูกกับแชท</b> (แยกตามเนื้อเรื่อง) · เปิดระบบโดเนท → เวลาโหลดคอมเมนต์สดใน TinyStream, AI จะเลือกให้ผู้ชมโดเนท (กำหนดจำนวน+ข้อความเอง) เข้าบัญชีเรา เด้งการ์ดสีตาม tier บนจอไลฟ์ · ปิดไว้ = เพิ่ม/จ่ายเงินเองเท่านั้น</small>
+
+                    <div class="tinyfeed-settings-title">สแกนเงินจากบท RP</div>
+                    <label class="tinyfeed-field-row">
+                        <span>สแกนหาเงินเข้า-ออกจากบท RP อัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-bankscan-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-bankscan-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สแกนทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-bankscan-interval" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เพดานยอดต่อรายการที่สแกนเจอ (กัน AI ใส่ตัวเลขหลุด)</span>
+                        <input id="tinyfeed-cfg-bankscan-max" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมสำหรับสแกน (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-bankscan-extra" rows="2" placeholder="เช่น: เน้นค่าจ้าง/รางวัล, ไม่เอาเงินทอนเล็กน้อย..."></textarea>
+                    </label>
+                    <small class="tinyfeed-field-hint">สแกนแล้ว<b>ไม่เข้าบัญชีทันที</b> — ขึ้นหน้ารีวิวให้เลือกรับเป็นรายการก่อนเสมอ กันสแกนพลาด/AI แต่งตัวเลขเกินจริง · เปิด auto แล้วสแกนพื้นหลังตามจังหวะที่ตั้ง แต่ยังต้องกดยืนยันในหน้ารีวิวเหมือนเดิม</small>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="keywords">
@@ -865,6 +916,15 @@
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">เพดานคิด decay ตอนหายไปนาน (ชม.)</span>
                         <input id="tinyfeed-cfg-pet-offline" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เงียบ (ไม่มีข้อความ RP) เกินกี่นาทีถึงหยุด decay ชั่วคราว</span>
+                        <input id="tinyfeed-cfg-pet-idlepause" type="number" min="0" />
+                    </label>
+                    <small class="tinyfeed-field-hint">กันน้องทรุดโทรมตอนเปิดแท็บ ST ทิ้งไว้เฉยๆ ไม่ได้เล่น RP · ตั้ง 0 = ปิด (คิด decay ตามเวลาจริงตลอด)</small>
+                    <label class="tinyfeed-field-row">
+                        <span>โหมดไม่ตาย (ป่วยหนักสุดได้ แต่ไม่ตาย)</span>
+                        <input id="tinyfeed-cfg-pet-nodeath" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">เรตเติมเหรียญ (เหรียญ/1 บาท TinyBank)</span>
@@ -1139,6 +1199,9 @@
                         <button id="tinyfeed-bank-out" class="tinyfeed-btn-ghost"><i class="fa-solid fa-minus"></i> จ่าย/ถอน</button>
                     </div>
                 </div>
+                <button id="tinyfeed-bankscan-btn" class="tinyfeed-btn-generate">
+                    <i class="fa-solid fa-scroll"></i> <span>สแกนบท RP หาเงินเข้า-ออก</span>
+                </button>
                 <div class="tinyfeed-bank-txns-head">ประวัติธุรกรรม</div>
                 <div id="tinyfeed-bank-txns" class="tinyfeed-bank-txns"></div>
             </div>
@@ -1196,11 +1259,22 @@
                 <div id="tinyfeed-ask-inbox-list"></div>
             </div>
             <div id="tinyfeed-ask-feed" class="tinyfeed-screen tinyfeed-hidden">
+                <div class="tinyfeed-ask-tools">
+                    <button id="tinyfeed-ask-pair-roll" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-dice"></i> <span>สุ่มคำถาม-คำตอบ</span>
+                    </button>
+                </div>
                 <div id="tinyfeed-ask-feed-list"></div>
             </div>
             <button id="tinyfeed-ask-new" class="tinyfeed-fab" title="ถามใครสักคนแบบไม่ระบุตัวตน">
                 <i class="fa-solid fa-plus"></i>
             </button>
+        </div>
+
+        <div id="tinyfeed-app-bag" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-screen">
+                <div id="tinyfeed-bag-grid" class="tinyfeed-shop-grid"></div>
+            </div>
         </div>
 
         <div id="tinyfeed-ask-send-modal" class="tinyfeed-modal tinyfeed-hidden">
@@ -1212,6 +1286,11 @@
                 <div class="tinyfeed-slip-form">
                     <div class="tinyfeed-field-hint">ถึง: <b id="tinyfeed-ask-send-to">—</b></div>
                     <textarea id="tinyfeed-ask-send-text" rows="3" placeholder="พิมพ์คำถาม..."></textarea>
+                    <div class="tinyfeed-ask-tools">
+                        <span id="tinyfeed-ask-draft-roll" class="tinyfeed-ai-link" title="ให้ AI ช่วยร่างคำถาม">
+                            <i class="fa-solid fa-dice"></i> ให้ AI ช่วยคิดคำถาม
+                        </span>
+                    </div>
                     <label class="tinyfeed-field-row">
                         <span>ไม่ระบุตัวตน</span>
                         <input id="tinyfeed-ask-send-anon" type="checkbox" checked />
@@ -1242,6 +1321,26 @@
                     <span id="tinyfeed-char-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
                 <div id="tinyfeed-char-picker-list" class="tinyfeed-char-picker-list"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-dest-picker" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span id="tinyfeed-dest-picker-title">เลือกห้องแชต</span>
+                    <span id="tinyfeed-dest-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-dest-picker-list" class="tinyfeed-char-picker-list"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-giftbag-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>เลือกของจากกระเป๋าส่งให้ <b id="tinyfeed-giftbag-to"></b></span>
+                    <span id="tinyfeed-giftbag-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-giftbag-list" class="tinyfeed-shop-grid"></div>
             </div>
         </div>
 
@@ -1288,6 +1387,51 @@
                     <input id="tinyfeed-slip-amount" type="number" min="1" placeholder="จำนวนเงิน" />
                     <input id="tinyfeed-slip-note" type="text" placeholder="โน้ต (ไม่บังคับ)" />
                     <button id="tinyfeed-slip-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-money-bill-transfer"></i> โอนออก</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-bank-review-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>เจอเงินในบท RP</span>
+                    <span id="tinyfeed-bank-review-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <small class="tinyfeed-field-hint">ติ๊กรายการที่ต้องการรับเข้าบัญชี — รายการที่ไม่ติ๊กจะไม่มีผลอะไร</small>
+                    <div id="tinyfeed-bank-review-list" class="tinyfeed-bank-review-list"></div>
+                    <div class="tinyfeed-compose-actions">
+                        <button id="tinyfeed-bank-review-reject" class="tinyfeed-btn-ghost">ปฏิเสธทั้งหมด</button>
+                        <button id="tinyfeed-bank-review-apply" class="tinyfeed-btn-primary">รับที่เลือก</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-connect-bg-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>พื้นหลังห้อง <b id="tinyfeed-connect-bg-to"></b></span>
+                    <span id="tinyfeed-connect-bg-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <div class="tinyfeed-uploadrow">
+                        <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                            <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                        </div>
+                        <input id="tinyfeed-connect-bg-url" type="text" placeholder="ลิงก์รูป (เว้นว่าง = ไม่มีพื้นหลัง)" />
+                        <span class="tinyfeed-upload-btn" data-kind="wallpaper" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                    </div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความมืดฝ้าทับ: <b id="tinyfeed-connect-bg-overlay-val">45%</b></span>
+                        <input id="tinyfeed-connect-bg-overlay" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ตั้งพื้นหลังนี้เฉพาะห้องนี้ หรือกด "ใช้กับทุกห้อง" เพื่อตั้งเป็นค่ากลาง (ห้องที่ยังไม่ได้ตั้งเองจะเห็นรูปนี้)</small>
+                    <div class="tinyfeed-compose-actions">
+                        <button id="tinyfeed-connect-bg-clear" class="tinyfeed-btn-ghost">ล้างพื้นหลังห้องนี้</button>
+                        <button id="tinyfeed-connect-bg-save-global" class="tinyfeed-btn-ghost">ใช้กับทุกห้อง</button>
+                        <button id="tinyfeed-connect-bg-save" class="tinyfeed-btn-primary">บันทึก</button>
+                    </div>
                 </div>
             </div>
         </div>

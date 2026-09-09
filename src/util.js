@@ -4,6 +4,26 @@
  * ขึ้นกับ store.js อย่างเดียว (getGallery) ห้าม import จาก index.js */
 import { getGallery } from "./store.js";
 
+// ตัดอักขระที่ "ครอบทั้งชื่อ" ออก (AI ชอบตอบชื่อมาแบบมีเครื่องหมายคำพูด/วงเล็บ/ป้ายกำกับหุ้ม)
+// ต่างจาก regex เดิม (^["'“”\[\(]+|["'“”\]\)]+$) ตรงที่ตัดเฉพาะคู่ที่ห่อ "ทั้งสตริง" จริงๆ
+// เช่น `แนน (สาวน้อย)` ไม่ขึ้นต้นด้วยวงเล็บ → ไม่ถูกแตะ (บั๊กเดิม: ตัด "(" นำหน้ากับ ")" ท้ายแยกกันคนละที่)
+export function cleanAiName(s) {
+    let name = String(s == null ? "" : s).trim();
+    const pairs = [['"', '"'], ["'", "'"], ["“", "”"], ["[", "]"], ["(", ")"]];
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (const [open, close] of pairs) {
+            if (name.length >= 2 && name.startsWith(open) && name.endsWith(close)) {
+                name = name.slice(1, -1).trim();
+                changed = true;
+                break;
+            }
+        }
+    }
+    return name;
+}
+
 export function unescapeLite(s) {
     return String(s == null ? "" : s)
         .replace(/&lt;/g, "<").replace(/&gt;/g, ">")
@@ -40,6 +60,25 @@ export function timeAgo(ts) {
     if (d < 30) return `${Math.floor(d / 7)} สัปดาห์ที่แล้ว`;
     if (d < 365) return `${Math.floor(d / 30)} เดือนที่แล้ว`;
     return `${Math.floor(d / 365)} ปีที่แล้ว`;
+}
+
+const CHAT_TIME_MONTHS_TH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+// เวลาแบบสัมบูรณ์ (ต่างจาก timeAgo ที่เป็นสัมพัทธ์) — ใช้กับเส้นคั่นเวลาในแชท
+// วันนี้ = "HH:MM" · เมื่อวาน = "เมื่อวาน HH:MM" · ปีนี้ = "D MMM HH:MM" · ข้ามปี = "D MMM YYYY HH:MM"
+export function formatChatTime(ts) {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const now = new Date();
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    if (sameDay(d, now)) return hm;
+    const yesterday = new Date(now);
+    yesterday.setDate(now.getDate() - 1);
+    if (sameDay(d, yesterday)) return `เมื่อวาน ${hm}`;
+    const datePart = `${d.getDate()} ${CHAT_TIME_MONTHS_TH[d.getMonth()]}`;
+    return d.getFullYear() === now.getFullYear() ? `${datePart} ${hm}` : `${datePart} ${d.getFullYear()} ${hm}`;
 }
 
 export function itemTimestamp(item) {

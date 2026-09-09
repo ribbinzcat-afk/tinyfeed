@@ -76,6 +76,10 @@ export const defaultSettings = {
     connectTokens: 200,
     connectExtraPrompt: "",
     connectSplitBubbles: true,    // แยกข้อความหลายบรรทัดเป็นหลายบับเบิล
+    connectBubbleColor: "",       // "" = เขียวเดิม · "accent" = ตามสีเน้น · หรือ hex ที่เลือกเอง
+    connectTimeGapMin: 30,        // เว้นระยะกี่นาทีถึงขึ้นเส้นคั่นเวลาในแชท
+    connectBgUrl: "",             // พื้นหลังแชทกลาง (ใช้เป็นค่าเริ่มต้นของห้องที่ยังไม่ได้ตั้งเอง)
+    connectBgOverlay: 45,         // ความมืดฝ้าทับพื้นหลังแชท (0–100%)
     connectAutoGenerate: false,   // ให้คู่แชททักหาเราเองอัตโนมัติ (ตามจังหวะ RP)
     connectAutoMode: "interval",  // "interval" | "ai" | "keyword"
     connectAutoInterval: 12,      // ทักทุกๆ กี่ข้อความ (โหมด interval)
@@ -126,6 +130,7 @@ export const defaultSettings = {
     injectForumComments: false,   // แทรกคอมเมนต์+รีพลายในกระทู้ด้วย
     injectBank: false,            // แทรกยอดเงิน + ธุรกรรมล่าสุด เข้า RP
     injectShop: false,            // แทรกของที่ซื้อไว้ เข้า RP
+    injectBag: false,             // แทรกของในกระเป๋า TinyBag เข้า RP
     injectPet: false,             // แทรกสถานะสัตว์เลี้ยง เข้า RP
     injectAsk: false,             // แทรกคำถาม-คำตอบล่าสุดใน TinyAsk เข้า RP
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
@@ -133,6 +138,12 @@ export const defaultSettings = {
     bankCurrencyAfter: false,     // (fallback) ตำแหน่งสัญลักษณ์เมื่อไม่มีตัวละคร — ค่าจริงต่อตัวละครอยู่ที่ charCurrency
     streamDonateEnabled: false,   // เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)
     bankDonateMax: 5000,          // เพดานยอดโดเนทต่อครั้ง (กัน AI ให้หลุด)
+    bankScanAutoGenerate: false,  // สแกนเงินเข้า-ออกจากบท RP อัตโนมัติ (เจอแล้วรอรีวิว ไม่เข้าบัญชีทันที)
+    bankScanAutoMode: "interval", // "interval" | "ai" | "keyword"
+    bankScanAutoInterval: 15,
+    bankScanTokens: 300,
+    bankScanExtraPrompt: "",
+    bankRpMax: 5000,               // เพดานยอดต่อรายการที่สแกนเจอ (กัน AI ใส่ตัวเลขหลุด)
     connectSlipEnabled: false,    // ให้คู่แชทส่งสลิปโอนเงินเข้าบัญชีเราได้ (AI)
     shop: [],                     // (legacy) แคตตาล็อกเดิมตอนยังเป็น global — เหลือไว้ให้ getShop() สำเนาเข้าแชทครั้งแรกเท่านั้น ไม่ได้ใช้อ่าน/เขียนตรงๆ แล้ว
     shopCategories: ["เสื้อผ้า", "ของกิน", "ไอเทม/ของใช้", "ของแต่งบ้าน", "อื่นๆ"],  // หมวดสินค้า (แก้ในตั้งค่า)
@@ -168,6 +179,7 @@ export const defaultSettings = {
     crossAppForum: false,         // กระทู้ TinyForum
     crossAppBank: false,          // การเงิน TinyBank
     crossAppShop: false,          // ของที่ซื้อไว้ TinyShop
+    crossAppBag: false,           // ของในกระเป๋า TinyBag
     crossAppPet: false,           // สถานะสัตว์เลี้ยง TinyPet
     crossAppAsk: false,           // คำถาม-คำตอบ TinyAsk
     // ── ทริกเกอร์ด้วยคีย์เวิร์ด: เมื่อโหมด auto ของแอปตั้งเป็น "keyword" ──
@@ -179,14 +191,17 @@ export const defaultSettings = {
     forumKeywords: "กระทู้, เว็บบอร์ด, พันทิป, ตั้งกระทู้, ในบอร์ด, ชาวเน็ต, forum, pantip",
     connectKeywords: "แชต, ทักไลน์, ส่งไลน์, ทักมา, ส่งข้อความ, ไลน์มา, chat, line, dm, ทักหา",
     askKeywords: "ถาม, สงสัย, กล่องคำถาม, มีคนถามว่า, ask, ngl",
+    bankKeywords: "ได้เงิน, ค่าจ้าง, ได้รับเงิน, จ่ายเงิน, เสียเงิน, โดนขโมยเงิน, รางวัล, เงินเดือน, money, paid, reward",
     keywordCooldownSec: 45,       // เว้นระยะขั้นต่ำต่อแอป (วินาที) กันทริกเกอร์ถี่เกิน
     keywordScope: "both",         // ทริกเกอร์คีย์เวิร์ดจับข้อความฝั่งไหน: "both" | "char" | "user"
     // ── TinyPet (สัตว์เลี้ยงเสมือน — global ข้ามแชท, เก็บใน key "pet") ──
     petSprites: {},               // { state: url } override รูป sprite ต่อสถานะ ("" = ใช้ไฟล์ในตัว)
-    petDecayHunger: 0.5,          // หิวเพิ่ม/นาที
-    petDecayEnergy: 0.35,         // พลังงานลด/นาที
-    petDecayClean: 0.3,           // ความสะอาดลด/นาที
-    petOfflineCapHours: 8,        // เพดานคิด decay ตอนหายไปนาน (ชม.) — พอให้หายข้ามคืนแล้วยังไม่ตาย แต่โทรมมาก
+    petDecayHunger: 0.25,         // หิวเพิ่ม/นาที (ลดจากเดิม 0.5 — ยืดเวลาตายให้นานขึ้น)
+    petDecayEnergy: 0.2,          // พลังงานลด/นาที (ลดจากเดิม 0.35)
+    petDecayClean: 0.15,          // ความสะอาดลด/นาที (ลดจากเดิม 0.3)
+    petOfflineCapHours: 12,       // เพดานคิด decay ตอนหายไปนาน (ชม.) — พอให้หายข้ามคืนแล้วยังไม่ตาย แต่โทรมมาก
+    petIdlePauseMin: 20,          // เงียบ (ไม่มีข้อความ RP) เกินกี่นาทีถึงหยุดคิด decay ชั่วคราว (0 = ปิด)
+    petNoDeath: false,            // โหมดไม่ตาย — สุขภาพต่ำสุดค้างที่ 1 ป่วยหนักได้แต่ไม่ตาย
     petAiReactions: true,         // ให้ AI แต่งบทพูดเพ็ทหลังกดปุ่ม
     petTokens: 60,                // ความยาวบทพูดเพ็ท
     petExtraPrompt: "",           // คำสั่งเสริมบทพูดเพ็ท (นิสัย/สายพันธุ์/โทน)

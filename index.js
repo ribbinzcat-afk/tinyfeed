@@ -8,8 +8,8 @@ import {
     defaultSettings, flushAllSaves, getFeedData, getGallery, getSetting, saveFeedDataDebounced, saveGallery, setSetting,
 } from "./src/store.js";
 import {
-    displayTime, downscaleImageFile, escapeAttr, escapeHtml, escapeText, findGalleryImage, htmlToPlain,
-    renderImgToken, renderRich, renderStickerToken, resolveMediaPriority,
+    cleanAiName, displayTime, downscaleImageFile, escapeAttr, escapeHtml, escapeText, findGalleryImage, formatChatTime, htmlToPlain,
+    itemTimestamp, renderImgToken, renderRich, renderStickerToken, resolveMediaPriority,
     stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
 } from "./src/util.js";
 import {
@@ -155,6 +155,11 @@ const APPS = [
         panel: "#tinyfeed-app-ask", home: true, remember: true,
         open() { openAsk(); },
     },
+    {
+        id: "bag", name: "TinyBag", label: "กระเป๋า", icon: "fa-box-open", a: "#0ea5e9", b: "#0369a1",
+        panel: "#tinyfeed-app-bag", home: true, remember: true,
+        open() { renderBag(); },
+    },
 ];
 
 const APP_BY_ID = Object.fromEntries(APPS.map((a) => [a.id, a]));
@@ -169,6 +174,7 @@ const OVERLAYS = [
     { sel: "#tinyfeed-char-profile", close: closeCharProfile },
     { sel: "#tinyfeed-group-edit-modal", close: closeGroupEditModal },
     { sel: "#tinyfeed-slip-modal", close: closeSlipModal },
+    { sel: "#tinyfeed-connect-bg-modal", close: closeConnectBgModal },
     { sel: "#tinyfeed-donate-modal", close: closeDonateModal },
     { sel: "#tinyfeed-shop-edit-modal", close: closeShopEditModal },
     { sel: "#tinyfeed-pet-shop-modal", close: closePetShop },
@@ -176,6 +182,9 @@ const OVERLAYS = [
     { sel: "#tinyfeed-pet-topup-modal", close: closePetTopup },
     { sel: "#tinyfeed-pet-game-modal", close: closePetGame },
     { sel: "#tinyfeed-ask-send-modal", close: closeAskSendModal },
+    { sel: "#tinyfeed-bank-review-modal", close: closeBankReviewModal },
+    { sel: "#tinyfeed-dest-picker", close: closeConnectDestPicker },
+    { sel: "#tinyfeed-giftbag-modal", close: closeGiftFromBag },
 ];
 
 function anyOverlayOpen() {
@@ -365,6 +374,25 @@ function applyStreamBg() {
     }
 }
 
+// พื้นหลังห้องแชต — แยกต่อห้อง (getConnectData().threadBg[key]) ไม่ตั้งเอง = ใช้ค่ากลาง (connectBgUrl) ไม่มีทั้งคู่ = พื้นธีมปกติ
+function applyConnectBg(key) {
+    const box = document.getElementById("tinyfeed-connect-messages");
+    if (!box) return;
+    const perRoom = String((getConnectData().threadBg || {})[key] || "").trim();
+    const url = perRoom || String(getSetting("connectBgUrl") || "").trim();
+    if (url) {
+        box.style.backgroundImage = `url("${url.replace(/["\\]/g, encodeURIComponent)}")`;
+        box.classList.add("tinyfeed-has-bg");
+    } else {
+        box.style.backgroundImage = "";
+        box.classList.remove("tinyfeed-has-bg");
+    }
+    let ov = parseInt(getSetting("connectBgOverlay"), 10);
+    if (!Number.isFinite(ov)) ov = 45;
+    ov = Math.min(100, Math.max(0, ov));
+    box.style.setProperty("--tf-connect-bg-alpha", String(ov / 100));
+}
+
 function clearStreamTimer() {
     if (streamTimer) { clearInterval(streamTimer); streamTimer = null; }
 }
@@ -485,7 +513,7 @@ async function toggleStream() {
                 (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
                 `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่องตอนนี้ ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
             const raw = await tinyGenerate(q, 60, "stream");
-            title = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+            title = cleanAiName(stripReasoning(raw).split("\n")[0]);
         }
         s.title = title || "ไลฟ์สด";
         s.direction = direction;
@@ -546,7 +574,7 @@ function parseDonations(raw) {
     while ((m = re.exec(s)) !== null) {
         const parts = m[1].split("|");
         if (parts.length < 2) continue;
-        const author = parts[0].replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const author = cleanAiName(parts[0]);
         const amount = Math.abs(Math.round(parseFloat(String(parts[1]).replace(/[^\d.]/g, "")) || 0));
         const text = parts.slice(2).join("|").trim();
         if (author && amount) out.push({ author, amount, text });
@@ -741,7 +769,7 @@ async function fillStreamAiTitle() {
             (direction ? `แนวทางไลฟ์: ${direction}. ` : "") +
             `ตั้งหัวข้อไลฟ์สั้นๆ 1 บรรทัดให้เข้ากับสถานการณ์ในเนื้อเรื่อง ใช้ภาษาเดียวกับเนื้อเรื่อง ตอบเฉพาะหัวข้อ ไม่ต้องมีอย่างอื่น`;
         const raw = await tinyGenerate(q, 60, "stream");
-        const t = stripReasoning(raw).split("\n")[0].replace(/^["'“”]+|["'“”]+$/g, "").trim();
+        const t = cleanAiName(stripReasoning(raw).split("\n")[0]);
         if (t) $("#tinyfeed-stream-title-input").val(t);
     } catch (e) {
         console.error(`[${extensionName}] ai title failed:`, e);
@@ -842,6 +870,8 @@ function getBankData() {
     if (!data.bank || typeof data.bank !== "object") data.bank = { balance: 0, txns: [] };
     if (typeof data.bank.balance !== "number" || !isFinite(data.bank.balance)) data.bank.balance = 0;
     if (!Array.isArray(data.bank.txns)) data.bank.txns = [];
+    // รายการที่สแกนเจอจากบท RP แต่ยังไม่ได้กดรับ (รอรีวิว) — [{ id, dir, amount, label, ts }]
+    if (!Array.isArray(data.bank.pending)) data.bank.pending = [];
     return data.bank;
 }
 
@@ -907,6 +937,7 @@ function bankTxnMeta(app) {
         case "stream": return { icon: "fa-video", name: "TinyStream" };
         case "connect": return { icon: "fa-comment-dots", name: "TinyConnect" };
         case "shop": return { icon: "fa-bag-shopping", name: "ร้านค้า" };
+        case "rp": return { icon: "fa-scroll", name: "จากบท RP" };
         default: return { icon: "fa-wallet", name: "ธนาคาร" };
     }
 }
@@ -914,6 +945,9 @@ function bankTxnMeta(app) {
 function renderBank() {
     const b = getBankData();
     $("#tinyfeed-bank-balance").text(formatMoney(b.balance));
+    const pendingN = (b.pending || []).length;
+    $("#tinyfeed-bankscan-btn span").text(pendingN ? `มีเงินรอรีวิว ${pendingN} รายการ` : "สแกนบท RP หาเงินเข้า-ออก");
+    $("#tinyfeed-bankscan-btn").toggleClass("tinyfeed-bankscan-pending", pendingN > 0);
     if (!b.txns.length) {
         $("#tinyfeed-bank-txns").html(emptyStateHtml("fa-receipt", "ยังไม่มีธุรกรรม", "เติมเงิน/จ่ายเงินเอง หรือรับโดเนทจากไลฟ์"));
         return;
@@ -943,6 +977,122 @@ function bankManualTxn(dir) {
     }
 }
 
+// ===== TinyBank: สแกนเงินจากบท RP — ให้ตรวจก่อนรับเสมอ ไม่เข้าบัญชีอัตโนมัติ =====
+let isBankScanBusy = false;
+
+// MONEY: <+จำนวน หรือ -จำนวน> | <รายละเอียด> — ทนขยะนำหน้า/ตัวเลขมีคอมมา/เครื่องหมายหาย (default = รับเข้า)
+function parseBankScan(raw) {
+    const s = stripReasoning(raw);
+    const out = [];
+    const re = /MONEY:\s*(.+)/gi;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+        const parts = m[1].split("|");
+        const rawAmt = String(parts[0] || "").trim();
+        const neg = rawAmt.trim().startsWith("-");
+        const num = Math.abs(Math.round(parseFloat(rawAmt.replace(/[^\d.]/g, "")) || 0));
+        const label = (parts.length >= 2 ? parts.slice(1).join("|") : "").trim();
+        if (!num) continue;
+        out.push({ dir: neg ? "out" : "in", amount: num, label: label || (neg ? "รายจ่ายจากบท RP" : "รายรับจากบท RP") });
+    }
+    return out;
+}
+
+// สแกนบทล่าสุด → เจอแล้วไปต่อคิว "รอรีวิว" (ไม่เข้าบัญชีทันที) — เปิดหน้ารีวิวให้เลยถ้าสั่งด้วยมือ
+async function scanBankRp(opts) {
+    opts = opts || {};
+    if (isBankScanBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        if (!opts.silent) toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyBank");
+        return;
+    }
+    if (!getCurrentCharacter()) { if (!opts.silent) toastr.info("เปิดแชทที่มีตัวละครก่อนนะ", "TinyBank"); return; }
+    isBankScanBusy = true;
+    const btn = $("#tinyfeed-bankscan-btn");
+    btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const b = getBankData();
+        // กันสแกนซ้ำเหตุการณ์เดิม (บทล่าสุดที่ป้อนให้มักคาบเกี่ยวกับรอบก่อนหน้า) — บอก AI ว่าอะไรบันทึกไปแล้ว
+        const already = [
+            ...b.pending.map((x) => `${x.dir === "in" ? "+" : "-"}${x.amount} ${x.label}`),
+            ...b.txns.filter((t) => t.app === "rp").slice(0, 10).map((t) => `${t.dir === "in" ? "+" : "-"}${t.amount} ${t.label}`),
+        ];
+        const extra = String(getSetting("bankScanExtraPrompt") || "").trim();
+        const q = buildPrompt("bankScan", {
+            recent: recentRpLines(15),
+            existing: already.length ? `\nเหตุการณ์เกี่ยวกับเงินที่บันทึกไว้แล้ว (ห้ามรายงานซ้ำ):\n${already.join("\n")}\n` : "",
+            extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
+            context: crossAppContext("bank"),
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("bankScanTokens"), 10) || 300), "bank");
+        const cap = Math.max(1, parseInt(getSetting("bankRpMax"), 10) || 5000);
+        const found = parseBankScan(raw);
+        if (!found.length) { if (!opts.silent) toastr.info("ไม่เจอเหตุการณ์เกี่ยวกับเงินใหม่ในบทล่าสุด", "TinyBank"); return; }
+        for (const x of found) {
+            b.pending.push({
+                id: "pv" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                dir: x.dir, amount: Math.min(x.amount, cap), label: x.label, ts: Date.now(),
+            });
+        }
+        saveFeedDataDebounced();
+        if (currentApp === "bank") renderBank();
+        if (opts.notify) showNotif(bankScanNotifAvatar(), "TinyBank", `เจอเงินในบท ${found.length} รายการ รอรีวิว`, "bank", "bank");
+        if (opts.manual || currentApp === "bank") openBankReviewModal();
+    } catch (e) {
+        console.error(`[${extensionName}] scanBankRp failed:`, e);
+        if (!opts.silent) toastr.error("สแกนไม่สำเร็จ ลองใหม่นะ", "TinyBank");
+    } finally {
+        isBankScanBusy = false;
+        btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+function openBankReviewModal() {
+    const pending = getBankData().pending || [];
+    if (!pending.length) { toastr.info("ไม่มีรายการรอรีวิว", "TinyBank"); return; }
+    $("#tinyfeed-bank-review-list").html(pending.map((x, i) => `
+        <label class="tinyfeed-bank-review-row">
+            <input type="checkbox" class="tinyfeed-bank-review-check" data-idx="${i}" checked />
+            <span class="tinyfeed-bank-review-amt tinyfeed-bank-${x.dir}">${x.dir === "in" ? "+" : "−"}${formatMoney(x.amount)}</span>
+            <span class="tinyfeed-bank-review-label">${escapeText(x.label)}</span>
+        </label>
+    `).join(""));
+    $("#tinyfeed-bank-review-modal").removeClass("tinyfeed-hidden");
+}
+function closeBankReviewModal() { $("#tinyfeed-bank-review-modal").addClass("tinyfeed-hidden"); }
+
+// รับเฉพาะรายการที่ติ๊กไว้ (ผ่าน bankAdd/bankDeduct จริง) · ยอดไม่พอ (กรณี dir=out) = ค้างใน pending ต่อ ไม่หายเงียบๆ
+function applyBankReviewSelected() {
+    const b = getBankData();
+    const checked = new Set();
+    $(".tinyfeed-bank-review-check:checked").each(function () { checked.add(parseInt($(this).data("idx"), 10)); });
+    let applied = 0;
+    const remaining = [];
+    b.pending.forEach((x, i) => {
+        if (checked.has(i)) {
+            const ok = x.dir === "in"
+                ? bankAdd(x.amount, x.label, "rp", { silentToast: true })
+                : bankDeduct(x.amount, x.label, "rp", { silentToast: true });
+            if (ok) { applied++; return; }
+        }
+        remaining.push(x);
+    });
+    b.pending = remaining;
+    saveFeedDataDebounced();
+    closeBankReviewModal();
+    renderBank();
+    toastr.success(applied ? `รับเข้าบัญชีแล้ว ${applied} รายการ` : "ไม่มีรายการที่เลือก", "TinyBank");
+}
+function rejectBankReviewAll() {
+    const b = getBankData();
+    b.pending = [];
+    saveFeedDataDebounced();
+    closeBankReviewModal();
+    renderBank();
+    toastr.info("ปฏิเสธรายการที่สแกนเจอทั้งหมดแล้ว", "TinyBank");
+}
+
 /* ===== TinyShop: ร้านค้า — แคตตาล็อกผูกกับแชท (เดิม global, ย้ายตามคำขอผู้ใช้ 2026-08)
  * หมวดสินค้า (shopCategories) ยังเป็น global เหมือนเดิม — คู่กับแนวทางเดียวกับ TinyForum
  * (forumRooms เป็น global แต่กระทู้จริงผูกแชท) ตั้งชื่อหมวดครั้งเดียวใช้ข้ามเรื่องได้ แต่สินค้าแยกตามเรื่อง */
@@ -965,6 +1115,38 @@ function getShopOwned() {
     const data = getFeedData();
     if (!data.shopOwned || typeof data.shopOwned !== "object") data.shopOwned = {};
     return data.shopOwned;
+}
+
+/* ===== TinyBag: กระเป๋าของที่ซื้อ — เก็บ snapshot ชื่อ/รูป/รายละเอียดตอนซื้อ (ผูกแชท เหมือน TinyShop)
+ * ของไม่หายแม้ลบสินค้าออกจากร้านทีหลัง (ต่างจาก shopOwned เดิมที่อ้างด้วย id เฉยๆ) */
+function bagId() { return "bg" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function getBag() {
+    const data = getFeedData();
+    if (!Array.isArray(data.bag)) {
+        // ครั้งแรกหลังอัปเดต — ย้ายของเก่าจาก shopOwned (ถ้ามี) เข้ากระเป๋าใหม่ครั้งเดียว ไม่แตะ/ลบ shopOwned เดิม
+        data.bag = [];
+        const owned = data.shopOwned;
+        if (owned && typeof owned === "object") {
+            const catalog = Array.isArray(data.shop) ? data.shop : [];
+            for (const itemId of Object.keys(owned)) {
+                const qty = Number(owned[itemId]) || 0;
+                if (qty <= 0) continue;
+                const it = catalog.find((x) => x.id === itemId);
+                data.bag.push({
+                    id: bagId(), itemId, name: it ? it.name : "ของที่ซื้อไว้ (ไม่พบข้อมูลเดิม)",
+                    emoji: it ? (it.emoji || "") : "📦", image: it ? (it.image || "") : "",
+                    desc: it ? (it.desc || "") : "", qty, src: "shop", from: "", ts: Date.now(),
+                });
+            }
+        }
+        saveFeedDataDebounced();
+    }
+    return data.bag;
+}
+function saveBag() { saveFeedDataDebounced(); }
+// จำนวนของชิ้นหนึ่งในกระเป๋าที่มาจากสินค้าร้าน itemId นี้ (รวมทุกครั้งที่ซื้อ) — ใช้ทำป้าย "มี N" บนการ์ดร้าน
+function bagQtyForShopItem(itemId) {
+    return getBag().filter((x) => x.itemId === itemId && x.src === "shop").reduce((sum, x) => sum + (x.qty || 0), 0);
 }
 function shopId() { return "sh" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 // หมวดสินค้า (global setting) — คล้ายห้องของ TinyForum · คืน "ดิบ" (รวมช่องว่าง) ให้ตัวแก้ในตั้งค่าทำงานได้
@@ -1005,7 +1187,6 @@ function renderShop() {
     // กรองหมวดที่หายไปแล้ว
     if (shopFilterCat !== "__all__" && !shopCatsClean().includes(shopFilterCat)) shopFilterCat = "__all__";
     renderShopCatBar();
-    const owned = getShopOwned();
     let items = getShop();
     if (shopFilterCat !== "__all__") items = items.filter((it) => (it.cat || "") === shopFilterCat);
     if (!items.length) {
@@ -1014,18 +1195,22 @@ function renderShop() {
         return;
     }
     $("#tinyfeed-shop-grid").html(items.map((it) => {
-        const n = owned[it.id] || 0;
+        const n = bagQtyForShopItem(it.id);
         return `<div class="tinyfeed-shop-item" data-id="${escapeAttr(it.id)}">
             <div class="tinyfeed-shop-thumb-wrap">
                 ${shopThumbHtml(it)}
                 ${n ? `<span class="tinyfeed-shop-owned">มี ${n}</span>` : ""}
+                <span class="tinyfeed-shop-gift" title="ซื้อและส่งเป็นของขวัญ"><i class="fa-solid fa-gift"></i></span>
                 <span class="tinyfeed-shop-edit" title="แก้ไขสินค้า"><i class="fa-solid fa-pen"></i></span>
                 <span class="tinyfeed-shop-del" title="ลบสินค้า"><i class="fa-solid fa-trash"></i></span>
             </div>
             <div class="tinyfeed-shop-name">${escapeText(it.name)}</div>
             ${it.cat ? `<div class="tinyfeed-shop-cat-tag">${escapeText(it.cat)}</div>` : ""}
             ${it.desc ? `<div class="tinyfeed-shop-desc">${escapeText(it.desc)}</div>` : ""}
-            <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
+            <div class="tinyfeed-shop-cardfoot">
+                <button class="tinyfeed-shop-buy tinyfeed-btn-primary" data-id="${escapeAttr(it.id)}">${formatMoney(it.price)}</button>
+                <span class="tinyfeed-shop-share" data-id="${escapeAttr(it.id)}" title="แชร์สินค้านี้"><i class="fa-solid fa-share"></i></span>
+            </div>
         </div>`;
     }).join(""));
 }
@@ -1119,7 +1304,7 @@ function parseShopItems(raw, cats) {
     let m, count = 0;
     while ((m = re.exec(s)) !== null) {
         const parts = m[1].split("|").map((x) => x.trim());
-        const name = (parts[0] || "").replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const name = cleanAiName(parts[0] || "");
         const price = Math.abs(Math.round(parseFloat(String(parts[1] || "").replace(/[^\d.]/g, "")) || 0));
         let cat = (parts[2] || "").trim();
         const emoji = (parts[3] || "").trim().slice(0, 4);
@@ -1139,15 +1324,96 @@ function deleteShopItem(id) {
     saveShop();
     renderShop();
 }
+function shareShopItem(id) {
+    const it = getShop().find((x) => String(x.id) === String(id));
+    if (!it) return;
+    openSharePicker({ kind: "shop", title: it.name, sub: `สินค้าจาก TinyShop · ${formatMoney(it.price)}`, body: it.desc || "", image: it.image || "", emoji: it.emoji || "🛍️" });
+}
 function buyShopItem(id) {
     const it = getShop().find((x) => String(x.id) === String(id));
     if (!it) return;
     if (!bankDeduct(it.price, `ซื้อ ${it.name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
-    const owned = getShopOwned();
-    owned[id] = (owned[id] || 0) + 1;
-    saveFeedDataDebounced();
+    const bag = getBag();
+    // สแนปช็อตชื่อ/รูป/รายละเอียดตอนซื้อ — ถ้าร้านลบสินค้านี้ทีหลัง ของในกระเป๋ายังอยู่ครบ
+    const existing = bag.find((x) => x.itemId === id && x.src === "shop");
+    if (existing) existing.qty = (existing.qty || 0) + 1;
+    else bag.push({
+        id: bagId(), itemId: id, name: it.name, emoji: it.emoji || "", image: it.image || "",
+        desc: it.desc || "", qty: 1, src: "shop", from: "", ts: Date.now(),
+    });
+    saveBag();
     renderShop();
     toastr.success(`ซื้อ "${it.name}" แล้ว`, "TinyShop");
+}
+
+// ===== TinyBag (แอปที่ 11): กระเป๋าของที่ซื้อ — แสดง/ใช้/ทิ้ง (ส่งเป็นของขวัญ → เฟส 4) =====
+function renderBag() {
+    const box = $("#tinyfeed-bag-grid");
+    if (!box.length) return;
+    const items = getBag().filter((x) => (x.qty || 0) > 0);
+    if (!items.length) {
+        box.html(emptyStateHtml("fa-box-open", "กระเป๋ายังว่างอยู่", "ซื้อของจากร้าน TinyShop แล้วจะมาโผล่ที่นี่"));
+        return;
+    }
+    box.html(items.slice().reverse().map((x) => `
+        <div class="tinyfeed-shop-item" data-id="${escapeAttr(x.id)}">
+            <div class="tinyfeed-shop-thumb-wrap">
+                ${shopThumbHtml(x)}
+                ${x.qty > 1 ? `<span class="tinyfeed-shop-owned">×${x.qty}</span>` : ""}
+            </div>
+            <div class="tinyfeed-shop-name">${escapeText(x.name)}</div>
+            ${x.desc ? `<div class="tinyfeed-shop-desc">${escapeText(x.desc)}</div>` : ""}
+            <div class="tinyfeed-bag-actions">
+                <span class="tinyfeed-bag-use" data-id="${escapeAttr(x.id)}" title="ใช้ 1 ชิ้น"><i class="fa-solid fa-hand-sparkles"></i> ใช้</span>
+                <span class="tinyfeed-bag-gift" data-id="${escapeAttr(x.id)}" title="ส่งเป็นของขวัญ"><i class="fa-solid fa-gift"></i></span>
+                <span class="tinyfeed-bag-discard" data-id="${escapeAttr(x.id)}" title="ทิ้ง"><i class="fa-solid fa-trash"></i></span>
+            </div>
+        </div>
+    `).join(""));
+}
+function useBagItem(id) {
+    const bag = getBag();
+    const x = bag.find((it) => it.id === id);
+    if (!x) return;
+    const name = x.name;
+    x.qty = (x.qty || 1) - 1;
+    if (x.qty <= 0) bag.splice(bag.indexOf(x), 1);
+    saveBag();
+    renderBag();
+    updateChatInjection();
+    toastr.success(`ใช้ "${name}" แล้ว`, "TinyBag");
+}
+function discardBagItem(id) {
+    const bag = getBag();
+    const i = bag.findIndex((it) => it.id === id);
+    if (i < 0) return;
+    const name = bag[i].name;
+    bag.splice(i, 1);
+    saveBag();
+    renderBag();
+    updateChatInjection();
+    toastr.info(`ทิ้ง "${name}" แล้ว`, "TinyBag");
+}
+// ส่งของจากกระเป๋าเป็นของขวัญ (เรียกจากหน้าแอป TinyBag เอง — ต่างจาก openGiftFromBag ที่เรียกจากเมนู (+) ในแชท ซึ่งรู้ผู้รับอยู่แล้ว)
+function giftBagItem(id) {
+    if (!getBag().some((it) => it.id === id)) return;
+    const itemName = getBag().find((it) => it.id === id).name;
+    openConnectDestPicker(`ส่ง "${itemName}" ให้ใคร`, (key, name) => {
+        const item = getBag().find((it) => it.id === id);
+        if (!item) { toastr.info("ของชิ้นนี้ถูกใช้ไปแล้ว", "TinyBag"); return; }
+        item.qty = (item.qty || 1) - 1;
+        const giftSnap = { name: item.name, emoji: item.emoji || "", image: item.image || "", desc: item.desc || "" };
+        const bag = getBag();
+        if (item.qty <= 0) bag.splice(bag.indexOf(item), 1);
+        saveBag();
+        getThread(key).push({ from: "user", isGift: true, gift: giftSnap, ts: Date.now() });
+        if (key === "pet") { petBondAdd(3); savePet(); } else saveFeedDataDebounced();
+        if (currentApp === "connect" && activeThread === key) renderThread();
+        renderBag();
+        updateChatInjection();
+        toastr.success(`ส่ง "${giftSnap.name}" ให้ ${name} แล้ว`, "TinyConnect");
+        maybeGiftThankYou(key);
+    });
 }
 
 // ===== TinyGallery: คลังรูป + สติกเกอร์ (global, ไม่ผูกกับแชท) =====
@@ -1642,6 +1908,7 @@ function getConnectData() {
     const data = getFeedData();
     if (!data.connect || typeof data.connect !== "object") data.connect = { threads: {} };
     if (!data.connect.threads) data.connect.threads = {};
+    if (!data.connect.threadBg || typeof data.connect.threadBg !== "object") data.connect.threadBg = {};
     return data.connect;
 }
 
@@ -1749,6 +2016,14 @@ function contactAvatarItem(c) {
     return c.isMain ? { isMain: true, author: c.name } : { author: c.name, avatar: c.avatar || "" };
 }
 
+// ข้อความ 1 รายการในแชท TinyConnect → ข้อความล้วน ใช้ทำ transcript ป้อน AI (รวมสลิป/แชร์/ของขวัญ — ห้ามแก้ทีละที่ ใช้จุดนี้จุดเดียว)
+function connectMsgText(m) {
+    if (m.isSlip) return `[โอนเงิน ${formatMoney(m.amount)}${m.note ? " — " + m.note : ""}]`;
+    if (m.isShare) { const s = m.share || {}; return `[แชร์: ${htmlToPlain(s.title || "")}${s.body ? " — " + htmlToPlain(s.body) : ""}]`; }
+    if (m.isGift) { const g = m.gift || {}; return `[ส่งของขวัญ: ${htmlToPlain(g.name || "")}]`; }
+    return htmlToPlain(m.text);
+}
+
 function isConnectThreadOpen() {
     return !$("#tinyfeed-connect-thread").hasClass("tinyfeed-hidden");
 }
@@ -1779,7 +2054,7 @@ function renderConnectList() {
         if (!t.length) return fallback;
         const m = t[t.length - 1];
         const who = m.from === "user" ? getUserName() : (m.author || "");
-        return `${who ? who + ": " : ""}${htmlToPlain(m.text)}`.slice(0, 42);
+        return `${who ? who + ": " : ""}${connectMsgText(m)}`.slice(0, 42);
     };
 
     const contactRows = contacts.map((c) => `
@@ -1825,6 +2100,7 @@ function openThread(key, name) {
     $("#tinyfeed-connect-thread-tools").toggleClass("tinyfeed-hidden", isPet);
     $("#tinyfeed-connect-reply").toggleClass("tinyfeed-hidden", isGroup || isPet);
     $("#tinyfeed-group-continue").toggleClass("tinyfeed-hidden", !isGroup);
+    applyConnectBg(key);
     renderThread();
     saveLastScreen();
     $("#tinyfeed-connect-input").trigger("focus");
@@ -1864,14 +2140,29 @@ function renderThread() {
     const delBtn = (i) => `<span class="tinyfeed-msg-del" data-idx="${i}" title="ลบข้อความ"><i class="fa-solid fa-trash"></i></span>`;
     // แยกข้อความ → หลายบับเบิล: สติกเกอร์/รูปแยกบับเบิลเสมอ (แม้อยู่กลางข้อความไม่ขึ้นบรรทัดใหม่) ·
     // ส่วนข้อความแยกตามบรรทัดเมื่อเปิด connectSplitBubbles
+    // segment ที่เป็นโทเคนรูป/สติกเกอร์ล้วน (ทั้งบรรทัด) → ไม่ครอบด้วยกรอบบับเบิล ให้เห็นรูปเปล่าๆ
+    const mediaOnlyRe = /^\[(?:sticker|img):[^\]]+\]$/i;
     const bubblesHtml = (text) => {
         const segs = connectBubbleSegments(text);
-        return segs.map((s) => `<div class="tinyfeed-msg-bubble">${renderRich(s)}</div>`).join("");
+        return segs.map((s) => {
+            const cls = mediaOnlyRe.test(s) ? "tinyfeed-msg-media" : "tinyfeed-msg-bubble";
+            return `<div class="${cls}">${renderRich(s)}</div>`;
+        }).join("");
     };
+    // เส้นคั่นเวลา: โผล่เมื่อห่างจากข้อความก่อนหน้าเกิน connectTimeGapMin (หรือเป็นข้อความแรก)
+    const gapMs = Math.max(1, parseInt(getSetting("connectTimeGapMin"), 10) || 30) * 60000;
+    let prevTs = null;
+    const timeDivider = (ts) => `<div class="tinyfeed-msg-timediv"><span>${escapeText(formatChatTime(ts))}</span></div>`;
     const rows = msgs.map((m, i) => {
-        const content = m.isSlip ? slipCardHtml(m) : bubblesHtml(m.text);
+        const ts = itemTimestamp(m);
+        let divider = "";
+        if (ts) {
+            if (prevTs === null || ts - prevTs >= gapMs) divider = timeDivider(ts);
+            prevTs = ts;
+        }
+        const content = m.isSlip ? slipCardHtml(m) : m.isShare ? shareCardHtml(m) : m.isGift ? giftCardHtml(m) : bubblesHtml(m.text);
         if (m.from === "user") {
-            return `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
+            return divider + `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
                 ${delBtn(i)}
                 <div class="tinyfeed-msg-stack">${content}</div>
             </div>`;
@@ -1881,7 +2172,7 @@ function renderThread() {
         const avaItem = group
             ? { author: who, avatar: getNpcAvatar(who), isMain: who === ((getCurrentCharacter() || {}).name || "") }
             : contactAvatarItem(contact);
-        return `<div class="tinyfeed-msg tinyfeed-msg-contact" data-idx="${i}">
+        return divider + `<div class="tinyfeed-msg tinyfeed-msg-contact" data-idx="${i}">
             ${makeAvatar(avaItem)}
             <div class="tinyfeed-msg-col">
                 ${group ? `<span class="tinyfeed-msg-author">${escapeText(who)}</span>` : ""}
@@ -1924,6 +2215,32 @@ function slipCardHtml(m) {
     </div>`;
 }
 
+// การ์ดแชร์ในแชท (โพสต์/ข่าว/กระทู้/สินค้า ที่ส่งเข้ามา)
+function shareCardHtml(m) {
+    const s = m.share || {};
+    const img = s.image ? `<img class="tinyfeed-share-img" src="${escapeAttr(s.image)}" onerror="this.classList.add('tinyfeed-img-broken')" />` : "";
+    return `<div class="tinyfeed-share-card">
+        ${img}
+        <div class="tinyfeed-share-body">
+            <div class="tinyfeed-share-head">${s.emoji ? escapeText(s.emoji) + " " : ""}${escapeText(s.title || "")}</div>
+            ${s.sub ? `<div class="tinyfeed-share-sub">${escapeText(s.sub)}</div>` : ""}
+            ${s.body ? `<div class="tinyfeed-share-desc">${escapeText(s.body)}</div>` : ""}
+        </div>
+    </div>`;
+}
+
+// การ์ดของขวัญในแชท — ใช้ thumbnail แบบเดียวกับสินค้า TinyShop/TinyBag
+function giftCardHtml(m) {
+    const g = m.gift || {};
+    return `<div class="tinyfeed-gift-card">
+        <div class="tinyfeed-gift-head"><i class="fa-solid fa-gift"></i> ส่งของขวัญ</div>
+        <div class="tinyfeed-gift-body">
+            <div class="tinyfeed-shop-thumb-wrap tinyfeed-gift-thumb-wrap">${shopThumbHtml(g)}</div>
+            <div class="tinyfeed-gift-name">${escapeText(g.name || "ของขวัญ")}</div>
+        </div>
+    </div>`;
+}
+
 // เปิด/ปิด modal โอนเงินในแชทที่เปิดอยู่
 function openSlipModal() {
     if (!activeThread) return;
@@ -1934,10 +2251,157 @@ function openSlipModal() {
 }
 function closeSlipModal() { $("#tinyfeed-slip-modal").addClass("tinyfeed-hidden"); }
 
-// เมนู (+) ฟังก์ชันเสริมในแชท (สไตล์ไลน์) — ตอนนี้มีแค่โอนเงิน · ออกแบบให้เพิ่มรายการอนาคตได้ง่าย
-// (เช่น แชร์โพสต์ฟีด / แชร์ข่าว / แชร์กระทู้ / แชร์สตรีม / แชร์สินค้า — เพิ่มออบเจกต์ในอาเรย์นี้ + ใส่ run)
+// ตั้งพื้นหลังห้องแชต (ต่อห้อง — getConnectData().threadBg[key])
+function openConnectBgModal() {
+    if (!activeThread) return;
+    const url = String((getConnectData().threadBg || {})[activeThread] || "").trim();
+    $("#tinyfeed-connect-bg-to").text(activeThreadName || "");
+    $("#tinyfeed-connect-bg-url").val(url);
+    updateUploadPreview($("#tinyfeed-connect-bg-url"));
+    let ov = parseInt(getSetting("connectBgOverlay"), 10);
+    if (!Number.isFinite(ov)) ov = 45;
+    $("#tinyfeed-connect-bg-overlay").val(ov);
+    $("#tinyfeed-connect-bg-overlay-val").text(`${ov}%`);
+    $("#tinyfeed-connect-bg-modal").removeClass("tinyfeed-hidden");
+}
+function closeConnectBgModal() { $("#tinyfeed-connect-bg-modal").addClass("tinyfeed-hidden"); }
+function saveConnectBg() {
+    if (!activeThread) { closeConnectBgModal(); return; }
+    const url = String($("#tinyfeed-connect-bg-url").val() || "").trim();
+    const d = getConnectData();
+    if (url) d.threadBg[activeThread] = url; else delete d.threadBg[activeThread];
+    saveFeedDataDebounced();
+    applyConnectBg(activeThread);
+    closeConnectBgModal();
+    toastr.success("ตั้งพื้นหลังห้องนี้แล้ว", "TinyConnect");
+}
+// ใช้พื้นหลังเดียวกันนี้เป็นค่ากลางของทุกห้อง (ห้องที่ยังไม่ได้ตั้งเองจะเห็นรูปนี้)
+function saveConnectBgGlobal() {
+    const url = String($("#tinyfeed-connect-bg-url").val() || "").trim();
+    setSetting("connectBgUrl", url);
+    applyConnectBg(activeThread);
+    closeConnectBgModal();
+    toastr.success("ตั้งเป็นพื้นหลังกลางของทุกห้องแล้ว", "TinyConnect");
+}
+
+// ===== เลือกห้องแชตปลายทาง (ใช้ร่วมกัน: แชร์โพสต์/ข่าว/กระทู้/สินค้า + ซื้อของส่งเป็นของขวัญจาก TinyShop) =====
+// ต่างจาก openCharPicker ตรงที่ value เป็น "thread key" จริง (getThread(key) ใช้ได้ทันที) ไม่ใช่แค่ชื่อ และรวมกลุ่มแชทด้วย
+let connectDestCallback = null;
+function openConnectDestPicker(title, onPick) {
+    const contacts = getConnectContacts();
+    const groups = getConnectGroups();
+    if (!contacts.length && !groups.length) { toastr.info("ยังไม่มีห้องแชตให้เลือกเลยตอนนี้", "TinyConnect"); return; }
+    connectDestCallback = onPick;
+    $("#tinyfeed-dest-picker-title").text(title || "เลือกห้องแชต");
+    // หมายเหตุ: ใช้คลาส tinyfeed-dest-pick (ไม่ใช่ tinyfeed-char-pick) ตั้งใจ — .tinyfeed-char-pick มี handler
+    // ผูกกับ document แบบ global สำหรับ pickChar() อยู่แล้ว ถ้าใช้คลาสซ้ำ handler นั้นจะยิงซ้อนโดยไม่ตั้งใจ
+    const rows = [
+        ...contacts.map((c) => `
+            <div class="tinyfeed-dest-pick" data-key="${escapeAttr(c.key)}" data-name="${escapeAttr(c.name)}">
+                ${makeAvatar(contactAvatarItem(c))}
+                <span class="tinyfeed-char-pick-name">${escapeText(c.name)}</span>
+            </div>`),
+        ...groups.map((g) => {
+            const key = "group:" + g.id;
+            const ava = g.avatar ? makeAvatar({ author: g.name, avatar: g.avatar }) : makeAnonAvatar(g.name);
+            return `
+            <div class="tinyfeed-dest-pick" data-key="${escapeAttr(key)}" data-name="${escapeAttr(g.name)}">
+                ${ava}
+                <span class="tinyfeed-char-pick-name">${escapeText(g.name)}</span>
+            </div>`;
+        }),
+    ].join("");
+    $("#tinyfeed-dest-picker-list").html(rows);
+    $("#tinyfeed-dest-picker").removeClass("tinyfeed-hidden");
+}
+function closeConnectDestPicker() { $("#tinyfeed-dest-picker").addClass("tinyfeed-hidden"); connectDestCallback = null; }
+function pickConnectDest(key, name) {
+    const cb = connectDestCallback;
+    closeConnectDestPicker();
+    if (typeof cb === "function") cb(key, name);
+}
+
+// ให้ตัวละครตอบขอบคุณอัตโนมัติหลังได้ของขวัญ — เฉพาะแชต 1:1 (ไม่ใช่กลุ่ม) และต้องเป็นห้องที่กำลังเปิดดูอยู่จริง
+// (ตั้งใจไม่สลับ activeThread ไปมาเอง — เสี่ยงแสดงแชตผิดห้องระหว่างรอ AI ตอบ ถ้าไม่ได้เปิดห้องนั้นอยู่ ผู้ใช้กด "ให้ตอบกลับ" เองได้ทีหลัง)
+function maybeGiftThankYou(key) {
+    if (!key || key.startsWith("group:")) return;
+    if (currentApp === "connect" && activeThread === key) generateConnectReply();
+}
+
+// แชร์เนื้อหา (โพสต์/ข่าว/กระทู้/สินค้า) เข้าห้องแชตที่เลือก
+function openSharePicker(payload) {
+    openConnectDestPicker("แชร์ถึงใคร", (key, name) => {
+        getThread(key).push({ from: "user", isShare: true, share: payload, ts: Date.now() });
+        if (key === "pet") { petBondAdd(1); savePet(); } else saveFeedDataDebounced();
+        if (currentApp === "connect" && activeThread === key) renderThread();
+        updateChatInjection();
+        toastr.success(`แชร์ถึง ${name} แล้ว`, "TinyConnect");
+    });
+}
+
+// ซื้อของจากร้าน + ส่งเป็นของขวัญทันที (ไม่เข้ากระเป๋าตัวเอง)
+function buyGiftShopItem(itemId) {
+    const it = getShop().find((x) => String(x.id) === String(itemId));
+    if (!it) return;
+    openConnectDestPicker(`ส่ง "${it.name}" ให้ใคร`, (key, name) => {
+        if (!bankDeduct(it.price, `ซื้อ ${it.name} ส่งให้ ${name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
+        getThread(key).push({
+            from: "user", isGift: true,
+            gift: { name: it.name, emoji: it.emoji || "", image: it.image || "", desc: it.desc || "" },
+            ts: Date.now(),
+        });
+        if (key === "pet") { petBondAdd(3); savePet(); } else saveFeedDataDebounced();
+        if (currentApp === "connect" && activeThread === key) renderThread();
+        updateChatInjection();
+        toastr.success(`ซื้อและส่ง "${it.name}" ให้ ${name} แล้ว`, "TinyShop");
+        maybeGiftThankYou(key);
+    });
+}
+
+// ส่งของจากกระเป๋า TinyBag เป็นของขวัญ — ใช้ในห้องแชตที่เปิดอยู่ (activeThread) เท่านั้น เพราะเมนู (+) นี้อยู่ในแชทอยู่แล้ว
+function openGiftFromBag() {
+    if (!activeThread) return;
+    const items = getBag().filter((x) => (x.qty || 0) > 0);
+    if (!items.length) { toastr.info("กระเป๋ายังไม่มีของให้ส่ง ลองซื้อจาก TinyShop ก่อนนะ", "TinyBag"); return; }
+    $("#tinyfeed-giftbag-to").text(activeThreadName || "");
+    $("#tinyfeed-giftbag-list").html(items.map((x) => `
+        <div class="tinyfeed-shop-item" data-id="${escapeAttr(x.id)}">
+            <div class="tinyfeed-shop-thumb-wrap">
+                ${shopThumbHtml(x)}
+                ${x.qty > 1 ? `<span class="tinyfeed-shop-owned">×${x.qty}</span>` : ""}
+            </div>
+            <div class="tinyfeed-shop-name">${escapeText(x.name)}</div>
+            <button class="tinyfeed-giftbag-send tinyfeed-btn-primary" data-id="${escapeAttr(x.id)}">ส่งให้</button>
+        </div>
+    `).join(""));
+    $("#tinyfeed-giftbag-modal").removeClass("tinyfeed-hidden");
+}
+function closeGiftFromBag() { $("#tinyfeed-giftbag-modal").addClass("tinyfeed-hidden"); }
+function sendGiftFromBag(bagItemId) {
+    if (!activeThread) { closeGiftFromBag(); return; }
+    const bag = getBag();
+    const x = bag.find((it) => it.id === bagItemId);
+    if (!x) return;
+    const key = activeThread, name = activeThreadName;
+    x.qty = (x.qty || 1) - 1;
+    const giftSnap = { name: x.name, emoji: x.emoji || "", image: x.image || "", desc: x.desc || "" };
+    if (x.qty <= 0) bag.splice(bag.indexOf(x), 1);
+    saveBag();
+    getThread(key).push({ from: "user", isGift: true, gift: giftSnap, ts: Date.now() });
+    if (key === "pet") { petBondAdd(3); savePet(); } else saveFeedDataDebounced();
+    closeGiftFromBag();
+    closeConnectPlusMenu();
+    renderThread();
+    updateChatInjection();
+    toastr.success(`ส่ง "${giftSnap.name}" ให้ ${name} แล้ว`, "TinyConnect");
+    maybeGiftThankYou(key);
+}
+
+// เมนู (+) ฟังก์ชันเสริมในแชท (สไตล์ไลน์)
 const CONNECT_PLUS_ACTIONS = [
     { id: "slip", icon: "fa-money-bill-transfer", label: "โอนเงิน", run: () => openSlipModal() },
+    { id: "gift", icon: "fa-gift", label: "ส่งของขวัญ", run: () => openGiftFromBag() },
+    { id: "bg", icon: "fa-image", label: "พื้นหลังห้อง", run: () => openConnectBgModal() },
 ];
 function renderConnectPlusMenu() {
     $("#tinyfeed-connect-plusmenu").html(CONNECT_PLUS_ACTIONS.map((a) =>
@@ -2000,8 +2464,7 @@ async function generateConnectReply() {
     const transcript = getThread(activeThread).slice(-12)
         .map((m) => {
             const who = m.from === "user" ? you : (group ? (m.author || name) : name);
-            const body = m.isSlip ? `[โอนเงิน ${formatMoney(m.amount)}${m.note ? " — " + m.note : ""}]` : htmlToPlain(m.text);
-            return `${who}: ${body}`;
+            return `${who}: ${connectMsgText(m)}`;
         }).join("\n");
 
     // --- แชตกลุ่ม: ให้สมาชิก 1-2 คนตอบ ---
@@ -2156,7 +2619,23 @@ function applyAppearance() {
         if (!Number.isFinite(wop)) wop = 82;
         wop = Math.min(100, Math.max(0, wop));
         phone.style.setProperty("--tf-widget-alpha", `${wop}%`);
+        // สีบับเบิลแชท TinyConnect (ฝั่งเรา) — "" = เขียวเดิม · "accent" = ตามสีเน้น · หรือ hex ที่เลือกเอง
+        const bubble = String(getSetting("connectBubbleColor") || "").trim();
+        if (bubble === "accent") phone.style.setProperty("--tf-connect-bubble", "var(--tf-accent)");
+        else if (bubble) phone.style.setProperty("--tf-connect-bubble", bubble);
+        else phone.style.removeProperty("--tf-connect-bubble");
     }
+}
+
+// เติมค่าให้ select โหมดสีบับเบิล + ช่องสีกำหนดเอง (แยกจาก applyAppearance เพราะเป็นแค่ UI ไม่ใช่การ apply)
+function populateConnectBubbleColorCfg() {
+    const v = String(getSetting("connectBubbleColor") || "").trim();
+    let mode = "";
+    if (v === "accent") mode = "accent";
+    else if (v.startsWith("#")) mode = "custom";
+    $("#tinyfeed-cfg-connect-bubble-mode").val(mode);
+    $("#tinyfeed-cfg-connect-bubble-custom-row").toggleClass("tinyfeed-hidden", mode !== "custom");
+    if (mode === "custom") $("#tinyfeed-cfg-connect-bubble-custom").val(v);
 }
 
 // วาด swatch สีสำเร็จรูปในหน้า settings + ไฮไลต์อันที่เลือกอยู่
@@ -2381,6 +2860,7 @@ const INJECT_SOURCES = [
     { id: "forum", inject: "injectForum", cross: "crossAppForum", single: (w) => ({ forum: true, forumComments: w.forumComments }) },
     { id: "bank", inject: "injectBank", cross: "crossAppBank", single: () => ({ bank: true }) },
     { id: "shop", inject: "injectShop", cross: "crossAppShop", single: () => ({ shop: true }) },
+    { id: "bag", inject: "injectBag", cross: "crossAppBag", single: () => ({ bag: true }) },
     { id: "pet", inject: "injectPet", cross: "crossAppPet", single: () => ({ pet: true }) },
     { id: "ask", inject: "injectAsk", cross: "crossAppAsk", single: () => ({ ask: true }) },
 ];
@@ -2556,7 +3036,7 @@ function getNpcs() {
 function saveNpcs() { saveSettingsDebounced(); }
 
 // เก็บใน extension_settings.tinyfeed.pet (ไม่ใช่ chat_metadata) → เพ็ทตัวเดียวตามผู้เล่นทุกแชท
-const PET_DECAY_DEFAULTS = { hunger: 0.5, energy: 0.35, cleanliness: 0.3 };   // ต่อนาที
+const PET_DECAY_DEFAULTS = { hunger: 0.25, energy: 0.2, cleanliness: 0.15 };   // ต่อนาที (ลดลงจากเดิม 0.5/0.35/0.3 — น้องตายไวไป)
 // สถานะ → sprite (เรียงตามความสำคัญใน petState) · emoji = fallback ตอนไม่มีไฟล์/ลิงก์
 const PET_STATE_EMOJI = {
     idle: "🐣", happy: "😸", hungry: "🍽️", sleepy: "😪", dirty: "🐽", sick: "🤒",
@@ -2669,6 +3149,13 @@ function petApplyDecay() {
     const p = getPet();
     if (!p.exists || p.isDead) { p.lastUpdateTimestamp = Date.now(); return p; }
     petCheckEvolve(p);   // เช็กเลื่อนระยะทุกครั้ง (ก่อน guard เวลา เพื่อให้ทำงานแม้ยังไม่มีเวลาผ่าน)
+    // เปิดแท็บ ST ทิ้งไว้เฉยๆ ไม่ได้เล่น RP เลย = ไม่ให้เพ็ททรุดโทรม (petTimer เดินทุก 60 วิไม่มีจุดหยุด
+    // เดิมเวลาสะสมยาวๆ ตอนแท็บเปิดค้างจะแย่กว่าปิดแท็บไปเลยเพราะเพดาน offline ช่วยเฉพาะตอนกลับมาเปิดใหม่)
+    const idleMin = Math.max(0, parseInt(getSetting("petIdlePauseMin"), 10) || 0);
+    if (idleMin > 0 && (Date.now() - lastRpMsgTs) >= idleMin * 60000) {
+        p.lastUpdateTimestamp = Date.now();
+        return p;
+    }
     let min = (Date.now() - (p.lastUpdateTimestamp || Date.now())) / 60000;
     p.lastUpdateTimestamp = Date.now();
     if (!(min > 0)) return p;
@@ -2689,11 +3176,12 @@ function petApplyDecay() {
     hd -= 0.15 * petMinAbove(h0, effH, 80, min);
     hd -= 0.12 * petMinBelow(c0, rC, 20, min);
     if (!p.isSleeping) hd -= 0.08 * petMinBelow(e0, rE, 0, min);
-    // regen เฉพาะช่วงต้นที่ทุกค่ายังดี (ก่อนค่าใดแตะเกณฑ์แย่)
+    // regen ตราบใดที่ยังไม่มีค่าไหนเข้าเกณฑ์โทษ (เดิมเข้มกว่านี้ — ต้องดีครบทุกค่าเกินครึ่งถึงจะฟื้น
+    // ตอนนี้แค่ไม่มีโทษก็ฟื้นแล้ว ป้อนข้าว/อาบน้ำแล้วสุขภาพขึ้นให้เห็นผลจริง)
     const goodMin = Math.max(0, Math.min(
-        petReachAbove(h0, effH, 50, min),
-        petReachBelow(c0, rC, 50, min),
-        p.isSleeping ? min : petReachBelow(e0, rE, 30, min),
+        petReachAbove(h0, effH, 80, min),
+        petReachBelow(c0, rC, 20, min),
+        p.isSleeping ? min : petReachBelow(e0, rE, 0, min),
     ));
     hd += 0.1 * goodMin;
     s.health = clamp100(s.health + hd);
@@ -2701,7 +3189,10 @@ function petApplyDecay() {
     const bondBonus = petBondLevel(p.bond) * 2;
     const wellbeing = Math.min(100, ((100 - s.hunger) + s.energy + s.cleanliness + s.health) / 4 + bondBonus);
     s.mood = clamp100(s.mood + (wellbeing - s.mood) * Math.min(1, min * 0.03));
-    if (s.health <= 0) { p.isDead = true; p.isSleeping = false; }
+    if (s.health <= 0) {
+        if (getSetting("petNoDeath")) s.health = 1;   // โหมดไม่ตาย — ป่วยหนักสุดได้แต่ไม่ตาย
+        else { p.isDead = true; p.isSleeping = false; }
+    }
     return p;
 }
 
@@ -3030,7 +3521,7 @@ function parsePetItems(raw) {
     let m, count = 0;
     while ((m = re.exec(s)) !== null) {
         const parts = m[1].split("|").map((x) => x.trim());
-        const name = (parts[0] || "").replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const name = cleanAiName(parts[0] || "");
         const price = Math.abs(Math.round(parseFloat(String(parts[1] || "").replace(/[^\d.]/g, "")) || 0));
         let type = (parts[2] || "").trim().toLowerCase();
         const emoji = (parts[3] || "").trim().slice(0, 4);
@@ -3383,6 +3874,19 @@ function petAdoptNew() {
     renderPet();
 }
 
+// ชุบชีวิต: ตัวเดิมกลับมา คงชื่อ/ระยะวิวัฒนาการ/ความผูกพัน/เหรียญไว้ทั้งหมด แต่ค่าสถานะเริ่มใหม่แบบไม่เต็ม (กันตายซ้ำทันที)
+function petRevive() {
+    const p = getPet();
+    if (!p.exists || !p.isDead) return;
+    p.isDead = false;
+    p.isSleeping = false;
+    p.stats = { hunger: 30, energy: 60, cleanliness: 60, mood: 50, health: 50 };
+    p.lastUpdateTimestamp = Date.now();
+    savePet();
+    renderPet();
+    toastr.success(`${p.name || "เพ็ท"} ฟื้นขึ้นมาแล้ว! 💫`, "TinyPet");
+}
+
 // สร้างเพ็ทใหม่ / รับเลี้ยงตัวใหม่หลังตาย
 function petAdopt(name) {
     const nm = String(name || "").trim().slice(0, 24) || "เพื่อนตัวน้อย";
@@ -3601,7 +4105,8 @@ function petDeadHtml() {
         <div class="tinyfeed-pet-bigemoji">🪦</div>
         <div class="tinyfeed-pet-screen-title">${escapeText(p.name || "เพ็ท")} จากไปแล้ว</div>
         <div class="tinyfeed-pet-screen-sub">อยู่ด้วยกันมา ${formatPetAge(p.createdAt)} · ขอบคุณที่ดูแลกันนะ 🌈</div>
-        <button id="tinyfeed-pet-adopt-new" class="tinyfeed-btn-primary"><i class="fa-solid fa-seedling"></i> รับเลี้ยงตัวใหม่</button>
+        <button id="tinyfeed-pet-revive" class="tinyfeed-btn-primary"><i class="fa-solid fa-heart-pulse"></i> ชุบชีวิต${escapeText(p.name || "เพ็ท")}ให้ฟื้น</button>
+        <button id="tinyfeed-pet-adopt-new" class="tinyfeed-btn-ghost"><i class="fa-solid fa-seedling"></i> รับเลี้ยงตัวใหม่แทน</button>
     </div>`;
 }
 let petLastBondLv = null;   // เลเวล bond ครั้งก่อนที่วาด — ใช้เช็คว่าเพิ่งขึ้นเลเวลไหม (ดู renderPet)
@@ -4003,7 +4508,7 @@ function parseAskQuestions(raw) {
         if (!m) continue;
         const parts = m[1].split("|");
         if (parts.length < 2) continue;
-        const from = parts[0].replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim();
+        const from = cleanAiName(parts[0]);
         const text = parts.slice(1).join("|").trim();
         if (from && text) out.push({ from, text });
     }
@@ -4090,6 +4595,95 @@ async function generateAskAnswer(id) {
     } catch (e) {
         console.error(`[${extensionName}] generateAskAnswer failed:`, e);
         toastr.error("ตอบคำถามไม่สำเร็จ ลองใหม่นะ", "TinyAsk");
+    } finally {
+        isAskBusy = false;
+        $btn.removeClass("tinyfeed-generating");
+    }
+}
+
+// ===== สุ่มคำถาม-คำตอบทั้งคู่ให้ตัวละคร/NPC ในครั้งเดียว (ปุ่ม 🎲 ในฟีดคำตอบ) =====
+function openAskPairPicker() {
+    openCharPicker({ title: "สุ่มคำถาม-คำตอบให้ใคร", includeUser: false, includeMain: true, includeAuto: false }, (value) => {
+        generateAskPair(value);
+    });
+}
+async function generateAskPair(owner) {
+    if (isAskBusy) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyAsk");
+        return;
+    }
+    const charName = getCharName();
+    isAskBusy = true;
+    const $btn = $("#tinyfeed-ask-pair-roll");
+    $btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const extra = String(getSetting("askExtraPrompt") || "").trim();
+        const q = buildPrompt("askPair", {
+            owner,
+            roster: npcRosterLine(charName),
+            extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
+            context: crossAppContext("ask"),
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("askTokens"), 10) || 200) * 2, "ask");
+        const s = stripReasoning(raw);
+        const askMatch = s.match(/ASK:\s*(.+)/i);
+        const answerMatch = s.match(/ANSWER:\s*([\s\S]+)/i);
+        if (!askMatch || !answerMatch) { toastr.warning("AI ไม่ได้ตอบครบ ลองใหม่นะ", "TinyAsk"); return; }
+        const parts = askMatch[1].split("|");
+        const from = parts.length >= 2 ? cleanAiName(parts[0]) : "";
+        const text = (parts.length >= 2 ? parts.slice(1).join("|") : askMatch[1]).trim();
+        const answer = answerMatch[1].trim();
+        if (!text || !answer) { toastr.warning("AI ไม่ได้ตอบครบ ลองใหม่นะ", "TinyAsk"); return; }
+        getAsk().push({
+            id: askId(), owner, from: from || "ไม่ระบุตัวตน", anon: true, revealed: false, byUser: false,
+            text: escapeHtml(text), answer: escapeHtml(answer), ts: Date.now(), answerTs: Date.now(),
+            likes: randomInitialLikes(), liked: false,
+        });
+        saveAsk();
+        if (currentApp === "ask" && askTab === "feed") renderAskFeed();
+        updateChatInjection();
+        toastr.success("สุ่มคำถาม-คำตอบแล้ว", "TinyAsk");
+    } catch (e) {
+        console.error(`[${extensionName}] generateAskPair failed:`, e);
+        toastr.error("สุ่มคำถาม-คำตอบไม่สำเร็จ ลองใหม่นะ", "TinyAsk");
+    } finally {
+        isAskBusy = false;
+        $btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+// ===== ให้ AI ช่วยร่างคำถามลงช่องพิมพ์ (ปุ่ม 🎲 ใน modal ส่งคำถาม) — แก้ก่อนส่งได้ =====
+async function generateAskDraft() {
+    if (isAskBusy || !askSendTarget) return;
+    const ctx = getContext();
+    if (typeof ctx.generateQuietPrompt !== "function") {
+        toastr.error("เวอร์ชัน SillyTavern นี้ไม่มี generateQuietPrompt", "TinyAsk");
+        return;
+    }
+    const owner = askSendTarget;
+    const charName = getCharName();
+    isAskBusy = true;
+    const $btn = $("#tinyfeed-ask-draft-roll");
+    $btn.addClass("tinyfeed-generating");
+    try {
+        const extra = String(getSetting("askExtraPrompt") || "").trim();
+        const q = buildPrompt("askDraft", {
+            owner,
+            roster: npcRosterLine(charName),
+            extra: extra ? `คำสั่งเพิ่มเติม: ${extra}. ` : "",
+            context: crossAppContext("ask"),
+        });
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("askTokens"), 10) || 200), "ask");
+        const s = stripReasoning(raw);
+        const m = s.match(/ASK:\s*(.+)/i);
+        const text = (m ? m[1] : s).trim();
+        if (!text) { toastr.warning("AI ไม่ได้ส่งคำถามกลับมา ลองใหม่นะ", "TinyAsk"); return; }
+        $("#tinyfeed-ask-send-text").val(text);
+    } catch (e) {
+        console.error(`[${extensionName}] generateAskDraft failed:`, e);
+        toastr.error("ร่างคำถามไม่สำเร็จ ลองใหม่นะ", "TinyAsk");
     } finally {
         isAskBusy = false;
         $btn.removeClass("tinyfeed-generating");
@@ -4340,7 +4934,7 @@ function buildAppBlocks(want) {
             const t = threads[c.key];
             if (!Array.isArray(t) || !t.length) continue;
             const msgs = t.slice(-count)
-                .map((m) => `  ${m.from === "user" ? getUserName() : c.name}: ${htmlToPlain(m.text)}`);
+                .map((m) => `  ${m.from === "user" ? getUserName() : c.name}: ${connectMsgText(m)}`);
             lines.push(`แชตกับ ${c.name}:\n${msgs.join("\n")}`);
         }
         if (lines.length) blocks.push(`แชตส่วนตัวในแอป TinyConnect:\n${lines.join("\n")}`);
@@ -4396,13 +4990,15 @@ function buildAppBlocks(want) {
         }
     }
     if (want.shop) {
-        const owned = data.shopOwned || {};
-        const catalog = getShop();
-        const items = Object.keys(owned)
-            .map((id) => ({ it: catalog.find((x) => x.id === id), n: owned[id] }))
-            .filter((x) => x.it && x.n > 0).slice(0, count)
-            .map((x) => `- ${htmlToPlain(x.it.name)}${x.n > 1 ? ` ×${x.n}` : ""}${x.it.desc ? ` (${htmlToPlain(x.it.desc)})` : ""}`);
-        if (items.length) blocks.push(`ของที่ซื้อไว้จากแอป TinyShop:\n${items.join("\n")}`);
+        // แค่ "ร้านมีอะไรขาย" — ของที่ซื้อไว้แล้วย้ายไปอยู่ที่ want.bag แทน (แยกกันชัดเจนขึ้น)
+        const catalog = getShop().slice(0, count)
+            .map((it) => `- ${htmlToPlain(it.name)} — ${formatMoney(it.price)}${it.cat ? ` [${htmlToPlain(it.cat)}]` : ""}${it.desc ? ` (${htmlToPlain(it.desc)})` : ""}`);
+        if (catalog.length) blocks.push(`ร้านค้าในแอป TinyShop มีขาย:\n${catalog.join("\n")}`);
+    }
+    if (want.bag) {
+        const items = getBag().filter((x) => (x.qty || 0) > 0).slice(0, count)
+            .map((x) => `- ${htmlToPlain(x.name)}${x.qty > 1 ? ` ×${x.qty}` : ""}${x.desc ? ` (${htmlToPlain(x.desc)})` : ""}`);
+        if (items.length) blocks.push(`ของที่มีอยู่ในกระเป๋าแอป TinyBag:\n${items.join("\n")}`);
     }
     if (want.pet) {
         // เพ็ทเป็น global (ตัวเดียวข้ามแชท) — สถานะสดตอนนี้ ให้ตัวละครอ้างถึงได้
@@ -4591,6 +5187,7 @@ function renderNews() {
                 <span class="tinyfeed-news-source">${news.source}</span>
                 <span class="tinyfeed-news-head-right">
                     <span class="tinyfeed-news-time">${displayTime(news)}</span>
+                    <span class="tinyfeed-news-share" data-news="${news.id}" title="แชร์ข่าวนี้"><i class="fa-solid fa-share"></i></span>
                     ${news.isAI ? `<span class="tinyfeed-news-delete" data-news="${news.id}" title="ลบข่าว"><i class="fa-solid fa-trash"></i></span>` : ""}
                 </span>
             </div>
@@ -4630,7 +5227,7 @@ function openPostDetail(postId) {
             <div class="tinyfeed-post-actions">
                 <span><span class="fa-regular fa-heart"></span> ${Number(post.likes || 0).toLocaleString()}</span>
                 <span><span class="fa-regular fa-comment"></span> ${post.comments.length.toLocaleString()}</span>
-                <span><span class="fa-solid fa-share"></span></span>
+                <span class="tinyfeed-share ${post.shared ? "tinyfeed-shared" : ""}" data-post="${post.id}"><span class="fa-solid fa-share"></span></span>
             </div>
         </div>
         ${renderComments(post.comments, null, post.id)}
@@ -4672,13 +5269,20 @@ function toggleLike(postId) {
     console.log(`[${extensionName}] like:`, postId, post.liked);
 }
 
-function toggleShare(postId) {
+// สร้าง payload สำหรับส่งเข้า openSharePicker จากโพสต์ฟีด — ดึงรูปแรก (ถ้ามี [img:]) มาแปะเป็นภาพตัวอย่างด้วย
+function feedPostSharePayload(post) {
+    const imgMatch = /\[img:([^\]]+)\]/i.exec(String(post.text || ""));
+    const image = imgMatch ? ((findGalleryImage(unescapeLite(imgMatch[1])) || {}).url || "") : "";
+    return { kind: "post", title: post.author, sub: "โพสต์จาก TinyFeed", body: htmlToPlain(post.text).slice(0, 200), image, emoji: "📝" };
+}
+function shareFeedPost(postId) {
     const post = getFeedData().feed.find((p) => p.id === postId);
     if (!post) return;
-    post.shared = !post.shared;
+    openSharePicker(feedPostSharePayload(post));
+    // ทำเครื่องหมายไว้ว่าเคยแชร์โพสต์นี้แล้ว (เดาใจว่าผู้ใช้กด "แชร์" แล้ว ไม่รอผลว่าส่งจริงไหม — เหมือนปุ่ม like เดิม)
+    post.shared = true;
     saveFeedDataDebounced();
-    $(`.tinyfeed-share[data-post="${postId}"]`).toggleClass("tinyfeed-shared", post.shared);
-    console.log(`[${extensionName}] share:`, postId, post.shared);
+    $(`.tinyfeed-share[data-post="${postId}"]`).addClass("tinyfeed-shared");
 }
 
 // ผู้ใช้โพสต์เอง — แทรกบนสุดของฟีด เก็บผูกกับแชท
@@ -4825,6 +5429,26 @@ const PROMPT_DEFS = {
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{owner}} ได้รับคำถามนิรนามในกล่องคำถามว่า: "{{question}}" {{roster}}ตอบในบทบาทของ {{owner}} สั้นๆ 1-3 ประโยค ให้สมคาแรกเตอร์ ใช้ภาษาเดียวกับข้อมูลตัวละคร ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}\n` +
             `ตอบรูปแบบนี้เท่านั้น:\nANSWER: <คำตอบ>`,
     },
+    askPair: {
+        label: "สุ่มคำถาม-คำตอบทั้งคู่ (TinyAsk)", marker: "ASK:", tokens: ["owner", "roster", "extra", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งคำถามนิรนามที่น่าสนใจ 1 ข้อที่คนในโลกของเรื่องน่าจะอยากถาม {{owner}} ตั้งชื่อผู้ถามให้ (ตัวละครที่มีอยู่หรือคนทั่วไปก็ได้) แล้วให้ {{owner}} ตอบคำถามนั้นเองในบทบาทของตัวเอง สั้นๆ 1-3 ประโยค สมคาแรกเตอร์ {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}\n` +
+            `ตอบรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\nASK: <ชื่อผู้ถามจริง> | <คำถาม>\nANSWER: <คำตอบของ {{owner}}>`,
+    },
+    askDraft: {
+        label: "ร่างคำถามให้ (TinyAsk)", marker: "ASK:", tokens: ["owner", "roster", "extra", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] ช่วยแต่งคำถามนิรนามที่น่าสนใจ 1 ข้อที่คนในโลกของเรื่องน่าจะอยากถาม {{owner}} (ผู้ใช้จะเอาไปแก้ไขก่อนส่งเองอีกที) {{roster}}ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทนผู้ใช้.{{extra}}{{context}}\n` +
+            `ตอบรูปแบบนี้เท่านั้น:\nASK: <คำถาม>`,
+    },
+    bankScan: {
+        label: "สแกนเงินจากบท RP (TinyBank)", marker: "MONEY:", tokens: ["recent", "existing", "extra", "context"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] อ่านบทบาทสมมติล่าสุดนี้ แล้วหา "เหตุการณ์เกี่ยวกับเงิน" ที่เกิดขึ้นจริงในเนื้อเรื่อง (ได้รับค่าจ้าง/รางวัล/ของขวัญเป็นเงิน หรือจ่าย/เสีย/ถูกขโมยเงิน) ที่ยัง "ไม่เคยถูกบันทึกไว้" เท่านั้น ห้ามแต่งเหตุการณ์ที่ไม่ได้เกิดขึ้นจริงในบท ห้ามนับเงินที่แค่พูดถึงเฉยๆ ไม่ได้รับ/จ่ายจริง ห้ามรายงานเหตุการณ์ที่บันทึกไว้แล้วซ้ำอีก\n` +
+            `บทล่าสุด:\n{{recent}}\n` +
+            `{{existing}}{{extra}}{{context}}\n` +
+            `ตอบบรรทัดละ 1 รายการในรูปแบบนี้เท่านั้น (ไม่มีเหตุการณ์ใหม่ก็ไม่ต้องตอบอะไรเลย):\nMONEY: <+จำนวน หรือ -จำนวน> | <รายละเอียดสั้นๆ>`,
+    },
 };
 
 function getPromptTemplate(id) {
@@ -4878,6 +5502,7 @@ const KEYWORD_DEFS = [
     { app: "memo", label: "TinyMemo (โน้ต/กำหนดการ)", setting: "memoKeywords" },
     { app: "forum", label: "TinyForum (กระทู้)", setting: "forumKeywords" },
     { app: "ask", label: "TinyAsk (คำถามนิรนาม)", setting: "askKeywords" },
+    { app: "bank", label: "TinyBank (สแกนเงินจากบท RP)", setting: "bankKeywords" },
 ];
 function renderKeywordEditors() {
     const html = KEYWORD_DEFS.map((d) => {
@@ -5026,7 +5651,7 @@ function parseGeneratedPost(raw, fallbackName) {
     let author = nameMatch ? nameMatch[1].trim() : fallbackName;
     let body = postMatch ? postMatch[1].trim() : text.trim();
     // เก็บกวาด: ตัด marker/เครื่องหมายคำพูดครอบที่หลงมา
-    author = author.replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || fallbackName;
+    author = cleanAiName(author) || fallbackName;
     body = body.replace(/^POST:\s*/i, "").trim();
     return { author, text: body };
 }
@@ -5158,7 +5783,7 @@ function parseCommentLines(raw, charName, marker) {
             author = charName;
             text = line;
         }
-        author = author.replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || charName;
+        author = cleanAiName(author) || charName;
         if (text) out.push(makeCommentObj(author, text, charName));
     }
     return out;
@@ -5386,6 +6011,11 @@ function deleteNews(newsId) {
     renderNews();
     console.log(`[${extensionName}] news deleted:`, newsId);
 }
+function shareNewsItem(newsId) {
+    const news = getFeedData().news.find((n) => n.id === newsId);
+    if (!news) return;
+    openSharePicker({ kind: "news", title: news.title, sub: `ข่าวจาก ${news.source}`, body: htmlToPlain(news.summary).slice(0, 200), image: "", emoji: "📰" });
+}
 
 // ===== TinyMemo: กำหนดการ + โน้ต/ความจำ =====
 let memoTab = "agenda";
@@ -5517,6 +6147,9 @@ function deleteNote(id) {
 
 function memoNotifAvatar() {
     return `<div class="tinyfeed-avatar tinyfeed-avatar-anon" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><i class="fa-solid fa-calendar-check"></i></div>`;
+}
+function bankScanNotifAvatar() {
+    return `<div class="tinyfeed-avatar tinyfeed-avatar-anon" style="background:linear-gradient(135deg,#10b981,#047857)"><i class="fa-solid fa-scroll"></i></div>`;
 }
 
 // ถาม AI สั้นๆ ว่ามีอะไรควรจด/ปิดไหม (โหมด ai — ประหยัด token)
@@ -5770,6 +6403,7 @@ function renderForumThread(id) {
         <div class="tinyfeed-forum-detail-actions">
             <span class="tinyfeed-forum-thread-like ${t.liked ? "tinyfeed-liked" : ""}" data-id="${escapeAttr(t.id)}"><i class="fa-solid fa-heart"></i> ${formatCount(t.likes || 0)}</span>
             <span><i class="fa-solid fa-comment"></i> ${formatCount(cnt)}</span>
+            <span class="tinyfeed-forum-thread-share" data-id="${escapeAttr(t.id)}"><i class="fa-solid fa-share"></i> แชร์</span>
             ${(t.isUser || t.isAI) ? `<span class="tinyfeed-forum-thread-del" data-id="${escapeAttr(t.id)}"><i class="fa-solid fa-trash"></i> ลบ</span>` : ""}
         </div>
         <div class="tinyfeed-forum-count">ความคิดเห็น ${cnt} รายการ</div>
@@ -5924,6 +6558,12 @@ function toggleForumThreadLike(id) {
     renderForumThread(id);
 }
 
+function shareForumThread(id) {
+    const t = getForum().find((x) => x.id === id);
+    if (!t) return;
+    openSharePicker({ kind: "forum", title: htmlToPlain(t.title), sub: `กระทู้จาก TinyForum · ${t.room}`, body: htmlToPlain(t.body).slice(0, 200), image: "", emoji: "💬" });
+}
+
 function toggleForumCommentLike(tid, cid, rid) {
     const t = getForum().find((x) => x.id === tid);
     const c = t && t.comments.find((x) => x.id === cid);
@@ -5951,7 +6591,7 @@ function deleteForumThread(id) {
 // ===== AI: ตั้งกระทู้ + โหลดคอมเมนต์ =====
 function parseForumComments(raw, charName) {
     const s = stripReasoning(raw);
-    const clean = (name) => String(name || "").replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || charName;
+    const clean = (name) => cleanAiName(String(name || "")) || charName;
     const tops = [], replies = [];
     for (const line of s.split("\n")) {
         const l = line.trim();
@@ -6008,7 +6648,7 @@ async function generateForumThread(opts) {
         let body = bodyM ? bodyM[1].trim() : "";
         if (!title) { if (!opts.silent) toastr.warning("AI ไม่ได้ส่งกระทู้กลับมา ลองใหม่นะ", "TinyForum"); return; }
         if (!rooms.some((r) => r.toLowerCase() === room.toLowerCase())) room = rooms[0] || "ทั่วไป";
-        author = author.replace(/^["'“”\[\(]+|["'“”\]\)]+$/g, "").trim() || charName;
+        author = cleanAiName(author) || charName;
         const seeds = parseForumComments(s, charName).tops.slice(0, 6).map((c) => makeForumComment(c.author, c.text, charName));
         const thread = {
             id: forumId("ft"), room: escapeText(room), title: escapeHtml(title), body: escapeHtml(body || title),
@@ -6096,6 +6736,7 @@ let autoMemoCount = 0;   // ตัวนับข้อความสำหร�
 let autoForumCount = 0;  // ตัวนับข้อความสำหรับ TinyForum
 let autoConnectCount = 0; // ตัวนับข้อความสำหรับ TinyConnect (คู่แชททักเอง)
 let autoAskCount = 0;     // ตัวนับข้อความสำหรับ TinyAsk (คำถามนิรนามเข้ามาเอง)
+let autoBankScanCount = 0; // ตัวนับข้อความสำหรับสแกนเงินจากบท RP (TinyBank)
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
 // ถาม AI แบบเงียบว่าควรมีโพสต์ใหม่ตอนนี้ไหม (โหมด ai)
@@ -6122,8 +6763,8 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 // ── ทริกเกอร์ด้วยคีย์เวิร์ด ──
-const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", ask: "askKeywords" };
-const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, ask: 0 };
+const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", ask: "askKeywords", bank: "bankKeywords" };
+const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, ask: 0, bank: 0 };
 
 function keywordListFor(app) {
     return String(getSetting(KEYWORD_SETTING[app]) || "")
@@ -6141,6 +6782,21 @@ function lastRpMsg() {
     return null;
 }
 function lastRpText() { const m = lastRpMsg(); return m ? m.text : ""; }
+
+// ข้อความล่าสุดในบท RP หลัก (plain text "ชื่อ: ข้อความ" ต่อบรรทัด) — ใช้ป้อนเป็น {{recent}} ให้ prompt ที่ต้อง "อ่านบทจริง"
+// ทำงานได้ทั้ง 2 API path: โหมดหลัก (ST แนบ context ให้เองอยู่แล้ว แต่ใส่ตรงนี้ซ้ำให้ AI โฟกัสจุดที่ต้องอ่านได้ตรง)
+// และโหมด connection profile แยก (context ปกติคุมด้วย apiContextMessages คนละตัว — แต่ prompt นี้ต้องการเห็นบทจริงเสมอไม่ว่าจะเปิด context นั้นไว้หรือไม่)
+function recentRpLines(n) {
+    try {
+        const ctx = getContext();
+        if (!Array.isArray(ctx.chat) || !ctx.chat.length) return "";
+        const count = Math.max(1, parseInt(n, 10) || 15);
+        return ctx.chat.slice(-count).map((m) => `${m.name}: ${htmlToPlain(m.mes)}`).join("\n");
+    } catch (e) {
+        console.error(`[${extensionName}] recentRpLines failed:`, e);
+        return "";
+    }
+}
 // คืน true = เจอคีย์เวิร์ด (ในฝั่งที่เลือกจับ) + พ้น cooldown แล้ว (แล้วจับเวลา cooldown ใหม่)
 function keywordShouldTrigger(app) {
     const list = keywordListFor(app);
@@ -6196,6 +6852,23 @@ async function aiDecidesAsk() {
     }
 }
 
+async function aiDecidesBank() {
+    try {
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `พิจารณาบทล่าสุด: มีเหตุการณ์ที่ตัวละครได้รับเงิน/จ่ายเงิน/เสียเงินจริงๆ เกิดขึ้นไหม (ไม่ใช่แค่พูดถึงเงินลอยๆ) ` +
+            `ถ้ามีตอบ YES ถ้าไม่มีตอบ NO ตอบคำเดียว: YES หรือ NO`;
+        const res = await tinyGenerate(q, 120, "bank");
+        const s = stripReasoning(res).toLowerCase();
+        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
+        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("มี")) return true;
+        return false;
+    } catch (e) {
+        console.error(`[${extensionName}] aiDecidesBank failed:`, e);
+        return false;
+    }
+}
+
 async function onChatMessage() {
     lastRpMsgTs = Date.now();   // มี RP activity → รีเซ็ตตัวจับเวลา idle
     petOnRpMessage();           // เอ่ยถึงเพ็ทในบท → ความผูกพันขึ้น (global, ไม่ขึ้นกับ auto)
@@ -6222,6 +6895,9 @@ async function onChatMessage() {
         { on: "askAutoGenerate", mode: "askAutoMode", interval: "askAutoInterval", defInt: 18, kw: "ask",
             bump: () => ++autoAskCount, get: () => autoAskCount, reset: () => { autoAskCount = 0; },
             decide: aiDecidesAsk, run: () => generateAskQuestions({ notify: true, silent: true }) },
+        { on: "bankScanAutoGenerate", mode: "bankScanAutoMode", interval: "bankScanAutoInterval", defInt: 15, kw: "bank",
+            bump: () => ++autoBankScanCount, get: () => autoBankScanCount, reset: () => { autoBankScanCount = 0; },
+            decide: aiDecidesBank, run: () => scanBankRp({ notify: true, silent: true }) },
     ];
 
     // นับตัวนับก่อน (เฉพาะโหมด interval/ai) — คงพฤติกรรมเดิมที่ทุกแอปนับทุกข้อความ
@@ -6426,6 +7102,9 @@ function routeFromNotif(e) {
     } else if (e.app === "ask") {
         openApp("ask");
         switchAskTab("inbox");
+    } else if (e.app === "bank") {
+        openApp("bank");
+        openBankReviewModal();
     } else {
         openApp("feed");
         switchTab(e.tab || "feed");
@@ -6477,7 +7156,7 @@ let lastRpMsgTs = Date.now();   // เวลาข้อความ RP ล่�
 
 // มีการ generate อื่นค้างอยู่ไหม (กันชนกับ RP/แอปอื่น)
 function proactiveBusy() {
-    return isAutoBusy || isGenerating || isGeneratingNews || isConnectReplying || isGeneratingStream || isMemoBusy || isForumBusy;
+    return isAutoBusy || isGenerating || isGeneratingNews || isConnectReplying || isGeneratingStream || isMemoBusy || isForumBusy || isBankScanBusy;
 }
 
 // อยู่ในช่วงเวลาเงียบไหม (รองรับข้ามเที่ยงคืน)
@@ -6539,7 +7218,7 @@ async function proactiveDM() {
     const c = contacts[Math.floor(Math.random() * contacts.length)];
     const you = getUserName();
     const recent = getThread(c.key).slice(-6)
-        .map((m) => `${m.from === "user" ? you : c.name}: ${htmlToPlain(m.text)}`).join("\n");
+        .map((m) => `${m.from === "user" ? you : c.name}: ${connectMsgText(m)}`).join("\n");
     const extra = String(getSetting("connectExtraPrompt") || "").trim();
     const timeLine = getSetting("proactiveTimeAware") ? `${timeOfDayPhrase()} (อ้างอิงช่วงเวลาได้ตามเหมาะสม).\n` : "";
     const q =
@@ -6570,7 +7249,7 @@ async function groupSelfChat(threadKey, opts) {
     if (!group || isConnectReplying) return;
     const you = getUserName();
     const transcript = getThread(threadKey).slice(-12)
-        .map((m) => `${m.from === "user" ? you : (m.author || group.name)}: ${htmlToPlain(m.text)}`).join("\n");
+        .map((m) => `${m.from === "user" ? you : (m.author || group.name)}: ${connectMsgText(m)}`).join("\n");
     const extra = String(getSetting("connectExtraPrompt") || "").trim();
     const q =
         `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือแชตกลุ่ม "${group.name}" สมาชิก: ${group.members.join(", ")} และ ${you}. ` +
@@ -6660,7 +7339,10 @@ function openNewsDetail(newsId) {
         <div class="tinyfeed-article">
             <div class="tinyfeed-news-head">
                 <span class="tinyfeed-news-source">${news.source}</span>
-                <span class="tinyfeed-news-time">${displayTime(news)}</span>
+                <span class="tinyfeed-news-head-right">
+                    <span class="tinyfeed-news-time">${displayTime(news)}</span>
+                    <span class="tinyfeed-news-share" data-news="${news.id}" title="แชร์ข่าวนี้"><i class="fa-solid fa-share"></i></span>
+                </span>
             </div>
             <h2 class="tinyfeed-article-title">${news.title}</h2>
             <div class="tinyfeed-article-body">${bodyHtml}</div>
@@ -6882,6 +7564,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
     $("#tinyfeed-cfg-connect-slip").prop("checked", Boolean(getSetting("connectSlipEnabled")));
+    populateConnectBubbleColorCfg();
+    $("#tinyfeed-cfg-connect-timegap").val(getSetting("connectTimeGapMin") || 30);
 
     populateApiProfiles();
     $("#tinyfeed-cfg-api-context").val(getSetting("apiContextMessages"));
@@ -6901,6 +7585,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-inject-forum-comments").prop("checked", Boolean(getSetting("injectForumComments")));
     $("#tinyfeed-cfg-inject-bank").prop("checked", Boolean(getSetting("injectBank")));
     $("#tinyfeed-cfg-inject-shop").prop("checked", Boolean(getSetting("injectShop")));
+    $("#tinyfeed-cfg-inject-bag").prop("checked", Boolean(getSetting("injectBag")));
     $("#tinyfeed-cfg-inject-pet").prop("checked", Boolean(getSetting("injectPet")));
     $("#tinyfeed-cfg-inject-ask").prop("checked", Boolean(getSetting("injectAsk")));
 
@@ -6933,6 +7618,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-pet-decay-energy").val(getSetting("petDecayEnergy"));
     $("#tinyfeed-cfg-pet-decay-clean").val(getSetting("petDecayClean"));
     $("#tinyfeed-cfg-pet-offline").val(getSetting("petOfflineCapHours"));
+    $("#tinyfeed-cfg-pet-idlepause").val(getSetting("petIdlePauseMin"));
+    $("#tinyfeed-cfg-pet-nodeath").prop("checked", Boolean(getSetting("petNoDeath")));
     $("#tinyfeed-cfg-pet-coinrate").val(getSetting("petCoinRate"));
     renderPetSpriteCfg();
     $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
@@ -6945,6 +7632,11 @@ function populateSettings() {
     $("#tinyfeed-cfg-donate-enabled").prop("checked", Boolean(getSetting("streamDonateEnabled")));
     $("#tinyfeed-cfg-bank-donate-max").val(getSetting("bankDonateMax"));
     renderDonateTiers();
+    $("#tinyfeed-cfg-bankscan-auto").prop("checked", Boolean(getSetting("bankScanAutoGenerate")));
+    $("#tinyfeed-cfg-bankscan-mode").val(getSetting("bankScanAutoMode") || "interval");
+    $("#tinyfeed-cfg-bankscan-interval").val(getSetting("bankScanAutoInterval") || 15);
+    $("#tinyfeed-cfg-bankscan-max").val(getSetting("bankRpMax"));
+    $("#tinyfeed-cfg-bankscan-extra").val(getSetting("bankScanExtraPrompt"));
     $("#tinyfeed-cfg-crossapp").prop("checked", Boolean(getSetting("crossAppEnabled")));
     $("#tinyfeed-cfg-crossapp-feed").prop("checked", Boolean(getSetting("crossAppFeed")));
     $("#tinyfeed-cfg-crossapp-comments").prop("checked", Boolean(getSetting("crossAppComments")));
@@ -6955,6 +7647,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-crossapp-forum").prop("checked", Boolean(getSetting("crossAppForum")));
     $("#tinyfeed-cfg-crossapp-bank").prop("checked", Boolean(getSetting("crossAppBank")));
     $("#tinyfeed-cfg-crossapp-shop").prop("checked", Boolean(getSetting("crossAppShop")));
+    $("#tinyfeed-cfg-crossapp-bag").prop("checked", Boolean(getSetting("crossAppBag")));
     $("#tinyfeed-cfg-crossapp-pet").prop("checked", Boolean(getSetting("crossAppPet")));
     $("#tinyfeed-cfg-crossapp-ask").prop("checked", Boolean(getSetting("crossAppAsk")));
     $("#tinyfeed-cfg-crossapp-count").val(getSetting("crossAppCount"));
@@ -7105,6 +7798,7 @@ jQuery(async () => {
             autoForumCount = 0;
             autoConnectCount = 0;
             autoAskCount = 0;
+            autoBankScanCount = 0;
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
@@ -7367,6 +8061,9 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-forum-thread-del", function () {
             deleteForumThread($(this).data("id"));
         });
+        $(document).on("click", ".tinyfeed-forum-thread-share", function () {
+            shareForumThread($(this).data("id"));
+        });
         $(document).on("click", ".tinyfeed-forum-cmt-like", function () {
             toggleForumCommentLike($(this).data("tid"), $(this).data("cid"), $(this).data("rid"));
         });
@@ -7396,11 +8093,29 @@ jQuery(async () => {
         $(document).on("keydown", "#tinyfeed-bank-amount, #tinyfeed-bank-label", function (e) {
             if (e.key === "Enter") { e.preventDefault(); bankManualTxn("in"); }
         });
+        // สแกนบท RP หาเงิน — มีรายการรอรีวิวค้างอยู่แล้ว = เปิดหน้ารีวิวเลย ไม่งั้นสแกนใหม่
+        $(document).on("click", "#tinyfeed-bankscan-btn", function () {
+            const pending = getBankData().pending || [];
+            if (pending.length) openBankReviewModal();
+            else scanBankRp({ manual: true, silent: false });
+        });
+        $(document).on("click", "#tinyfeed-bank-review-close", closeBankReviewModal);
+        $(document).on("click", "#tinyfeed-bank-review-modal", function (e) { if (e.target === this) closeBankReviewModal(); });
+        $(document).on("click", "#tinyfeed-bank-review-apply", applyBankReviewSelected);
+        $(document).on("click", "#tinyfeed-bank-review-reject", rejectBankReviewAll);
 
         // ===== TinyShop: เพิ่ม/ซื้อ/ลบสินค้า =====
         $(document).on("click", "#tinyfeed-shop-add", addShopItem);
         $(document).on("click", "#tinyfeed-shop-generate", function () { generateShopItems(); });
         $(document).on("click", ".tinyfeed-shop-buy", function () { buyShopItem(String($(this).data("id"))); });
+        $(document).on("click", ".tinyfeed-shop-gift", function (e) {
+            e.stopPropagation();
+            buyGiftShopItem(String($(this).closest(".tinyfeed-shop-item").data("id")));
+        });
+        $(document).on("click", ".tinyfeed-shop-share", function (e) {
+            e.stopPropagation();
+            shareShopItem(String($(this).data("id")));
+        });
         $(document).on("click", ".tinyfeed-shop-del", function (e) {
             e.stopPropagation();
             deleteShopItem(String($(this).closest(".tinyfeed-shop-item").data("id")));
@@ -7416,6 +8131,20 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-shop-edit-close", closeShopEditModal);
         $(document).on("click", "#tinyfeed-shop-edit-modal", function (e) { if (e.target === this) closeShopEditModal(); });
         $(document).on("click", "#tinyfeed-shop-edit-save", saveShopEdit);
+
+        // ===== TinyBag: ใช้/ส่งของขวัญ/ทิ้งของในกระเป๋า =====
+        $(document).on("click", ".tinyfeed-bag-use", function (e) {
+            e.stopPropagation();
+            useBagItem(String($(this).data("id")));
+        });
+        $(document).on("click", ".tinyfeed-bag-gift", function (e) {
+            e.stopPropagation();
+            giftBagItem(String($(this).data("id")));
+        });
+        $(document).on("click", ".tinyfeed-bag-discard", function (e) {
+            e.stopPropagation();
+            discardBagItem(String($(this).data("id")));
+        });
 
         // ===== TinyPet =====
         $(document).on("click", ".tinyfeed-pet-act", function () { petAct(String($(this).data("act"))); });
@@ -7468,15 +8197,18 @@ jQuery(async () => {
             if (e.key === "Enter") { e.preventDefault(); petAdopt($(this).val()); }
         });
         $(document).on("click", "#tinyfeed-pet-adopt-new", petAdoptNew);
+        $(document).on("click", "#tinyfeed-pet-revive", petRevive);
 
         // ===== TinyAsk: ถาม-ตอบนิรนาม =====
         $(document).on("click", ".tinyfeed-tab[data-asktab]", function () {
             switchAskTab(String($(this).data("asktab")));
         });
         $(document).on("click", "#tinyfeed-ask-generate", function () { generateAskQuestions({ notify: false, silent: false }); });
+        $(document).on("click", "#tinyfeed-ask-pair-roll", openAskPairPicker);
         $(document).on("click", "#tinyfeed-ask-new", openAskSendModal);
         $(document).on("click", "#tinyfeed-ask-send-close, #tinyfeed-ask-send-cancel", closeAskSendModal);
         $(document).on("click", "#tinyfeed-ask-send-modal", function (e) { if (e.target === this) closeAskSendModal(); });
+        $(document).on("click", "#tinyfeed-ask-draft-roll", generateAskDraft);
         $(document).on("click", "#tinyfeed-ask-send-submit", sendAskQuestion);
         $(document).on("click", ".tinyfeed-ask-answer-btn", function () {
             const id = String($(this).data("id"));
@@ -7607,6 +8339,21 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-slip-close", closeSlipModal);
         $(document).on("click", "#tinyfeed-slip-modal", function (e) { if (e.target === this) closeSlipModal(); });
         $(document).on("click", "#tinyfeed-slip-send", sendUserSlip);
+        $(document).on("click", "#tinyfeed-connect-bg-close", closeConnectBgModal);
+        $(document).on("click", "#tinyfeed-connect-bg-modal", function (e) { if (e.target === this) closeConnectBgModal(); });
+        $(document).on("click", "#tinyfeed-connect-bg-save", saveConnectBg);
+        $(document).on("click", "#tinyfeed-connect-bg-save-global", saveConnectBgGlobal);
+        $(document).on("click", "#tinyfeed-connect-bg-clear", function () {
+            $("#tinyfeed-connect-bg-url").val("").trigger("input");
+            saveConnectBg();
+        });
+        $(document).on("input", "#tinyfeed-connect-bg-overlay", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 45;
+            setSetting("connectBgOverlay", v);
+            $("#tinyfeed-connect-bg-overlay-val").text(`${v}%`);
+            applyConnectBg(activeThread);
+        });
         $(document).on("keydown", "#tinyfeed-slip-amount, #tinyfeed-slip-note", function (e) {
             if (e.key === "Enter") { e.preventDefault(); sendUserSlip(); }
         });
@@ -7694,6 +8441,10 @@ jQuery(async () => {
             e.stopPropagation();
             deleteNews($(this).data("news"));
         });
+        $(document).on("click", ".tinyfeed-news-share", function (e) {
+            e.stopPropagation();
+            shareNewsItem($(this).data("news"));
+        });
         $(document).on("click", "#tinyfeed-back", handleBack);
 
         // Stage 4: ปุ่มไลค์/แชร์
@@ -7703,7 +8454,7 @@ jQuery(async () => {
         });
         $(document).on("click", ".tinyfeed-share", function (e) {
             e.stopPropagation();
-            toggleShare($(this).data("post"));
+            shareFeedPost($(this).data("post"));
         });
         // กันปุ่มคอมเมนต์เด้งเข้า detail ไปก่อน (ค่อยทำจริงตอนคอมเมนต์)
         $(document).on("click", ".tinyfeed-comment-btn", function (e) {
@@ -7755,6 +8506,18 @@ jQuery(async () => {
         });
         $(document).on("click", ".tinyfeed-char-pick", function () {
             pickChar(String($(this).data("value")));
+        });
+        // เลือกห้องแชตปลายทาง (แชร์ / ซื้อของส่งของขวัญ)
+        $(document).on("click", "#tinyfeed-dest-picker-close", closeConnectDestPicker);
+        $(document).on("click", "#tinyfeed-dest-picker", function (e) { if (e.target === this) closeConnectDestPicker(); });
+        $(document).on("click", ".tinyfeed-dest-pick", function () {
+            pickConnectDest(String($(this).data("key")), String($(this).data("name")));
+        });
+        // เลือกของจากกระเป๋าส่งเป็นของขวัญ (จากเมนู + ในแชท)
+        $(document).on("click", "#tinyfeed-giftbag-close", closeGiftFromBag);
+        $(document).on("click", "#tinyfeed-giftbag-modal", function (e) { if (e.target === this) closeGiftFromBag(); });
+        $(document).on("click", ".tinyfeed-giftbag-send", function () {
+            sendGiftFromBag(String($(this).data("id")));
         });
         // กดแจ้งเตือน → เปิดฟีด
         $(document).on("click", "#tinyfeed-notif", openFeedFromNotif);
@@ -8082,6 +8845,22 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-connect-slip", function () {
             setSetting("connectSlipEnabled", $(this).prop("checked"));
         });
+        $(document).on("change", "#tinyfeed-cfg-connect-bubble-mode", function () {
+            const mode = String($(this).val() || "");
+            $("#tinyfeed-cfg-connect-bubble-custom-row").toggleClass("tinyfeed-hidden", mode !== "custom");
+            if (mode === "custom") setSetting("connectBubbleColor", String($("#tinyfeed-cfg-connect-bubble-custom").val() || "#22c55e"));
+            else setSetting("connectBubbleColor", mode);
+            applyAppearance();
+        });
+        $(document).on("input", "#tinyfeed-cfg-connect-bubble-custom", function () {
+            setSetting("connectBubbleColor", String($(this).val() || "#22c55e"));
+            applyAppearance();
+        });
+        $(document).on("input", "#tinyfeed-cfg-connect-timegap", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("connectTimeGapMin", Number.isFinite(v) && v > 0 ? v : 30);
+            if (currentApp === "connect" && isConnectThreadOpen()) renderThread();
+        });
 
         // Phase 2: token + คำสั่งเสริม
         $(document).on("input", "#tinyfeed-cfg-post-tokens", function () {
@@ -8131,6 +8910,10 @@ jQuery(async () => {
             setSetting("injectShop", $(this).prop("checked"));
             updateChatInjection();
         });
+        $(document).on("change", "#tinyfeed-cfg-inject-bag", function () {
+            setSetting("injectBag", $(this).prop("checked"));
+            updateChatInjection();
+        });
         $(document).on("change", "#tinyfeed-cfg-inject-pet", function () {
             setSetting("injectPet", $(this).prop("checked"));
             updateChatInjection();
@@ -8168,6 +8951,9 @@ jQuery(async () => {
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp-shop", function () {
             setSetting("crossAppShop", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-crossapp-bag", function () {
+            setSetting("crossAppBag", $(this).prop("checked"));
         });
         $(document).on("change", "#tinyfeed-cfg-crossapp-pet", function () {
             setSetting("crossAppPet", $(this).prop("checked"));
@@ -8282,19 +9068,26 @@ jQuery(async () => {
 
         $(document).on("input", "#tinyfeed-cfg-pet-decay-hunger", function () {
             const v = parseFloat($(this).val());
-            setSetting("petDecayHunger", Number.isFinite(v) && v >= 0 ? v : 0.5);
+            setSetting("petDecayHunger", Number.isFinite(v) && v >= 0 ? v : 0.25);
         });
         $(document).on("input", "#tinyfeed-cfg-pet-decay-energy", function () {
             const v = parseFloat($(this).val());
-            setSetting("petDecayEnergy", Number.isFinite(v) && v >= 0 ? v : 0.35);
+            setSetting("petDecayEnergy", Number.isFinite(v) && v >= 0 ? v : 0.2);
         });
         $(document).on("input", "#tinyfeed-cfg-pet-decay-clean", function () {
             const v = parseFloat($(this).val());
-            setSetting("petDecayClean", Number.isFinite(v) && v >= 0 ? v : 0.3);
+            setSetting("petDecayClean", Number.isFinite(v) && v >= 0 ? v : 0.15);
         });
         $(document).on("input", "#tinyfeed-cfg-pet-offline", function () {
             const v = parseInt($(this).val(), 10);
             setSetting("petOfflineCapHours", Number.isFinite(v) && v > 0 ? v : 12);
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-idlepause", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("petIdlePauseMin", Number.isFinite(v) && v >= 0 ? v : 20);
+        });
+        $(document).on("change", "#tinyfeed-cfg-pet-nodeath", function () {
+            setSetting("petNoDeath", $(this).prop("checked"));
         });
         $(document).on("input", "#tinyfeed-cfg-pet-coinrate", function () {
             const v = parseInt($(this).val(), 10);
@@ -8333,6 +9126,24 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-bank-donate-max", function () {
             let v = parseInt($(this).val(), 10);
             setSetting("bankDonateMax", Number.isFinite(v) && v > 0 ? v : 5000);
+        });
+        // สแกนเงินจากบท RP
+        $(document).on("change", "#tinyfeed-cfg-bankscan-auto", function () {
+            setSetting("bankScanAutoGenerate", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-bankscan-mode", function () {
+            setSetting("bankScanAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-bankscan-interval", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("bankScanAutoInterval", Number.isFinite(v) && v > 0 ? v : 15);
+        });
+        $(document).on("input", "#tinyfeed-cfg-bankscan-max", function () {
+            let v = parseInt($(this).val(), 10);
+            setSetting("bankRpMax", Number.isFinite(v) && v > 0 ? v : 5000);
+        });
+        $(document).on("input", "#tinyfeed-cfg-bankscan-extra", function () {
+            setSetting("bankScanExtraPrompt", $(this).val());
         });
         // ตัวแก้ tier โดเนท (ไม่ re-render ตอนพิมพ์ min/สี กันเคอร์เซอร์เด้ง)
         $(document).on("input", ".tinyfeed-donate-tier-min", function () {
