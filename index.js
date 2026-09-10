@@ -1785,7 +1785,7 @@ async function renderGalleryFiles() {
 function openFileView(url) {
     const name = String(url || "").split("/").pop();
     const labels = tinyRefIndex().get(url) || [];
-    $("#tinyfeed-gallery-view-img").removeClass("tinyfeed-img-broken").attr("src", url);
+    setImgSrcSafe($("#tinyfeed-gallery-view-img"), url);
     $("#tinyfeed-gallery-view-name").text(name);
     $("#tinyfeed-gallery-view-cap").text(labels.length ? `ใช้อยู่ที่: ${labels.join(", ")}` : "ไม่พบการอ้างอิง").removeClass("tinyfeed-hidden");
     $("#tinyfeed-gallery-view").removeClass("tinyfeed-hidden");
@@ -1853,7 +1853,7 @@ function getGalleryItem(kind, id) {
 function openGalleryView(kind, id) {
     const it = getGalleryItem(kind, id);
     if (!it) return;
-    $("#tinyfeed-gallery-view-img").removeClass("tinyfeed-img-broken").attr("src", it.url);
+    setImgSrcSafe($("#tinyfeed-gallery-view-img"), it.url);
     $("#tinyfeed-gallery-view-name").text(it.name || "");
     const cap = kind === "image" ? String(it.caption || "").trim() : "";
     $("#tinyfeed-gallery-view-cap").text(cap).toggleClass("tinyfeed-hidden", !cap);
@@ -2022,6 +2022,21 @@ async function deleteTinyUploadedImage(url) {
     }
 }
 
+// ตั้ง src ของ <img> อย่างปลอดภัย — รับเฉพาะ http(s)/ไฟล์ในเซิร์ฟเวอร์ ST เอง (user/images/...)/data:image เท่านั้น
+// กัน scheme แปลกๆ เช่น javascript: ที่หลุดมาจากค่าที่ผู้ใช้พิมพ์เอง (.val()) หรือนำเข้าจาก settings/ไฟล์ที่แชร์กันมา
+// (แก้ตาม CodeQL "DOM text reinterpreted as HTML" — URL จากอินพุต/ข้อมูลที่เก็บไว้ ไม่ควรตั้งเป็น src ตรงๆ โดยไม่ตรวจก่อน)
+// ใช้แทน .attr("src", url) ตรงๆ ทุกจุดในไฟล์นี้ — ห้ามเขียนตัวตรวจซ้ำที่อื่น
+const TINY_SAFE_IMG_SRC_RE = /^(https?:\/\/|\.?\/?user\/images\/|data:image\/)/i;
+function setImgSrcSafe($img, url) {
+    const u = String(url || "").trim();
+    if (u && TINY_SAFE_IMG_SRC_RE.test(u)) {
+        $img.removeClass("tinyfeed-img-broken").attr("src", u);
+        return true;
+    }
+    $img.addClass("tinyfeed-img-broken").removeAttr("src");
+    return false;
+}
+
 // พรีวิวสี่เหลี่ยมเล็กข้าง input — ใช้ .tinyfeed-gallery-thumb-wrap/-thumb เดิม (ได้ .tinyfeed-img-broken ฟรีตอนรูปเสีย)
 // เรียกจากทุก populate/render ที่เติมค่าลง input ใน .tinyfeed-uploadrow (หลัง .val(...) เสมอ) + จากช่องพิมพ์เองตอนพิมพ์
 function updateUploadPreview($input) {
@@ -2029,7 +2044,7 @@ function updateUploadPreview($input) {
     if (!$prev.length) return;
     const url = String($input.val() || "").trim();
     $prev.closest(".tinyfeed-upload-preview-wrap").toggleClass("tinyfeed-hidden", !url);
-    if (url) $prev.removeClass("tinyfeed-img-broken").attr("src", url);
+    if (url) setImgSrcSafe($prev, url);
 }
 
 // ===== ตัวเลือกตัวละคร (กดรูปโปรไฟล์ → เลือก) ใช้ร่วม TinyFeed + TinyStream =====
