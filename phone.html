@@ -1,3 +1,5 @@
+<input id="tinyfeed-file-input" type="file" accept="image/*" class="tinyfeed-hidden" />
+
 <div id="tinyfeed-notif" class="tinyfeed-notif">
     <div class="tinyfeed-notif-avatar"></div>
     <div class="tinyfeed-notif-body">
@@ -63,6 +65,11 @@
         <div class="tinyfeed-screen">
             <div id="tinyfeed-panel-feed" class="tinyfeed-panel">
                 <div id="tinyfeed-compose" class="tinyfeed-compose">
+                    <div id="tinyfeed-quote-chip" class="tinyfeed-quote-chip tinyfeed-hidden">
+                        <i class="fa-solid fa-quote-left"></i>
+                        <span>กำลังโควท: <b id="tinyfeed-quote-chip-name"></b></span>
+                        <span id="tinyfeed-quote-chip-close" title="ยกเลิกโควท"><i class="fa-solid fa-xmark"></i></span>
+                    </div>
                     <div class="tinyfeed-compose-row">
                         <div class="tinyfeed-compose-avatar" id="tinyfeed-compose-avatar" title="เลือกคนโพสต์"></div>
                         <textarea id="tinyfeed-compose-input" rows="1" placeholder="คุณกำลังคิดอะไรอยู่?"></textarea>
@@ -100,8 +107,16 @@
             </div>
             <div id="tinyfeed-detail" class="tinyfeed-panel tinyfeed-hidden"></div>
 
-            <div id="tinyfeed-settings-screen" class="tinyfeed-panel tinyfeed-hidden">
-                <div class="tinyfeed-settings-group">
+        </div>
+        </div>
+
+        <!-- หน้าตั้งค่า: เป็นพี่น้องของแอป ไม่ซ้อนอยู่ใน #tinyfeed-app-feed อีกแล้ว (CONVENTIONS.md บทที่ 3) -->
+        <div id="tinyfeed-settings-screen" class="tinyfeed-settings-screen tinyfeed-hidden">
+            <!-- ระดับ 1: รายการหัวข้อ (สร้างด้วย renderSettingsList) -->
+            <div id="tinyfeed-settings-list" class="tinyfeed-screen"></div>
+            <!-- ระดับ 2: เนื้อหาของหัวข้อที่เลือก — กลุ่มทั้งหมดซ่อนไว้ โชว์ทีละกลุ่ม -->
+            <div id="tinyfeed-settings-detail" class="tinyfeed-screen tinyfeed-hidden">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="appearance">
                     <div class="tinyfeed-settings-title">ปรับแต่งหน้าตา</div>
                     <div class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สีธีม (accent)</span>
@@ -150,7 +165,7 @@
                     <small class="tinyfeed-field-hint">ใส่ CSS เองเพื่อแต่งเพิ่ม เช่น ติดสติกเกอร์บนบับเบิลแชท · target ด้วยคลาส/ไอดี <code>.tinyfeed-*</code> / <code>#tinyfeed-*</code> · มีผลทั้งหน้าเว็บ ระวัง selector กว้างเกินไป</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="notif">
                     <div class="tinyfeed-settings-title">การแจ้งเตือน</div>
                     <label class="tinyfeed-field-row">
                         <span>เปิดการแจ้งเตือน (แบนเนอร์ + จุดแดง + สั่น)</span>
@@ -167,7 +182,16 @@
                     <small class="tinyfeed-field-hint">เด้งแจ้งเตือนระบบจริง (เห็นแม้ย่อหน้าต่าง) · ครั้งแรกต้องกดอนุญาต permission ของเบราว์เซอร์ · กด “ทดสอบ” เพื่อเช็คว่าใช้ได้ไหม (จะบอกสาเหตุถ้าติด) · ⚠️ <b>ต้องเปิด ST ผ่าน HTTPS หรือ localhost</b> ถ้าเปิดผ่าน IP/HTTP เบราว์เซอร์จะบล็อก · ข้อความจะโผล่บน lock screen/แถบ OS แบบเห็นได้ ระวังเนื้อหา 18+</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="homeLayout">
+                    <div class="tinyfeed-settings-title">หน้าโฮม (แอปที่แสดง + ลำดับ)</div>
+                    <small class="tinyfeed-field-hint">ปิดสวิตช์เพื่อซ่อนแอปจากหน้าโฮม (เปิดใช้งานได้เหมือนเดิม) · ใช้ลูกศรจัดลำดับไอคอน</small>
+                    <div id="tinyfeed-home-layout-list"></div>
+                    <button id="tinyfeed-home-layout-reset" class="tinyfeed-btn-ghost">
+                        <i class="fa-solid fa-arrow-rotate-left"></i> <span>คืนค่าเริ่มต้น</span>
+                    </button>
+                </div>
+
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="proactive">
                     <div class="tinyfeed-settings-title">ทักเชิงรุก (ตัวละครทักเอง)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้ตัวละคร/NPC ทักหาเองเป็นระยะ</span>
@@ -215,12 +239,18 @@
                     <small class="tinyfeed-field-hint">⚠️ ทำงานเฉพาะตอน<b>เปิดแท็บ SillyTavern ค้างไว้</b> (ย่อ/พับได้) · ต้องมีแชตที่มีตัวละครเปิดอยู่ · ยิง AI เป็นระยะ = เปลือง token ตั้งเว้นระยะ/โอกาส/ช่วงเงียบให้เหมาะ · ช่วงเงียบตั้งเริ่ม=ถึง = ไม่เงียบ</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="stream">
                     <div class="tinyfeed-settings-title">TinyStream (ไลฟ์สตรีม)</div>
                     <small class="tinyfeed-field-hint">เลือกสตรีมเมอร์หลัก + ตัวละครร่วมไลฟ์ได้ที่<b>หน้าแอป TinyStream</b> (กดที่รูปโปรไฟล์ในกรอบสตรีม · ปุ่ม + เพื่อเพิ่มตัวละครร่วม)</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">พื้นหลังกรอบสตรีม (ลิงก์รูป — เว้นว่าง = สีพื้น)</span>
-                        <input id="tinyfeed-cfg-stream-bg" type="text" placeholder="https://..." />
+                        <div class="tinyfeed-uploadrow">
+                            <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                                <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                            </div>
+                            <input id="tinyfeed-cfg-stream-bg" type="text" placeholder="https://..." />
+                            <span class="tinyfeed-upload-btn" data-kind="wallpaper" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                        </div>
                     </label>
                     <label class="tinyfeed-field-row">
                         <span>ใช้สีพื้นหลังตามธีม (เมื่อไม่ใส่ลิงก์รูป)</span>
@@ -258,7 +288,7 @@
                     <small class="tinyfeed-field-hint">ตอนเริ่มไลฟ์ตั้งหัวข้อ + แนวทางเองได้ (เว้นว่าง = ให้ AI ตั้ง) · สตรีมเมอร์จะทักเปิดไลฟ์เอง + มีปุ่ม "ให้สตรีมเมอร์พูด" ในหน้าไลฟ์ · มอโนล็อกทำงานตามรอบเวลาเดียวกับคอมเมนต์อัตโนมัติ</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="connect">
                     <div class="tinyfeed-settings-title">TinyConnect (แชต)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้คู่แชททักหาเราเองอัตโนมัติ</span>
@@ -294,9 +324,39 @@
                         <input id="tinyfeed-cfg-connect-slip" type="checkbox" />
                     </label>
                     <small class="tinyfeed-field-hint">เราโอนออกเองได้เสมอจากปุ่ม 💸 ในแชท (หักจาก TinyBank) · เปิดตัวเลือกนี้ = ตอนกด "ให้ตอบกลับ" คู่แชทอาจโอนเงินเข้าบัญชีเรา (ตามเนื้อเรื่อง) เข้า TinyBank อัตโนมัติ</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชทซื้อของจากร้าน TinyShop ส่งเป็นของขวัญได้ (AI)</span>
+                        <input id="tinyfeed-cfg-connect-gift" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ตัวละครจ่ายเองนอกจอ ไม่หักบัญชีเรา — เลือกได้เฉพาะสินค้าที่มีในร้านจริงเท่านั้น (จับคู่ด้วยชื่อ) ของที่ได้จะเข้ากระเป๋า TinyBag · ตั้งค่าเฉพาะสินค้าน้อย/ชื่อซ้ำกันในร้านจะช่วยให้จับคู่แม่นขึ้น</small>
+                    <label class="tinyfeed-field-row">
+                        <span>เปิดสถานะ "อ่านแล้ว" (เฉพาะแชต 1:1)</span>
+                        <input id="tinyfeed-cfg-connect-read" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โอกาสที่จะ "อ่านไม่ตอบ" ต่อรอบ: <b id="tinyfeed-connect-read-chance-val">25%</b></span>
+                        <input id="tinyfeed-cfg-connect-read-chance" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ทอยตามเปอร์เซ็นต์นี้ก่อนทุกครั้งที่กด "ให้ตอบกลับ" — ถ้าทอยติด จะขึ้นป้าย "อ่านแล้ว" ใต้ข้อความล่าสุดของเราทันที ไม่เจนคำตอบเลย · ถ้าทอยไม่ติด ตัวละครยังเลือกเองได้อีกทีว่าจะอ่านเฉยๆ ไหมตามเนื้อเรื่อง</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สีบับเบิลแชทฝั่งเรา</span>
+                        <select id="tinyfeed-cfg-connect-bubble-mode">
+                            <option value="">เขียว (ค่าเริ่มต้น)</option>
+                            <option value="accent">ตามสีเน้น (accent)</option>
+                            <option value="custom">กำหนดเอง</option>
+                        </select>
+                    </label>
+                    <label id="tinyfeed-cfg-connect-bubble-custom-row" class="tinyfeed-field-row tinyfeed-hidden">
+                        <span>เลือกสี</span>
+                        <input id="tinyfeed-cfg-connect-bubble-custom" type="color" value="#22c55e" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เว้นระยะกี่นาทีถึงขึ้นเส้นคั่นเวลา</span>
+                        <input id="tinyfeed-cfg-connect-timegap" type="number" min="1" />
+                    </label>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="api">
                     <div class="tinyfeed-settings-title">โมเดล / API</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">โมเดลที่ใช้สร้างโพสต์/ข่าว/คอมเมนต์</span>
@@ -316,11 +376,17 @@
                     <small class="tinyfeed-field-hint">แยกโมเดลของ TinyFeed ออกจากโมเดลตอบ RP ได้ · ต้องสร้าง connection profile ใน Connection Manager ของ ST ก่อน · โหมด "API หลัก" ได้ context เนื้อเรื่องอัตโนมัติ ส่วนโมเดลแยกเราจะแนบบทสนทนาล่าสุดให้ตามจำนวนนี้ (มากขึ้น = เข้าใจเนื้อเรื่องดีขึ้น แต่เปลือง token)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="wallpaper">
                     <div class="tinyfeed-settings-title">วอลเปเปอร์</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ลิงก์รูปวอลเปเปอร์หน้าโฮม</span>
-                        <input id="tinyfeed-cfg-wallpaper" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                        <div class="tinyfeed-uploadrow">
+                            <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                                <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                            </div>
+                            <input id="tinyfeed-cfg-wallpaper" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                            <span class="tinyfeed-upload-btn" data-kind="wallpaper" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                        </div>
                         <small class="tinyfeed-field-hint">เว้นว่าง = ใช้พื้นหลังธีมปกติ · รูปจะถูกครอบให้เต็มจอโฮมพร้อมฝ้าจางให้อ่านชื่อแอปชัด</small>
                     </label>
                     <label class="tinyfeed-field">
@@ -329,12 +395,18 @@
                     </label>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="profile">
                     <div class="tinyfeed-settings-title">รูปโปรไฟล์</div>
                     <div class="tinyfeed-field-label tinyfeed-profile-head">โปรไฟล์ของคุณ — ผูกกับ persona: <b id="tinyfeed-cfg-persona-name">—</b></div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์</span>
-                        <input id="tinyfeed-cfg-user-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                        <div class="tinyfeed-uploadrow">
+                            <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                                <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                            </div>
+                            <input id="tinyfeed-cfg-user-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                            <span class="tinyfeed-upload-btn" data-kind="avatar" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                        </div>
                     </label>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
@@ -358,7 +430,13 @@
                     <div class="tinyfeed-field-label tinyfeed-profile-head">โปรไฟล์ตัวละคร — ผูกกับการ์ด: <b id="tinyfeed-cfg-char-name">—</b></div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ลิงก์รูปโปรไฟล์</span>
-                        <input id="tinyfeed-cfg-char-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                        <div class="tinyfeed-uploadrow">
+                            <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                                <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                            </div>
+                            <input id="tinyfeed-cfg-char-avatar" type="text" placeholder="วางลิงก์รูป (URL)..." />
+                            <span class="tinyfeed-upload-btn" data-kind="avatar" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                        </div>
                     </label>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
@@ -380,7 +458,7 @@
                     <small class="tinyfeed-field-hint">ผูกกับการ์ดตัวละคร · เว้นว่าง = ใช้ชื่อ/รูปการ์ด · แอปจะแสดงตัวละครด้วยชื่อหลักที่เลือก · ชื่อในเนื้อหาที่ตรงกันจะถูกแทนด้วยรูปตัวละคร</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="feedPost">
                     <div class="tinyfeed-settings-title">โพสต์จากตัวละคร (AI)</div>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
@@ -408,7 +486,7 @@
                     </label>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="npc">
                     <div class="tinyfeed-settings-title">NPC ประจำ (ตัวละครนี้)</div>
                     <div id="tinyfeed-npc-list"></div>
                     <button id="tinyfeed-npc-add" class="tinyfeed-btn-generate">
@@ -417,7 +495,7 @@
                     <small class="tinyfeed-field-hint">กำหนดตัวละครประจำโลกของแชทนี้ · AI จะเลือกโพสต์จากรายชื่อนี้ · ใส่ลิงก์รูปให้ NPC มีรูปเฉพาะตัว (เว้นว่าง = วงกลมสีอักษรแรก)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="feedAuto">
                     <div class="tinyfeed-settings-title">สร้างโพสต์อัตโนมัติ</div>
                     <label class="tinyfeed-field-row">
                         <span>เปิดสร้างโพสต์อัตโนมัติ</span>
@@ -438,7 +516,7 @@
                     <small class="tinyfeed-field-hint">โหมด "ทุกๆ จำนวนข้อความ" = ครบตามจำนวนแล้วสร้างเลย · "ให้ AI ตัดสินใจเอง" = ครบแล้ว AI เช็คก่อนว่าควรโพสต์ไหม · นับจากตอนเปิดแชท</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="news">
                     <div class="tinyfeed-settings-title">ข่าวสาร</div>
                     <label class="tinyfeed-field-row">
                         <span>สร้างข่าวอัตโนมัติ</span>
@@ -472,7 +550,7 @@
                     <small class="tinyfeed-field-hint">ข่าวถูกตัด/ยาวเกิน = เพิ่ม token · ตั้งค่าน้อยไป = ข่าวสั้น</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="inject">
                     <div class="tinyfeed-settings-title">แทรกฟีดเข้าประวัติแชท</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ให้โมเดล RP หลักรับรู้ฟีด TinyFeed</span>
@@ -503,6 +581,26 @@
                     <label class="tinyfeed-field-row">
                         <span>· รวมคอมเมนต์+รีพลายในกระทู้ที่แทรก</span>
                         <input id="tinyfeed-cfg-inject-forum-comments" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกยอดเงิน + ธุรกรรม TinyBank ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-bank" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกของที่ซื้อไว้ TinyShop ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-shop" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกของในกระเป๋า TinyBag ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-bag" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกสถานะสัตว์เลี้ยง TinyPet ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-pet" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกคำถาม-คำตอบ TinyAsk ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-ask" type="checkbox" />
                     </label>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
@@ -547,6 +645,26 @@
                         <span>· กระทู้ (TinyForum)</span>
                         <input id="tinyfeed-cfg-crossapp-forum" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· การเงิน (TinyBank)</span>
+                        <input id="tinyfeed-cfg-crossapp-bank" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· ของที่ซื้อไว้ (TinyShop)</span>
+                        <input id="tinyfeed-cfg-crossapp-shop" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· กระเป๋า (TinyBag)</span>
+                        <input id="tinyfeed-cfg-crossapp-bag" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· สัตว์เลี้ยง (TinyPet)</span>
+                        <input id="tinyfeed-cfg-crossapp-pet" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· คำถาม-คำตอบ (TinyAsk)</span>
+                        <input id="tinyfeed-cfg-crossapp-ask" type="checkbox" />
+                    </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">จำนวนที่แนบข้ามแอป</span>
                         <input id="tinyfeed-cfg-crossapp-count" type="number" min="1" />
@@ -557,7 +675,7 @@
                     <small class="tinyfeed-field-hint">depth = แทรกลึกกี่ข้อความจากล่าสุด (ต่ำ = ใกล้ปัจจุบัน) ไม่เกี่ยวกับจำนวน เป็นตำแหน่งที่วางข้อมูลในประวัติแชท</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="comments">
                     <div class="tinyfeed-settings-title">คอมเมนต์</div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">การตอบของ AI เมื่อเราคอมเมนต์</span>
@@ -579,9 +697,14 @@
                         <input id="tinyfeed-cfg-initcomment-count" type="number" min="1" />
                     </label>
                     <small class="tinyfeed-field-hint">ตอนสร้างโพสต์ใหม่ (ทั้ง AI สร้างและเราโพสต์เอง) จะมีคอมเมนต์ NPC ติดมาตามนี้ · โพสต์เราจะได้ยอดไลค์สุ่มด้วย (ใช้ generation เพิ่ม = เปลือง token ขึ้น)</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวคอมเมนต์สูงสุด (token)</span>
+                        <input id="tinyfeed-cfg-comment-tokens" type="number" min="1" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ใช้กับทั้งตอบคอมเมนต์เดี่ยวและคอมเมนต์ที่ติดมากับโพสต์ใหม่ด้านบน</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="memo">
                     <div class="tinyfeed-settings-title">TinyMemo (กำหนดการ + โน้ต)</div>
                     <label class="tinyfeed-field-row">
                         <span>สแกนกำหนดการ/ความจำอัตโนมัติ</span>
@@ -610,7 +733,7 @@
                     <small class="tinyfeed-field-hint">สแกนครั้งเดียวได้ทั้ง 2 แท็บ: หา "กำหนดการที่กำลังจะเกิด" มาเรียงไทม์ไลน์ + ขีดฆ่าอันที่ผ่านไปแล้ว และจด "เหตุการณ์สำคัญ/สิ่งที่ควรจำ" ลงโน้ต · โหมด "ให้ AI ตัดสินใจ" จะเช็คก่อนว่ามีอะไรควรจดไหม (ประหยัด token) · เปิด auto แล้วจะมีแจ้งเตือนเมื่อมีรายการใหม่</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="forum">
                     <div class="tinyfeed-settings-title">TinyForum (เว็บบอร์ด)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้ชาวเน็ตตั้งกระทู้อัตโนมัติ</span>
@@ -648,7 +771,7 @@
                     <small class="tinyfeed-field-hint">ตอน AI ตั้งกระทู้จะเลือกห้องจากรายการนี้ · ห้องใช้ร่วมทุกแชท · โหลดคอมเมนต์เพิ่มได้เรื่อยๆ ในหน้ากระทู้ (ยิ่งเยอะยิ่งเปลือง token)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="gallery">
                     <div class="tinyfeed-settings-title">TinyGallery (คลังรูป + สติกเกอร์)</div>
                     <label class="tinyfeed-field-row">
                         <span>ให้บอทเลือกส่งสติกเกอร์/รูปจากคลังได้</span>
@@ -680,11 +803,12 @@
                     <small class="tinyfeed-field-hint">คลังรูป/สติกเกอร์เป็น <b>global</b> ใช้ร่วมทุกแชท ไม่เปลี่ยนตามแชท · เปิดตัวเลือกแรกจะแนบรายชื่อสติกเกอร์/รูป (ตามขอบเขต+จำนวนสูงสุด) เข้าไปตอน AI คุย/โพสต์ เพื่อให้เลือกส่งด้วย <code>[sticker:ชื่อ]</code> / <code>[img:ชื่อ]</code> · ผู้ใช้กดปุ่ม 😊 ในแถบพิมพ์เพื่อส่งเองได้ทุกแอป</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="bank">
                     <div class="tinyfeed-settings-title">TinyBank (ธนาคาร)</div>
+                    <div class="tinyfeed-field-label tinyfeed-profile-head">สกุลเงิน — ผูกกับการ์ด: <b id="tinyfeed-cfg-currency-charname">—</b></div>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สัญลักษณ์สกุลเงิน</span>
-                        <input id="tinyfeed-cfg-bank-currency" type="text" maxlength="4" placeholder="฿" />
+                        <input id="tinyfeed-cfg-bank-currency" type="text" placeholder="฿" />
                     </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ตำแหน่งสัญลักษณ์</span>
@@ -693,6 +817,7 @@
                             <option value="after">ข้างหลังตัวเลข (100฿)</option>
                         </select>
                     </label>
+                    <small class="tinyfeed-field-hint">แต่ละตัวละครมีสกุลเงินของตัวเอง (เช่น การ์ดแฟนตาซีใช้ "โกลด์" การ์ดยุคใหม่ใช้ "฿") · ไม่มีตัวละครในแชทนี้ = ใช้ค่าเริ่มต้นไปก่อน ตั้งได้ยาวเท่าไหร่ก็ได้ ไม่จำกัดตัวอักษร</small>
                     <label class="tinyfeed-field-row">
                         <span>เปิดระบบโดเนทในไลฟ์ (AI กำหนดผู้โดเนท/จำนวน/ข้อความเอง)</span>
                         <input id="tinyfeed-cfg-donate-enabled" type="checkbox" />
@@ -707,9 +832,36 @@
                         <i class="fa-solid fa-plus"></i> <span>เพิ่ม tier</span>
                     </button>
                     <small class="tinyfeed-field-hint">ยอดเงิน + ประวัติธุรกรรม<b>ผูกกับแชท</b> (แยกตามเนื้อเรื่อง) · เปิดระบบโดเนท → เวลาโหลดคอมเมนต์สดใน TinyStream, AI จะเลือกให้ผู้ชมโดเนท (กำหนดจำนวน+ข้อความเอง) เข้าบัญชีเรา เด้งการ์ดสีตาม tier บนจอไลฟ์ · ปิดไว้ = เพิ่ม/จ่ายเงินเองเท่านั้น</small>
+
+                    <div class="tinyfeed-settings-title">สแกนเงินจากบท RP</div>
+                    <label class="tinyfeed-field-row">
+                        <span>สแกนหาเงินเข้า-ออกจากบท RP อัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-bankscan-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-bankscan-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สแกนทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-bankscan-interval" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เพดานยอดต่อรายการที่สแกนเจอ (กัน AI ใส่ตัวเลขหลุด)</span>
+                        <input id="tinyfeed-cfg-bankscan-max" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมสำหรับสแกน (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-bankscan-extra" rows="2" placeholder="เช่น: เน้นค่าจ้าง/รางวัล, ไม่เอาเงินทอนเล็กน้อย..."></textarea>
+                    </label>
+                    <small class="tinyfeed-field-hint">สแกนแล้ว<b>ไม่เข้าบัญชีทันที</b> — ขึ้นหน้ารีวิวให้เลือกรับเป็นรายการก่อนเสมอ กันสแกนพลาด/AI แต่งตัวเลขเกินจริง · เปิด auto แล้วสแกนพื้นหลังตามจังหวะที่ตั้ง แต่ยังต้องกดยืนยันในหน้ารีวิวเหมือนเดิม</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="keywords">
                     <div class="tinyfeed-settings-title">ทริกเกอร์ด้วยคีย์เวิร์ด</div>
                     <small class="tinyfeed-field-hint">ตั้ง "โหมด" ของแต่ละแอปด้านบนเป็น <b>"เมื่อเจอคีย์เวิร์ด"</b> แล้วแอปนั้นจะสร้างเนื้อหาให้อัตโนมัติเมื่อข้อความ RP ล่าสุดมีคำที่ตรงกับรายการด้านล่าง · ทำงานทันทีในเบราว์เซอร์ ไม่หน่วง ไม่ต้องโหลดโมเดล · คั่นคำด้วยจุลภาค (,) หรือขึ้นบรรทัดใหม่</small>
                     <label class="tinyfeed-field">
@@ -729,13 +881,127 @@
                     <small class="tinyfeed-field-hint">กันทริกเกอร์ถี่เกินไป — เจอคีย์เวิร์ดแล้วต้องเว้นอย่างน้อยเท่านี้ก่อนจะสร้างซ้ำ (แยกต่อแอป)</small>
                 </div>
 
-                <div class="tinyfeed-settings-group">
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="shop">
+                    <div class="tinyfeed-settings-title">TinyShop (ร้านค้า)</div>
+                    <small class="tinyfeed-field-hint"><b>สินค้าผูกกับแชทนี้</b> (แต่ละเรื่องมีร้านของตัวเอง) · หมวดสินค้าด้านล่างใช้ร่วมทุกแชท เหมือนห้องของ TinyForum</small>
+                    <div class="tinyfeed-field-label">หมวดสินค้า (AI เลือกจากรายการนี้)</div>
+                    <div id="tinyfeed-shop-cat-list"></div>
+                    <button id="tinyfeed-shop-cat-add" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-plus"></i> <span>เพิ่มหมวด</span>
+                    </button>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวผลลัพธ์ตอน AI สร้างสินค้า (token)</span>
+                        <input id="tinyfeed-cfg-shop-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมตอน AI สร้างสินค้า (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-shop-extra" rows="2" placeholder="เช่น: เน้นของแฟนตาซี, ร้านขายยา, สินค้าไฮเทค, ราคาถูก..."></textarea>
+                    </label>
+                    <small class="tinyfeed-field-hint">กด "ให้ AI สร้างสินค้า" ในแอป TinyShop ให้ AI แต่งสินค้าเข้ากับโลกของเรื่อง · หมวดใช้ร่วมทุกแชท · แก้รูป/อิโมจิ/หมวดของสินค้าได้จากปุ่มดินสอบนสินค้า</small>
+                </div>
+
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="pet">
+                    <div class="tinyfeed-settings-title">TinyPet (สัตว์เลี้ยง)</div>
+                    <small class="tinyfeed-field-hint">สัตว์เลี้ยงเป็น <b>global</b> (ตัวเดียวกันทุกแชท) · ค่าต่างๆ ลดตามเวลาจริงแม้ปิด ST ไป</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้ AI แต่งบทพูดเพ็ท (หลังกดปุ่ม)</span>
+                        <input id="tinyfeed-cfg-pet-ai" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้เพ็ทโพสต์ลงฟีดเองเป็นระยะ (ตอนอารมณ์ดี)</span>
+                        <input id="tinyfeed-cfg-pet-autopost" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวบทพูดเพ็ท (token)</span>
+                        <input id="tinyfeed-cfg-pet-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมบทพูดเพ็ท (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-pet-extra" rows="2" placeholder="เช่น: เป็นแมวขี้อ้อน, พูดลงท้ายเมี้ยว, สายพันธุ์มังกรจิ๋ว, ซุกซน..."></textarea>
+                    </label>
+                    <div class="tinyfeed-field-label">อัตราลดต่อนาที (ยิ่งมากยิ่งต้องดูแลถี่)</div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">หิวเพิ่ม/นาที</span>
+                        <input id="tinyfeed-cfg-pet-decay-hunger" type="number" min="0" step="0.05" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">พลังงานลด/นาที</span>
+                        <input id="tinyfeed-cfg-pet-decay-energy" type="number" min="0" step="0.05" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความสะอาดลด/นาที</span>
+                        <input id="tinyfeed-cfg-pet-decay-clean" type="number" min="0" step="0.05" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เพดานคิด decay ตอนหายไปนาน (ชม.)</span>
+                        <input id="tinyfeed-cfg-pet-offline" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เงียบ (ไม่มีข้อความ RP) เกินกี่นาทีถึงหยุด decay ชั่วคราว</span>
+                        <input id="tinyfeed-cfg-pet-idlepause" type="number" min="0" />
+                    </label>
+                    <small class="tinyfeed-field-hint">กันน้องทรุดโทรมตอนเปิดแท็บ ST ทิ้งไว้เฉยๆ ไม่ได้เล่น RP · ตั้ง 0 = ปิด (คิด decay ตามเวลาจริงตลอด)</small>
+                    <label class="tinyfeed-field-row">
+                        <span>โหมดไม่ตาย (ป่วยหนักสุดได้ แต่ไม่ตาย)</span>
+                        <input id="tinyfeed-cfg-pet-nodeath" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชท (ตัวละคร) ช่วยดูแลเพ็ทได้จากในแชต</span>
+                        <input id="tinyfeed-cfg-pet-aicare" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">กันสแปม: ดูแลได้ห่างกันอย่างน้อยกี่นาที</span>
+                        <input id="tinyfeed-cfg-pet-aicare-cooldown" type="number" min="0" />
+                    </label>
+                    <small class="tinyfeed-field-hint">แชร์สถานะเพ็ท (ปุ่ม "แชร์สถานะ" ในแอป) เข้าห้องแชตตัวละคร แล้วตอนตอบกลับตัวละครอาจเลือกป้อนอาหาร/เล่นด้วย/อาบน้ำให้เอง (ไม่รวมกล่อมนอน) ค่าเพ็ทขยับจริง</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เรตเติมเหรียญ (เหรียญ/1 บาท TinyBank)</span>
+                        <input id="tinyfeed-cfg-pet-coinrate" type="number" min="1" />
+                    </label>
+                    <div class="tinyfeed-field-label">รูป sprite ต่อสถานะ (ใส่ลิงก์เอง · ว่าง = ใช้ไฟล์ในตัว assets/pet-sprites/)</div>
+                    <div id="tinyfeed-pet-sprite-list"></div>
+                    <small class="tinyfeed-field-hint">รองรับลิงก์ PNG/GIF/รูปเคลื่อนไหว · วางไฟล์เองในโฟลเดอร์ <code>assets/pet-sprites/&lt;สถานะ&gt;.png</code> ก็ได้ (ไม่ต้องใส่ลิงก์)</small>
+                </div>
+
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="ask">
+                    <div class="tinyfeed-settings-title">TinyAsk (คำถามนิรนาม)</div>
+                    <small class="tinyfeed-field-hint">คำถาม-คำตอบผูกกับแชทนี้ (ลบแชท = หายไปด้วย)</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คนส่งคำถามนิรนามเข้ามาเองเป็นระยะ</span>
+                        <input id="tinyfeed-cfg-ask-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-ask-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-ask-interval" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวผลลัพธ์ (token)</span>
+                        <input id="tinyfeed-cfg-ask-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริม (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-ask-extra" rows="2" placeholder="เช่น เน้นคำถามกวนๆ เกี่ยวกับความสัมพันธ์..."></textarea>
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>เฉลยชื่อผู้ถามจริงได้ (ปุ่ม 👁 บนการ์ด)</span>
+                        <input id="tinyfeed-cfg-ask-reveal" type="checkbox" />
+                    </label>
+                </div>
+
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="prompts">
                     <div class="tinyfeed-settings-title">Prompt (ขั้นสูง)</div>
                     <small class="tinyfeed-field-hint">แก้ prompt ที่ใช้สั่ง AI ได้เอง — เผื่อ AI ไม่ทำตามรูปแบบ (เช่นได้คำบรรยายแทนโพสต์) · <b>ต้องคง marker ที่ระบุไว้เสมอ</b> (parser ใช้แยกผลลัพธ์) · <code>{{...}}</code> คือช่องที่ระบบเติมข้อมูลให้อัตโนมัติ · กด "คืนค่าเริ่มต้น" เพื่อรีเซ็ต</small>
                     <div id="tinyfeed-prompt-list"></div>
                 </div>
             </div>
-        </div>
         </div>
 
         <div id="tinyfeed-app-connect" class="tinyfeed-app tinyfeed-hidden">
@@ -746,7 +1012,13 @@
             </div>
             <div id="tinyfeed-connect-groupform" class="tinyfeed-connect-groupform tinyfeed-hidden">
                 <input id="tinyfeed-group-name" type="text" placeholder="ชื่อกลุ่ม..." />
-                <input id="tinyfeed-group-avatar" type="text" placeholder="ลิงก์รูปกลุ่ม (ไม่บังคับ)..." />
+                <div class="tinyfeed-uploadrow">
+                    <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                        <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                    </div>
+                    <input id="tinyfeed-group-avatar" type="text" placeholder="ลิงก์รูปกลุ่ม (ไม่บังคับ)..." />
+                    <span class="tinyfeed-upload-btn" data-kind="avatar" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                </div>
                 <div class="tinyfeed-field-label">เลือกสมาชิก</div>
                 <div id="tinyfeed-group-members" class="tinyfeed-group-members"></div>
                 <div class="tinyfeed-compose-actions">
@@ -757,24 +1029,9 @@
             <div id="tinyfeed-connect-list" class="tinyfeed-connect-list"></div>
             <div id="tinyfeed-connect-thread" class="tinyfeed-connect-thread tinyfeed-hidden">
                 <div id="tinyfeed-connect-messages" class="tinyfeed-connect-messages"></div>
-                <div id="tinyfeed-connect-thread-tools" class="tinyfeed-connect-thread-tools tinyfeed-hidden">
-                    <button id="tinyfeed-connect-reply" class="tinyfeed-btn-generate tinyfeed-hidden">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ตอบกลับ</span>
-                    </button>
-                    <button id="tinyfeed-group-continue" class="tinyfeed-btn-generate tinyfeed-hidden">
-                        <i class="fa-solid fa-comments"></i> <span>ให้กลุ่มคุยกันต่อ</span>
-                    </button>
-                </div>
-                <div class="tinyfeed-connect-compose">
-                    <span id="tinyfeed-connect-plus" class="tinyfeed-compose-sticker tinyfeed-compose-plus" title="เพิ่มเติม"><i class="fa-solid fa-plus"></i></span>
-                    <span id="tinyfeed-connect-image" class="tinyfeed-compose-sticker" title="ส่งรูป"><i class="fa-regular fa-image"></i></span>
-                    <div class="tinyfeed-inputwrap">
-                        <textarea id="tinyfeed-connect-input" rows="1" placeholder="พิมพ์ข้อความ..."></textarea>
-                        <span id="tinyfeed-connect-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                    </div>
-                    <span id="tinyfeed-connect-send"><i class="fa-solid fa-paper-plane"></i></span>
-                    <div id="tinyfeed-connect-plusmenu" class="tinyfeed-plusmenu tinyfeed-hidden"></div>
-                </div>
+                <!-- แถบพิมพ์สร้างจาก composeBarHtml() ตอน init — ดู mountComposeBars()
+                     ปุ่มส่งมอร์ฟเป็นคทา (ให้ตอบกลับ/ให้กลุ่มคุยต่อ) เวลาช่องว่าง — ดู updateConnectSendBtn() -->
+                <div id="tinyfeed-connect-compose" class="tinyfeed-connect-compose"></div>
             </div>
         </div>
 
@@ -811,29 +1068,16 @@
                     <i class="fa-solid fa-comments"></i> <span>โหลดคอมเมนต์สด</span>
                 </button>
             </div>
-            <div class="tinyfeed-stream-streamer-compose tinyfeed-hidden">
-                <div class="tinyfeed-inputwrap">
-                    <input id="tinyfeed-stream-streamer-input" type="text" placeholder="พิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์)..." />
-                    <span id="tinyfeed-stream-streamer-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                </div>
-                <span id="tinyfeed-stream-streamer-send"><i class="fa-solid fa-microphone"></i></span>
-            </div>
-            <div class="tinyfeed-stream-compose tinyfeed-hidden">
-                <span id="tinyfeed-stream-donate" class="tinyfeed-compose-sticker tinyfeed-stream-donate-btn" title="โดเนทให้สตรีมเมอร์"><i class="fa-solid fa-gift"></i></span>
-                <div class="tinyfeed-inputwrap">
-                    <input id="tinyfeed-stream-input" type="text" placeholder="พิมพ์คอมเมนต์สด..." />
-                    <span id="tinyfeed-stream-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                </div>
-                <span id="tinyfeed-stream-send"><i class="fa-solid fa-paper-plane"></i></span>
-            </div>
+            <div id="tinyfeed-stream-streamer-compose" class="tinyfeed-stream-streamer-compose tinyfeed-hidden"></div>
+            <div id="tinyfeed-stream-compose" class="tinyfeed-stream-compose tinyfeed-hidden"></div>
         </div>
 
         <div id="tinyfeed-app-memo" class="tinyfeed-app tinyfeed-hidden">
-            <div class="tinyfeed-memo-tabs">
-                <div class="tinyfeed-memo-tab tinyfeed-memo-tab-active" data-mtab="agenda">
+            <div class="tinyfeed-tabs">
+                <div class="tinyfeed-tab tinyfeed-tab-active" data-mtab="agenda">
                     <span class="fa-solid fa-calendar-day"></span> กำหนดการ
                 </div>
-                <div class="tinyfeed-memo-tab" data-mtab="notes">
+                <div class="tinyfeed-tab" data-mtab="notes">
                     <span class="fa-solid fa-note-sticky"></span> โน้ต
                 </div>
             </div>
@@ -867,11 +1111,11 @@
 
         <div id="tinyfeed-app-forum" class="tinyfeed-app tinyfeed-hidden">
             <div id="tinyfeed-forum-list" class="tinyfeed-forum-list">
-                <div class="tinyfeed-forum-tabs">
-                    <div class="tinyfeed-forum-tab tinyfeed-forum-tab-active" data-fsort="latest">
+                <div class="tinyfeed-tabs">
+                    <div class="tinyfeed-tab tinyfeed-tab-active" data-fsort="latest">
                         <span class="fa-solid fa-clock"></span> ล่าสุด
                     </div>
-                    <div class="tinyfeed-forum-tab" data-fsort="hot">
+                    <div class="tinyfeed-tab" data-fsort="hot">
                         <span class="fa-solid fa-fire"></span> มาแรง
                     </div>
                 </div>
@@ -902,23 +1146,20 @@
                     <span>กำลังตอบกลับ <b id="tinyfeed-forum-reply-name"></b></span>
                     <span id="tinyfeed-forum-reply-cancel" title="ยกเลิก"><i class="fa-solid fa-xmark"></i></span>
                 </div>
-                <div class="tinyfeed-forum-compose">
-                    <div class="tinyfeed-inputwrap">
-                        <input id="tinyfeed-forum-comment-input" type="text" placeholder="ร่วมแสดงความเห็น..." />
-                        <span id="tinyfeed-forum-sticker" class="tinyfeed-compose-inbtn" title="ส่งสติกเกอร์"><i class="fa-regular fa-face-smile"></i></span>
-                    </div>
-                    <span id="tinyfeed-forum-comment-send"><i class="fa-solid fa-paper-plane"></i></span>
-                </div>
+                <div id="tinyfeed-forum-compose" class="tinyfeed-forum-compose"></div>
             </div>
         </div>
 
         <div id="tinyfeed-app-gallery" class="tinyfeed-app tinyfeed-hidden">
-            <div class="tinyfeed-gallery-tabs">
-                <div class="tinyfeed-gallery-tab tinyfeed-gallery-tab-active" data-gtab="images">
+            <div class="tinyfeed-tabs">
+                <div class="tinyfeed-tab tinyfeed-tab-active" data-gtab="images">
                     <span class="fa-solid fa-image"></span> รูปภาพ
                 </div>
-                <div class="tinyfeed-gallery-tab" data-gtab="stickers">
+                <div class="tinyfeed-tab" data-gtab="stickers">
                     <span class="fa-regular fa-face-smile"></span> สติกเกอร์
+                </div>
+                <div class="tinyfeed-tab" data-gtab="files">
+                    <span class="fa-solid fa-folder-open"></span> ไฟล์ทั้งหมด
                 </div>
             </div>
             <div class="tinyfeed-screen">
@@ -929,7 +1170,13 @@
                         <span id="tinyfeed-gallery-img-album-del" class="tinyfeed-gallery-album-del" title="ลบอัลบั้มนี้"><i class="fa-solid fa-trash"></i></span>
                     </div>
                     <div class="tinyfeed-gallery-addform">
-                        <input id="tinyfeed-gallery-img-url" type="text" placeholder="ลิงก์รูปภาพ (URL)" />
+                        <div class="tinyfeed-uploadrow">
+                            <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                                <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                            </div>
+                            <input id="tinyfeed-gallery-img-url" type="text" placeholder="ลิงก์รูปภาพ (URL)" />
+                            <span class="tinyfeed-upload-btn" data-kind="image" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                        </div>
                         <textarea id="tinyfeed-gallery-img-caption" rows="2" placeholder="คำบรรยายรูปภาพ (ใช้เป็น prompt + โชว์ตอนดูรูปเต็ม)"></textarea>
                         <div class="tinyfeed-gallery-addrow">
                             <input id="tinyfeed-gallery-img-name" type="text" placeholder="ตั้งชื่อ (ใช้อ้างอิง)" />
@@ -945,8 +1192,12 @@
                         <span id="tinyfeed-gallery-stk-album-del" class="tinyfeed-gallery-album-del" title="ลบอัลบั้มนี้"><i class="fa-solid fa-trash"></i></span>
                     </div>
                     <div class="tinyfeed-gallery-addform">
-                        <div class="tinyfeed-gallery-addrow">
+                        <div class="tinyfeed-uploadrow">
+                            <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                                <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                            </div>
                             <input id="tinyfeed-gallery-stk-url" type="text" placeholder="ลิงก์รูปสติกเกอร์ (URL)" />
+                            <span class="tinyfeed-upload-btn" data-kind="sticker" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
                         </div>
                         <div class="tinyfeed-gallery-addrow">
                             <input id="tinyfeed-gallery-stk-name" type="text" placeholder="ตั้งชื่อ (ใช้อ้างอิง)" />
@@ -954,6 +1205,21 @@
                         </div>
                     </div>
                     <div id="tinyfeed-gallery-stk-grid" class="tinyfeed-gallery-grid tinyfeed-gallery-grid-sticker"></div>
+                </div>
+                <div id="tinyfeed-gallery-panel-files" class="tinyfeed-gallery-panel tinyfeed-hidden">
+                    <div class="tinyfeed-gallery-files-warn">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        ตรวจได้เฉพาะแชทที่เปิดอยู่ตอนนี้ — ไฟล์ที่แชทอื่นใช้จะขึ้นว่าไม่พบการอ้างอิง · ลบแล้วกู้คืนไม่ได้
+                    </div>
+                    <div class="tinyfeed-gallery-files-tools">
+                        <button id="tinyfeed-gallery-files-refresh" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-rotate"></i> <span>รีเฟรช</span>
+                        </button>
+                        <button id="tinyfeed-gallery-files-cleanup" class="tinyfeed-btn-ghost">
+                            <i class="fa-solid fa-broom"></i> <span>ลบไฟล์ที่ไม่พบการอ้างอิงทั้งหมด</span>
+                        </button>
+                    </div>
+                    <div id="tinyfeed-gallery-files-grid" class="tinyfeed-gallery-grid"></div>
                 </div>
             </div>
         </div>
@@ -972,6 +1238,9 @@
                         <button id="tinyfeed-bank-out" class="tinyfeed-btn-ghost"><i class="fa-solid fa-minus"></i> จ่าย/ถอน</button>
                     </div>
                 </div>
+                <button id="tinyfeed-bankscan-btn" class="tinyfeed-btn-generate">
+                    <i class="fa-solid fa-scroll"></i> <span>สแกนบท RP หาเงินเข้า-ออก</span>
+                </button>
                 <div class="tinyfeed-bank-txns-head">ประวัติธุรกรรม</div>
                 <div id="tinyfeed-bank-txns" class="tinyfeed-bank-txns"></div>
             </div>
@@ -984,18 +1253,98 @@
                     <input id="tinyfeed-shop-name" type="text" placeholder="ชื่อสินค้า" />
                     <div class="tinyfeed-shop-addrow">
                         <input id="tinyfeed-shop-price" type="number" min="1" placeholder="ราคา" />
-                        <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ)" />
+                        <input id="tinyfeed-shop-emoji" type="text" maxlength="4" placeholder="อิโมจิ 👕 (ไม่บังคับ)" />
                     </div>
+                    <div class="tinyfeed-uploadrow">
+                        <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                            <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                        </div>
+                        <input id="tinyfeed-shop-image" type="text" placeholder="ลิงก์รูป (ไม่บังคับ · ใช้แทนอิโมจิ)" />
+                        <span class="tinyfeed-upload-btn" data-kind="thumb" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                    </div>
+                    <select id="tinyfeed-shop-cat"></select>
                     <input id="tinyfeed-shop-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
-                    <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
+                    <div class="tinyfeed-shop-addbtns">
+                        <button id="tinyfeed-shop-add" class="tinyfeed-btn-primary">เพิ่มสินค้า</button>
+                        <button id="tinyfeed-shop-generate" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI สร้างสินค้า</span>
+                        </button>
+                    </div>
                 </div>
+                <div id="tinyfeed-shop-catbar" class="tinyfeed-shop-catbar"></div>
                 <div id="tinyfeed-shop-grid" class="tinyfeed-shop-grid"></div>
             </div>
         </div>
 
-        <div id="tinyfeed-gallery-picker" class="tinyfeed-gallery-picker tinyfeed-hidden">
-            <div class="tinyfeed-gallery-picker-card">
-                <div class="tinyfeed-gallery-picker-head">
+        <div id="tinyfeed-app-pet" class="tinyfeed-app tinyfeed-hidden">
+            <div id="tinyfeed-pet-body" class="tinyfeed-pet-body"></div>
+        </div>
+
+        <div id="tinyfeed-app-ask" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-tabs">
+                <div class="tinyfeed-tab tinyfeed-tab-active" data-asktab="inbox">
+                    <span class="fa-solid fa-inbox"></span> กล่องของฉัน
+                </div>
+                <div class="tinyfeed-tab" data-asktab="feed">
+                    <span class="fa-solid fa-comment-dots"></span> ฟีดคำตอบ
+                </div>
+            </div>
+            <div id="tinyfeed-ask-inbox" class="tinyfeed-screen">
+                <div class="tinyfeed-ask-tools">
+                    <button id="tinyfeed-ask-generate" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้คนส่งคำถามเข้ามา</span>
+                    </button>
+                </div>
+                <div id="tinyfeed-ask-inbox-list"></div>
+            </div>
+            <div id="tinyfeed-ask-feed" class="tinyfeed-screen tinyfeed-hidden">
+                <div class="tinyfeed-ask-tools">
+                    <button id="tinyfeed-ask-pair-roll" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-dice"></i> <span>สุ่มคำถาม-คำตอบ</span>
+                    </button>
+                </div>
+                <div id="tinyfeed-ask-feed-list"></div>
+            </div>
+            <button id="tinyfeed-ask-new" class="tinyfeed-fab" title="ถามใครสักคนแบบไม่ระบุตัวตน">
+                <i class="fa-solid fa-plus"></i>
+            </button>
+        </div>
+
+        <div id="tinyfeed-app-bag" class="tinyfeed-app tinyfeed-hidden">
+            <div class="tinyfeed-screen">
+                <div id="tinyfeed-bag-grid" class="tinyfeed-shop-grid"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-ask-send-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>ถามคำถามนิรนาม</span>
+                    <span id="tinyfeed-ask-send-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <div class="tinyfeed-field-hint">ถึง: <b id="tinyfeed-ask-send-to">—</b></div>
+                    <textarea id="tinyfeed-ask-send-text" rows="3" placeholder="พิมพ์คำถาม..."></textarea>
+                    <div class="tinyfeed-ask-tools">
+                        <span id="tinyfeed-ask-draft-roll" class="tinyfeed-ai-link" title="ให้ AI ช่วยร่างคำถาม">
+                            <i class="fa-solid fa-dice"></i> ให้ AI ช่วยคิดคำถาม
+                        </span>
+                    </div>
+                    <label class="tinyfeed-field-row">
+                        <span>ไม่ระบุตัวตน</span>
+                        <input id="tinyfeed-ask-send-anon" type="checkbox" checked />
+                    </label>
+                    <div class="tinyfeed-compose-actions">
+                        <button id="tinyfeed-ask-send-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                        <button id="tinyfeed-ask-send-submit" class="tinyfeed-btn-primary">ส่งคำถาม</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-gallery-picker" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
                     <span id="tinyfeed-gallery-picker-title">เลือกสติกเกอร์</span>
                     <span id="tinyfeed-gallery-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
@@ -1004,9 +1353,9 @@
             </div>
         </div>
 
-        <div id="tinyfeed-char-picker" class="tinyfeed-gallery-picker tinyfeed-hidden">
-            <div class="tinyfeed-gallery-picker-card">
-                <div class="tinyfeed-gallery-picker-head">
+        <div id="tinyfeed-char-picker" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
                     <span id="tinyfeed-char-picker-title">เลือกตัวละคร</span>
                     <span id="tinyfeed-char-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
@@ -1014,9 +1363,74 @@
             </div>
         </div>
 
-        <div id="tinyfeed-slip-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
-            <div class="tinyfeed-gallery-picker-card">
-                <div class="tinyfeed-gallery-picker-head">
+        <div id="tinyfeed-dest-picker" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span id="tinyfeed-dest-picker-title">เลือกห้องแชต</span>
+                    <span id="tinyfeed-dest-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-dest-picker-list" class="tinyfeed-char-picker-list"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-share-menu" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>แชร์โพสต์นี้</span>
+                    <span id="tinyfeed-share-menu-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-share-menu-chat" class="tinyfeed-plusmenu-item"><i class="fa-solid fa-paper-plane"></i> ส่งเข้าแชท</div>
+                <div id="tinyfeed-share-menu-repost" class="tinyfeed-plusmenu-item"><i class="fa-solid fa-retweet"></i> รีโพสต์</div>
+                <div id="tinyfeed-share-menu-quote" class="tinyfeed-plusmenu-item"><i class="fa-solid fa-quote-left"></i> โควท</div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-giftbag-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>เลือกของจากกระเป๋าส่งให้ <b id="tinyfeed-giftbag-to"></b></span>
+                    <span id="tinyfeed-giftbag-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-giftbag-list" class="tinyfeed-shop-grid"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-char-profile" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card tinyfeed-vprofile-card">
+                <div class="tinyfeed-modal-head">
+                    <span>โปรไฟล์ตัวละคร</span>
+                    <span id="tinyfeed-char-profile-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-char-profile-body" class="tinyfeed-vprofile-body"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-group-edit-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>แก้ไขกลุ่ม</span>
+                    <span id="tinyfeed-group-edit-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-group-edit-name" type="text" placeholder="ชื่อกลุ่ม" />
+                    <div class="tinyfeed-uploadrow">
+                        <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                            <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                        </div>
+                        <input id="tinyfeed-group-edit-avatar" type="text" placeholder="ลิงก์รูปกลุ่ม (ไม่บังคับ)" />
+                        <span class="tinyfeed-upload-btn" data-kind="avatar" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                    </div>
+                    <div class="tinyfeed-compose-actions">
+                        <button id="tinyfeed-group-edit-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                        <button id="tinyfeed-group-edit-save" class="tinyfeed-btn-primary">บันทึก</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-slip-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
                     <span>โอนเงินให้ <b id="tinyfeed-slip-to"></b></span>
                     <span id="tinyfeed-slip-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
@@ -1028,9 +1442,54 @@
             </div>
         </div>
 
-        <div id="tinyfeed-donate-modal" class="tinyfeed-gallery-picker tinyfeed-hidden">
-            <div class="tinyfeed-gallery-picker-card">
-                <div class="tinyfeed-gallery-picker-head">
+        <div id="tinyfeed-bank-review-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>เจอเงินในบท RP</span>
+                    <span id="tinyfeed-bank-review-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <small class="tinyfeed-field-hint">ติ๊กรายการที่ต้องการรับเข้าบัญชี — รายการที่ไม่ติ๊กจะไม่มีผลอะไร</small>
+                    <div id="tinyfeed-bank-review-list" class="tinyfeed-bank-review-list"></div>
+                    <div class="tinyfeed-compose-actions">
+                        <button id="tinyfeed-bank-review-reject" class="tinyfeed-btn-ghost">ปฏิเสธทั้งหมด</button>
+                        <button id="tinyfeed-bank-review-apply" class="tinyfeed-btn-primary">รับที่เลือก</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-connect-bg-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>พื้นหลังห้อง <b id="tinyfeed-connect-bg-to"></b></span>
+                    <span id="tinyfeed-connect-bg-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <div class="tinyfeed-uploadrow">
+                        <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                            <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                        </div>
+                        <input id="tinyfeed-connect-bg-url" type="text" placeholder="ลิงก์รูป (เว้นว่าง = ไม่มีพื้นหลัง)" />
+                        <span class="tinyfeed-upload-btn" data-kind="wallpaper" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                    </div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความมืดฝ้าทับ: <b id="tinyfeed-connect-bg-overlay-val">45%</b></span>
+                        <input id="tinyfeed-connect-bg-overlay" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ตั้งพื้นหลังนี้เฉพาะห้องนี้ หรือกด "ใช้กับทุกห้อง" เพื่อตั้งเป็นค่ากลาง (ห้องที่ยังไม่ได้ตั้งเองจะเห็นรูปนี้)</small>
+                    <div class="tinyfeed-compose-actions">
+                        <button id="tinyfeed-connect-bg-clear" class="tinyfeed-btn-ghost">ล้างพื้นหลังห้องนี้</button>
+                        <button id="tinyfeed-connect-bg-save-global" class="tinyfeed-btn-ghost">ใช้กับทุกห้อง</button>
+                        <button id="tinyfeed-connect-bg-save" class="tinyfeed-btn-primary">บันทึก</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-donate-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
                     <span>โดเนทให้ <b id="tinyfeed-donate-to"></b></span>
                     <span id="tinyfeed-donate-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
@@ -1039,6 +1498,103 @@
                     <input id="tinyfeed-donate-amount" type="number" min="1" placeholder="จำนวนเงินโดเนท" />
                     <input id="tinyfeed-donate-note" type="text" placeholder="ข้อความถึงสตรีมเมอร์ (ไม่บังคับ)" />
                     <button id="tinyfeed-donate-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-gift"></i> โดเนท</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-pet-shop-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>ร้านสัตว์เลี้ยง · 🪙 <b id="tinyfeed-pet-shop-coins">0</b> <button id="tinyfeed-pet-topup-btn" class="tinyfeed-pet-topup-link">เติมเหรียญ</button></span>
+                    <span id="tinyfeed-pet-shop-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-pet-shop-list" class="tinyfeed-pet-food-list"></div>
+                <div class="tinyfeed-pet-shop-managebar">
+                    <button id="tinyfeed-pet-shop-add" class="tinyfeed-btn-generate"><i class="fa-solid fa-plus"></i> <span>เพิ่มไอเทม</span></button>
+                    <button id="tinyfeed-pet-shop-generate" class="tinyfeed-btn-generate"><i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ AI สร้าง</span></button>
+                </div>
+                <small class="tinyfeed-field-hint">ซื้อด้วย "เหรียญเพ็ท" (แยกจากเงิน RP) · เติมเหรียญจาก TinyBank ได้ · แยกไอเทมจาก TinyShop ไม่ปนกัน</small>
+            </div>
+        </div>
+
+        <div id="tinyfeed-pet-item-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span id="tinyfeed-pet-item-title">เพิ่มไอเทม</span>
+                    <span id="tinyfeed-pet-item-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-pet-item-name" type="text" placeholder="ชื่อไอเทม" />
+                    <div class="tinyfeed-shop-addrow">
+                        <input id="tinyfeed-pet-item-price" type="number" min="0" placeholder="ราคา (เหรียญ)" />
+                        <input id="tinyfeed-pet-item-emoji" type="text" maxlength="4" placeholder="อิโมจิ 🍖" />
+                    </div>
+                    <select id="tinyfeed-pet-item-type">
+                        <option value="food">อาหาร (เพิ่มความอิ่ม)</option>
+                        <option value="toy">ของเล่น (เพิ่มอารมณ์/ผูกพัน)</option>
+                        <option value="care">ของใช้ (เพิ่มความสะอาด)</option>
+                        <option value="heal">ยา/ฟื้นฟู (เพิ่มสุขภาพ)</option>
+                    </select>
+                    <input id="tinyfeed-pet-item-amount" type="number" min="1" placeholder="ค่าพลัง (เช่น 40)" />
+                    <div class="tinyfeed-uploadrow">
+                        <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                            <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                        </div>
+                        <input id="tinyfeed-pet-item-image" type="text" placeholder="ลิงก์รูป (ใช้แทนอิโมจิ)" />
+                        <span class="tinyfeed-upload-btn" data-kind="thumb" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                    </div>
+                    <input id="tinyfeed-pet-item-desc" type="text" placeholder="รายละเอียด (ไม่บังคับ)" />
+                    <button id="tinyfeed-pet-item-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> บันทึก</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-pet-topup-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>เติมเหรียญเพ็ท</span>
+                    <span id="tinyfeed-pet-topup-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <div class="tinyfeed-donate-balance">เงิน TinyBank: <b id="tinyfeed-pet-topup-bank"></b> · เรต <b id="tinyfeed-pet-topup-rate">1</b> เหรียญ/บาท</div>
+                    <input id="tinyfeed-pet-topup-amount" type="number" min="1" placeholder="จำนวนเงินที่จะเติม (บาท)" />
+                    <button id="tinyfeed-pet-topup-send" class="tinyfeed-btn-primary"><i class="fa-solid fa-coins"></i> เติมเหรียญ</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-pet-game-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span id="tinyfeed-pet-game-title">เล่นเกมกับเพ็ท</span>
+                    <span id="tinyfeed-pet-game-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-pet-game-body" class="tinyfeed-pet-game-body"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-shop-edit-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>แก้ไขสินค้า</span>
+                    <span id="tinyfeed-shop-edit-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-slip-form">
+                    <input id="tinyfeed-shop-edit-name" type="text" placeholder="ชื่อสินค้า" />
+                    <div class="tinyfeed-shop-addrow">
+                        <input id="tinyfeed-shop-edit-price" type="number" min="1" placeholder="ราคา" />
+                        <input id="tinyfeed-shop-edit-emoji" type="text" maxlength="4" placeholder="อิโมจิ 👕" />
+                    </div>
+                    <div class="tinyfeed-uploadrow">
+                        <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                            <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                        </div>
+                        <input id="tinyfeed-shop-edit-image" type="text" placeholder="ลิงก์รูป (ใช้แทนอิโมจิ)" />
+                        <span class="tinyfeed-upload-btn" data-kind="thumb" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                    </div>
+                    <select id="tinyfeed-shop-edit-cat"></select>
+                    <input id="tinyfeed-shop-edit-desc" type="text" placeholder="รายละเอียด" />
+                    <button id="tinyfeed-shop-edit-save" class="tinyfeed-btn-primary"><i class="fa-solid fa-check"></i> บันทึก</button>
                 </div>
             </div>
         </div>
@@ -1052,13 +1608,23 @@
             </div>
         </div>
 
-        <div id="tinyfeed-gallery-edit" class="tinyfeed-gallery-picker tinyfeed-hidden">
-            <div class="tinyfeed-gallery-picker-card">
-                <div class="tinyfeed-gallery-picker-head">
+        <div id="tinyfeed-gallery-edit" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
                     <span id="tinyfeed-gallery-edit-title">แก้ไข</span>
                     <span id="tinyfeed-gallery-edit-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
                 <div class="tinyfeed-gallery-editform">
+                    <label class="tinyfeed-gallery-edit-field">
+                        <span class="tinyfeed-field-label">รูป</span>
+                        <div class="tinyfeed-uploadrow">
+                            <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap tinyfeed-hidden">
+                                <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                            </div>
+                            <input id="tinyfeed-gallery-edit-url" type="text" placeholder="ลิงก์รูป (URL)" />
+                            <span class="tinyfeed-upload-btn" data-kind="image" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
+                        </div>
+                    </label>
                     <label class="tinyfeed-gallery-edit-field">
                         <span class="tinyfeed-field-label">ชื่อ (ใช้อ้างอิง)</span>
                         <input id="tinyfeed-gallery-edit-name" type="text" placeholder="ชื่อ" />

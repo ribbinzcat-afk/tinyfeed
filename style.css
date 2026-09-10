@@ -1,3 +1,88 @@
+/* ============================================================
+   DESIGN TOKENS — แหล่งความจริงเดียวของค่าที่ใช้ซ้ำ
+   กติกา + เหตุผลอยู่ใน CONVENTIONS.md บทที่ 1
+   ห้ามใส่ค่าดิบ (hex / px / em) ที่อื่นในไฟล์นี้ ยกเว้นในบล็อกนี้
+   ============================================================ */
+
+/* ---- ค่าที่ไม่ขึ้นกับธีม (มืด/สว่างใช้ชุดเดียวกัน) ---- */
+#tinyfeed-phone {
+    /* ระยะห่าง */
+    --tf-sp-1: 4px;
+    --tf-sp-2: 6px;
+    --tf-sp-3: 8px;      /* ค่าเริ่มต้นของ gap */
+    --tf-sp-4: 12px;
+    --tf-sp-5: 16px;     /* padding มาตรฐานของ .tinyfeed-screen */
+    --tf-sp-6: 24px;
+
+    /* ความมน */
+    --tf-r-sm: 6px;      /* ชิป, แท็ก, thumbnail เล็ก */
+    --tf-r-md: 10px;     /* การ์ด, input, modal */
+    --tf-r-lg: 16px;     /* การ์ดใหญ่, bottom sheet */
+    --tf-r-pill: 999px;  /* ปุ่ม, avatar, badge */
+
+    /* ขนาดตัวอักษร */
+    --tf-fs-xs: 0.72em;  /* meta, timestamp, caption */
+    --tf-fs-sm: 0.82em;  /* ข้อความรอง, label */
+    --tf-fs-md: 0.9em;   /* ค่าเริ่มต้นของเนื้อหา */
+    --tf-fs-lg: 1.1em;   /* หัวข้อในแอป */
+    --tf-fs-xl: 1.5em;   /* ตัวเลขเด่น, hero */
+
+    /* สีตามความหมาย */
+    --tf-danger: #f4212e;   /* ลบ, ผิดพลาด, หัวใจไลก์ */
+    --tf-success: #22c55e;  /* สำเร็จ, เงินเข้า */
+    --tf-warn: #f59e0b;     /* เตือน */
+    --tf-info: #1d9bf0;     /* ข้อมูล */
+
+    /* สีแบรนด์ต่อแอป — แหล่งเดียว ห้ามเขียน hex ซ้ำใน JS
+       (--app-b ของไอคอนโฮม derive จาก --app-a ด้วย color-mix ไม่ต้องเก็บค่าที่สอง) */
+    --tf-app-feed: #1d9bf0;
+    --tf-app-connect: #22c55e;
+    --tf-app-stream: #a855f7;
+    --tf-app-memo: #f59e0b;      /* ยึดค่าของหน้าโฮม (APP_META เคยเป็น #14b8a6 = ไม่ตรงกัน) */
+    --tf-app-forum: #ef4444;
+    --tf-app-gallery: #ec4899;
+    --tf-app-bank: #10b981;
+    --tf-app-shop: #f97316;
+    --tf-app-pet: #8b5cf6;
+    --tf-app-ask: #6366f1;
+    --tf-app-bag: #0ea5e9;
+    --tf-app-news: #f59e0b;      /* ไม่ใช่แอป — เป็นแท็บใน feed */
+}
+
+/* ---- ค่าที่ขึ้นกับธีม (ต้องนิยามครบทั้งสองชุดเสมอ) ---- */
+#tinyfeed-phone.tinyfeed-theme-dark {
+    --tf-bg: #16181c;
+    --tf-text: #e7e9ea;
+    --tf-text-strong: #ffffff;
+    --tf-text-muted: #8b98a5;
+    --tf-text-soft: #d0d5da;
+    --tf-border: rgba(255, 255, 255, 0.08);
+    --tf-border-soft: rgba(255, 255, 255, 0.06);
+    --tf-accent: #1d9bf0;
+    --tf-topbar: #16181c;
+}
+
+#tinyfeed-phone.tinyfeed-theme-light {
+    --tf-bg: #ffffff;
+    --tf-text: #0f1419;
+    --tf-text-strong: #0f1419;
+    --tf-text-muted: #536471;
+    --tf-text-soft: #3c4650;
+    --tf-border: rgba(0, 0, 0, 0.1);
+    --tf-border-soft: rgba(0, 0, 0, 0.06);
+    --tf-accent: #1d9bf0;
+    --tf-topbar: #ffffff;
+}
+
+/* Runtime tokens (ตั้งจาก JS ห้ามตั้งที่นี่):
+   --tf-overlay-alpha    applyAppearance()  ← overlayOpacity
+   --tf-widget-alpha     applyAppearance()  ← widgetOpacity
+   --tf-home-hue         applyAppearance()
+   --tf-wp-overlay-alpha applyWallpaper()   ← wallpaperOverlay          */
+
+/* ===== END DESIGN TOKENS ===== */
+
+
 /* พื้นหลังมืดคลุมทั้งจอ */
 #tinyfeed-overlay {
     position: fixed;
@@ -114,41 +199,33 @@
     }
 }
 
-/* แท็บ */
-.tinyfeed-tabs,
-.tinyfeed-memo-tabs,
-.tinyfeed-forum-tabs,
-.tinyfeed-gallery-tabs {
+/* ===== แท็บ — ชุดเดียวใช้ทุกแอป (เฟส 4) =====
+ * เดิมมี 5 ชุด (.tinyfeed-tabs / -memo-tabs / -forum-tabs / -gallery-tabs / -verse-tabs — verse ถอดออกแล้ว)
+ * ที่เหลือเป็น alias ของสไตล์เดียวกันอยู่แล้ว รวมเป็นมาตรฐานนี้
+ * แยกแต่ละแอปด้วย data attribute (data-tab / data-mtab / data-fsort / data-gtab / data-vtab)
+ * ไม่ใช่ด้วยชื่อคลาส — ดู CONVENTIONS.md บทที่ 4.5 */
+.tinyfeed-tabs {
     display: flex;
     border-bottom: 1px solid var(--tf-border);
     flex-shrink: 0;
 }
 
-.tinyfeed-tab,
-.tinyfeed-memo-tab,
-.tinyfeed-forum-tab,
-.tinyfeed-gallery-tab {
+.tinyfeed-tab {
     flex: 1;
     text-align: center;
-    padding: 12px 0;
+    padding: var(--tf-sp-4) 0;
     color: var(--tf-text-muted);
     cursor: pointer;
-    font-size: 0.9em;
+    font-size: var(--tf-fs-md);
     transition: color 0.2s ease, border-color 0.2s ease;
     border-bottom: 2px solid transparent;
 }
 
-.tinyfeed-tab:hover,
-.tinyfeed-memo-tab:hover,
-.tinyfeed-forum-tab:hover,
-.tinyfeed-gallery-tab:hover {
+.tinyfeed-tab:hover {
     color: var(--tf-text);
 }
 
-.tinyfeed-tab-active,
-.tinyfeed-memo-tab-active,
-.tinyfeed-forum-tab-active,
-.tinyfeed-gallery-tab-active {
+.tinyfeed-tab-active {
     color: var(--tf-text-strong);
     border-bottom: 2px solid var(--tf-accent);
 }
@@ -241,6 +318,56 @@
 .tinyfeed-share.tinyfeed-shared:hover {
     color: var(--tf-accent);
 }
+
+/* ป้าย "X รีโพสต์" เหนือโพสต์ (renderFeed/openPostDetail) */
+.tinyfeed-repost-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    margin-bottom: 6px;
+}
+
+/* การ์ดโพสต์ฝัง (โควท/รีโพสต์) — ไม่ผูก handler คลิกเอง ปล่อยให้คลิกทะลุไปเปิดโพสต์ที่ห่อมันแทน */
+.tinyfeed-post-embed {
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-3);
+    margin-bottom: 10px;
+    background: var(--tf-topbar);
+}
+.tinyfeed-post-embed-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+.tinyfeed-post-embed-head .tinyfeed-avatar { width: 22px; height: 22px; flex-shrink: 0; }
+.tinyfeed-post-embed-author { font-size: var(--tf-fs-sm); font-weight: 600; color: var(--tf-text-strong); }
+.tinyfeed-post-embed-time { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); }
+.tinyfeed-post-embed-body { font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.4; }
+/* ยกเลิก bleed เต็มจอของรูปโพสต์ปกติ (.tinyfeed-content-img-wrap ใน style.css กฎ .tinyfeed-post-media ทะลุ padding
+ * ของ .tinyfeed-screen ด้วย margin ติดลบ) — ในการ์ดฝังไม่มี padding แบบนั้นให้ทะลุ จึงต้องคืนกรอบ + จำกัดความสูงแทน */
+.tinyfeed-post-embed-body .tinyfeed-content-img-wrap { margin: 0; }
+.tinyfeed-post-embed-body .tinyfeed-content-img { max-height: 200px; border-radius: var(--tf-r-md); }
+
+/* ชิป "กำลังโควท: ชื่อ" เหนือช่องพิมพ์โพสต์ */
+.tinyfeed-quote-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--tf-fs-sm);
+    color: var(--tf-text-muted);
+    background: var(--tf-topbar);
+    border-radius: var(--tf-r-sm);
+    padding: 6px 10px;
+    margin-bottom: 8px;
+}
+.tinyfeed-quote-chip i.fa-quote-left { color: var(--tf-accent); }
+.tinyfeed-quote-chip span:not(:last-child) { flex: 1; min-width: 0; }
+#tinyfeed-quote-chip-close { cursor: pointer; color: var(--tf-text-muted); }
+#tinyfeed-quote-chip-close:hover { color: var(--tf-danger); }
 
 /* ===== ช่องเขียนโพสต์ (compose) ===== */
 .tinyfeed-compose {
@@ -380,8 +507,40 @@
     opacity: 0.7;
 }
 
+/* ปุ่มสแกนเงิน TinyBank — เด่นขึ้นเมื่อมีรายการรอรีวิวค้างอยู่ (ต้องกดดูก่อนถึงเข้าบัญชี) */
+.tinyfeed-bankscan-pending {
+    color: var(--tf-warn);
+    border-color: var(--tf-warn);
+    background: color-mix(in srgb, var(--tf-warn) 12%, transparent);
+}
+
+/* ลิงก์สั่ง AI แบบเบา — ใช้ในแถวใต้โพสต์ที่ไม่อยากให้ปุ่มเด่นแย่งเนื้อหา (TinyFeed: ให้ NPC คอมเมนต์ / ให้ AI ตอบ) */
+.tinyfeed-ai-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--tf-sp-2);
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: 0.92em;
+    color: var(--tf-accent);
+    cursor: pointer;
+}
+
+.tinyfeed-ai-link:hover {
+    text-decoration: underline;
+}
+
+.tinyfeed-ai-link.tinyfeed-generating {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
 /* ไอคอนหมุนตอนกำลังสร้าง */
-.tinyfeed-btn-generate.tinyfeed-generating i {
+.tinyfeed-btn-generate.tinyfeed-generating i,
+.tinyfeed-ai-link.tinyfeed-generating i {
     animation: tinyfeed-spin 0.9s linear infinite;
 }
 
@@ -400,7 +559,7 @@
 }
 
 .tinyfeed-delete:hover {
-    color: #f4212e;
+    color: var(--tf-danger);
     opacity: 1;
 }
 
@@ -429,9 +588,17 @@
 }
 
 .tinyfeed-news-delete:hover {
-    color: #f4212e;
+    color: var(--tf-danger);
     opacity: 1;
 }
+
+.tinyfeed-news-share {
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    opacity: 0.6;
+    transition: color 0.2s ease, opacity 0.2s ease;
+}
+.tinyfeed-news-share:hover { color: var(--tf-accent); opacity: 1; }
 
 /* ข่าว */
 .tinyfeed-news {
@@ -515,7 +682,7 @@
 }
 
 .tinyfeed-comment-del:hover {
-    color: #f4212e;
+    color: var(--tf-danger);
     opacity: 1;
 }
 
@@ -563,6 +730,7 @@
     font-size: 0.85em;
 }
 
+/* ช่องเขียนคอมเมนต์ — ใช้ร่วมหลายแอป (อยู่ใน .tinyfeed-inputwrap มีปุ่มสติกเกอร์ในช่อง) */
 .tinyfeed-comment-input {
     flex: 1;
     min-width: 0;
@@ -570,10 +738,10 @@
     background: var(--tf-topbar);
     color: var(--tf-text);
     border: 1px solid var(--tf-border);
-    border-radius: 999px;
-    padding: 8px 14px;
+    border-radius: var(--tf-r-pill);
+    padding: 9px 42px 9px 15px;   /* เว้นขวาให้ปุ่มสติกเกอร์ในช่อง */
     font: inherit;
-    font-size: 0.9em;
+    font-size: var(--tf-fs-md);
     outline: none;
     transition: border-color 0.2s ease;
 }
@@ -589,6 +757,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    border: none;
+    background: none;
     border-radius: 50%;
     color: var(--tf-accent);
     cursor: pointer;
@@ -628,18 +798,164 @@
     margin-bottom: 22px;
 }
 
-/* หัวข้อใหญ่คั่นหมวด (ตั้งค่าเครื่อง / แต่ละแอป) */
-.tinyfeed-settings-cat {
-    font-size: 1.05em;
-    font-weight: 700;
-    color: var(--tf-text-strong);
-    margin: 4px 0 16px;
-    padding-bottom: 8px;
-    border-bottom: 2px solid var(--tf-accent);
+/* ===== หน้าตั้งค่า 2 ระดับ (เฟส 3) ===== */
+
+/* ตัวหน้าตั้งค่า — เป็นพี่น้องของแอปแล้ว จึงต้องเป็น flex column เองเหมือน .tinyfeed-app */
+.tinyfeed-settings-screen:not(.tinyfeed-hidden) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
 }
 
-.tinyfeed-settings-cat:not(:first-child) {
-    margin-top: 14px;
+/* หัวข้อหมวดในรายการระดับ 1 */
+.tinyfeed-settings-cat {
+    font-size: var(--tf-fs-sm);
+    font-weight: 700;
+    color: var(--tf-text-muted);
+    letter-spacing: 0.02em;
+    margin: var(--tf-sp-6) 0 var(--tf-sp-3);
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-3);
+}
+
+.tinyfeed-settings-cat:first-child {
+    margin-top: var(--tf-sp-1);
+}
+
+.tinyfeed-settings-cat i {
+    color: var(--tf-accent);
+}
+
+/* แถวหัวข้อในรายการระดับ 1 */
+.tinyfeed-settings-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-4);
+    padding: var(--tf-sp-4) var(--tf-sp-3);
+    border-bottom: 1px solid var(--tf-border-soft);
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.tinyfeed-settings-row:last-child {
+    border-bottom: none;
+}
+
+.tinyfeed-settings-row:hover {
+    background: var(--tf-border-soft);
+}
+
+.tinyfeed-settings-row:active {
+    background: var(--tf-border);
+}
+
+.tinyfeed-settings-row-icon {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--tf-r-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--tf-fs-md);
+    color: var(--tf-accent);
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+}
+
+.tinyfeed-settings-row-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.tinyfeed-settings-row-name {
+    font-size: var(--tf-fs-md);
+    font-weight: 600;
+    color: var(--tf-text-strong);
+}
+
+.tinyfeed-settings-row-desc {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tinyfeed-settings-row-arrow {
+    flex-shrink: 0;
+    font-size: var(--tf-fs-sm);
+    color: var(--tf-text-muted);
+    opacity: 0.6;
+}
+
+/* หัวข้อตั้งค่า "หน้าโฮม" — แถวแอปพร้อมลูกศรจัดลำดับ + สวิตช์เปิด/ปิด */
+.tinyfeed-home-layout-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-3);
+    padding: var(--tf-sp-2) 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+}
+
+.tinyfeed-home-layout-row:last-child {
+    border-bottom: none;
+}
+
+.tinyfeed-home-layout-row-hidden {
+    opacity: 0.5;
+}
+
+.tinyfeed-home-layout-icon {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--tf-r-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: var(--tf-fs-sm);
+    background: linear-gradient(135deg, var(--app-a), var(--app-b));
+}
+
+.tinyfeed-home-layout-name {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--tf-fs-md);
+    color: var(--tf-text-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tinyfeed-home-layout-arrows {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    color: var(--tf-text-muted);
+    font-size: var(--tf-fs-xs);
+}
+
+.tinyfeed-home-layout-arrows i {
+    cursor: pointer;
+    padding: 2px 6px;
+}
+
+.tinyfeed-home-layout-arrows i:hover {
+    color: var(--tf-accent);
+}
+
+.tinyfeed-home-layout-toggle {
+    /* ไม่ได้อยู่ใน .tinyfeed-field-row ที่ตั้ง accent-color ให้ → ตั้งเอง กันเป็น checkbox เปล่าของเบราว์เซอร์ */
+    width: 18px;
+    height: 18px;
+    accent-color: var(--tf-accent);
+    cursor: pointer;
+    flex-shrink: 0;
 }
 
 .tinyfeed-settings-title {
@@ -770,7 +1086,7 @@
 }
 
 .tinyfeed-npc-del:hover {
-    color: #f4212e;
+    color: var(--tf-danger);
     opacity: 1;
 }
 
@@ -778,7 +1094,9 @@
     margin-top: 4px;
 }
 
-/* ===== จุดแดง badge + สั่น บนปุ่มเมนู (Stage 10) ===== */
+/* ===== จุดแดง badge + สั่น บนปุ่มเมนู (Stage 10) =====
+   อยู่ใน #extensionsMenu ของ ST เอง — นอก #tinyfeed-phone จึงเข้าถึง --tf-* ไม่ได้
+   (เหมือน .tinyfeed-notif) ใช้ค่าดิบตรงนี้โดยตั้งใจ ห้ามเปลี่ยนกลับเป็น var(--tf-danger) */
 .tinyfeed-menu-badge {
     margin-left: auto;
     min-width: 18px;
@@ -941,6 +1259,11 @@
     animation: tinyfeed-heartpop 0.32s ease;
 }
 
+/* หัวใจเด้งตอนความผูกพัน pet ขึ้นเลเวล (ใช้ keyframe เดียวกับไลค์) */
+.tinyfeed-pet-bond-label i.tinyfeed-pop {
+    animation: tinyfeed-heartpop 0.4s ease;
+}
+
 /* hover โพสต์/ข่าว */
 .tinyfeed-post:not(.tinyfeed-post-detail),
 .tinyfeed-news {
@@ -976,8 +1299,20 @@
     margin-bottom: 6px;
 }
 .tinyfeed-empty-sub {
-    font-size: 0.88em;
+    font-size: var(--tf-fs-md);
     line-height: 1.55;
+}
+
+/* empty state แบบกะทัดรัด — ใช้ในกล่องเล็กที่ .tinyfeed-empty ใหญ่เกิน
+ * (กริดคลังรูป · ตัวเลือกใน modal · ลิ้นชักแจ้งเตือน)
+ * grid-column มีผลเฉพาะตอนพ่อเป็น grid (กริดคลังรูป) ที่อื่นถูกเมิน */
+.tinyfeed-empty-inline {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: var(--tf-text-muted);
+    font-size: var(--tf-fs-sm);
+    padding: var(--tf-sp-6) var(--tf-sp-5);
+    line-height: 1.6;
 }
 
 /* ===== skeleton loading ===== */
@@ -1150,7 +1485,7 @@
 }
 
 .tinyfeed-group-del:hover {
-    color: #f4212e;
+    color: var(--tf-danger);
     opacity: 1;
 }
 
@@ -1196,6 +1531,20 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    background-image: var(--tf-connect-bg-img, none);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+/* มีพื้นหลังห้อง: ผสมฝ้าจางเข้าเป็น layer เดียวกับรูปใน background-image เลย (ไม่ใช้ ::before แยก)
+ * เหตุผล: กล่องนี้เป็นทั้งกล่องสกรอลล์ (overflow-y:auto) และ containing block ของลูก ::before แบบ
+ * position:absolute;inset:0 จึงสูงแค่ "หนึ่งหน้าจอ" (เทียบกับกรอบที่มองเห็น ไม่ใช่ scrollHeight) แล้ว
+ * เลื่อนหายไปพร้อมข้อความตอนสกรอลล์ ในขณะที่ background-image เกาะ border box ไม่เลื่อนตามอยู่แล้ว
+ * → รวมฝ้าเข้า background-image เดียวกัน จะได้พฤติกรรม "ไม่เลื่อน" แบบเดียวกันฟรี */
+.tinyfeed-connect-messages.tinyfeed-has-bg {
+    background-image:
+        linear-gradient(rgba(0, 0, 0, var(--tf-connect-bg-alpha, 0.45)), rgba(0, 0, 0, var(--tf-connect-bg-alpha, 0.45))),
+        var(--tf-connect-bg-img, none);
 }
 
 .tinyfeed-msg {
@@ -1228,6 +1577,18 @@
     word-break: break-word;
 }
 
+/* สติกเกอร์/รูปที่ส่งเดี่ยวๆ — ไม่มีกรอบบับเบิลครอบ โชว์แค่รูป (เหมือนแอปแชตทั่วไป) */
+.tinyfeed-msg-media {
+    max-width: 74%;
+    padding: 0;
+    background: none;
+    border: none;
+}
+.tinyfeed-msg-media .tinyfeed-content-img-wrap,
+.tinyfeed-msg-media .tinyfeed-sticker-img {
+    margin: 0;
+}
+
 /* กองบับเบิล (หลายบรรทัด → หลายบับเบิลซ้อน) */
 .tinyfeed-msg-stack {
     display: flex;
@@ -1237,10 +1598,13 @@
 }
 .tinyfeed-msg-user .tinyfeed-msg-stack { align-items: flex-end; max-width: 74%; }
 .tinyfeed-msg-contact .tinyfeed-msg-stack { align-items: flex-start; }
-.tinyfeed-msg-stack .tinyfeed-msg-bubble { max-width: 100%; }
+.tinyfeed-msg-stack .tinyfeed-msg-bubble,
+.tinyfeed-msg-stack .tinyfeed-msg-media { max-width: 100%; }
 
 .tinyfeed-msg-user .tinyfeed-msg-bubble {
-    background: linear-gradient(135deg, #22c55e, #15a34a);
+    /* --tf-connect-bubble ตั้งจาก applyAppearance() (ตั้งค่า "สีบับเบิลแชท") — ไม่ตั้ง = เขียวเดิม */
+    background: linear-gradient(135deg, var(--tf-connect-bubble, var(--tf-app-connect)),
+        color-mix(in srgb, var(--tf-connect-bubble, var(--tf-app-connect)) 70%, black));
     color: #fff;
     border-bottom-right-radius: 5px;
 }
@@ -1255,6 +1619,28 @@
 .tinyfeed-msg-typing {
     opacity: 0.7;
     font-style: italic;
+}
+
+/* เส้นคั่นเวลา — โผล่เมื่อข้อความห่างกันเกินเกณฑ์ (ตั้งค่าได้) */
+.tinyfeed-msg-timediv {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 4px 0;
+}
+.tinyfeed-msg-timediv span {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    background: color-mix(in srgb, var(--tf-topbar) 85%, transparent);
+    padding: 3px 12px;
+    border-radius: var(--tf-r-pill);
+}
+
+/* ป้าย "อ่านแล้ว" — เกาะฟองข้อความของเราตัวล่าสุดที่ตัวละครอ่านแล้ว (ดู renderThread) */
+.tinyfeed-msg-read {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    padding-right: 2px;
 }
 
 /* ปุ่มลบบับเบิลแชท — จางไว้ให้แตะได้บนมือถือ เข้มขึ้นตอน hover บนเดสก์ท็อป */
@@ -1274,7 +1660,7 @@
 }
 
 .tinyfeed-msg-del:hover {
-    color: #f4212e;
+    color: var(--tf-danger);
     opacity: 1;
 }
 
@@ -1321,7 +1707,7 @@
 }
 
 #tinyfeed-connect-input:focus {
-    border-color: #22c55e;
+    border-color: var(--tf-accent);
 }
 
 /* ปุ่มไอคอนที่อยู่ "ในช่องอินพุต" (สติกเกอร์) */
@@ -1379,14 +1765,19 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    color: #22c55e;
+    color: var(--tf-accent);
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: background 0.2s ease, color 0.2s ease;
 }
 
 #tinyfeed-connect-send:hover {
-    background: color-mix(in srgb, #22c55e 15%, transparent);
+    background: color-mix(in srgb, var(--tf-accent) 15%, transparent);
 }
+/* ปุ่มมอร์ฟ: ว่าง = คทา (ให้ตอบกลับ) สีจาง · พิมพ์แล้ว = จรวด (ส่ง) สี accent เต็ม (ดู updateConnectSendBtn) */
+#tinyfeed-connect-send.tinyfeed-connect-send-wand { color: var(--tf-text-muted); }
+#tinyfeed-connect-send.tinyfeed-connect-send-wand:hover { color: var(--tf-accent); }
+#tinyfeed-connect-send.tinyfeed-connect-send-busy { pointer-events: none; opacity: 0.6; }
+#tinyfeed-connect-send.tinyfeed-connect-send-busy i { animation: tinyfeed-spin 0.9s linear infinite; }
 
 /* ===== TinyStream: ไลฟ์สตรีม ===== */
 #tinyfeed-app-stream:not(.tinyfeed-hidden) {
@@ -1403,7 +1794,7 @@
     justify-content: center;
     padding-top: 48px;            /* เว้นแถบ LIVE/ยอดผู้ชมด้านบน ไม่ให้รูปสตรีมเมอร์บัง */
     box-sizing: border-box;
-    background: linear-gradient(135deg, #a855f7, #7e22ce);
+    background: linear-gradient(135deg, var(--tf-app-stream), #7e22ce);
     background-size: cover;
     background-position: center;
     overflow: hidden;
@@ -1659,8 +2050,8 @@
 
 /* ช่องพิมพ์คำพูดสตรีมเมอร์ (เราเป็นคนไลฟ์) — เน้นให้ต่างจากช่องคอมเมนต์ */
 .tinyfeed-stream-streamer-compose {
-    background: color-mix(in srgb, #a855f7 10%, transparent);
-    border-top: 1px solid color-mix(in srgb, #a855f7 35%, transparent);
+    background: color-mix(in srgb, var(--tf-app-stream) 10%, transparent);
+    border-top: 1px solid color-mix(in srgb, var(--tf-app-stream) 35%, transparent);
 }
 
 #tinyfeed-stream-input,
@@ -1681,7 +2072,7 @@
 
 #tinyfeed-stream-input:focus,
 #tinyfeed-stream-streamer-input:focus {
-    border-color: #a855f7;
+    border-color: var(--tf-app-stream);
 }
 
 #tinyfeed-stream-send,
@@ -1693,14 +2084,14 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    color: #a855f7;
+    color: var(--tf-app-stream);
     cursor: pointer;
     transition: background 0.2s ease;
 }
 
 #tinyfeed-stream-send:hover,
 #tinyfeed-stream-streamer-send:hover {
-    background: color-mix(in srgb, #a855f7 15%, transparent);
+    background: color-mix(in srgb, var(--tf-app-stream) 15%, transparent);
 }
 
 /* แถวตั้งค่าที่ถูกปิดใช้งาน (เช่น toggle สตรีมเมอร์ตัวละคร ตอนเราเป็นสตรีมเมอร์เอง) */
@@ -1722,10 +2113,10 @@
     text-decoration: underline;
 }
 
-/* ในบับเบิลแชตของเรา (พื้นเขียว) ใช้สีขาวจะอ่านชัดกว่า */
+/* ในบับเบิลแชตของเรา (พื้นสีเข้ม ไม่ว่าจะเป็นสีอะไร) ใช้สีขาวนวลจะอ่านชัดกว่า */
 .tinyfeed-msg-user .tinyfeed-tag,
 .tinyfeed-msg-user .tinyfeed-mention {
-    color: #eafff2;
+    color: rgba(255, 255, 255, 0.92);
     text-decoration: underline;
 }
 
@@ -1738,30 +2129,7 @@
     padding: 1px 5px;
 }
 
-/* ===== ตัวแปรธีม ===== */
-#tinyfeed-phone.tinyfeed-theme-dark {
-    --tf-bg: #16181c;
-    --tf-text: #e7e9ea;
-    --tf-text-strong: #ffffff;
-    --tf-text-muted: #8b98a5;
-    --tf-text-soft: #d0d5da;
-    --tf-border: rgba(255, 255, 255, 0.08);
-    --tf-border-soft: rgba(255, 255, 255, 0.06);
-    --tf-accent: #1d9bf0;
-    --tf-topbar: #16181c;
-}
-
-#tinyfeed-phone.tinyfeed-theme-light {
-    --tf-bg: #ffffff;
-    --tf-text: #0f1419;
-    --tf-text-strong: #0f1419;
-    --tf-text-muted: #536471;
-    --tf-text-soft: #3c4650;
-    --tf-border: rgba(0, 0, 0, 0.1);
-    --tf-border-soft: rgba(0, 0, 0, 0.06);
-    --tf-accent: #1d9bf0;
-    --tf-topbar: #ffffff;
-}
+/* ตัวแปรธีมย้ายไปรวมกับ design tokens ที่ต้นไฟล์แล้ว (ดู CONVENTIONS.md บทที่ 1) */
 
 .tinyfeed-topbar-right {
     display: flex;
@@ -2113,7 +2481,7 @@
 
 .tinyfeed-agenda-del:hover,
 .tinyfeed-note-del:hover {
-    color: #f4212e;
+    color: var(--tf-danger);
     opacity: 1;
 }
 
@@ -2288,7 +2656,7 @@
 .tinyfeed-forum-detail-actions span:hover { color: var(--tf-text); }
 .tinyfeed-forum-thread-like.tinyfeed-liked,
 .tinyfeed-forum-thread-like.tinyfeed-liked:hover { color: #f91880; }
-.tinyfeed-forum-thread-del:hover { color: #f4212e; }
+.tinyfeed-forum-thread-del:hover { color: var(--tf-danger); }
 .tinyfeed-forum-count {
     font-size: 0.85em;
     color: var(--tf-text-muted);
@@ -2308,7 +2676,7 @@
 .tinyfeed-forum-cmt-like.tinyfeed-liked,
 .tinyfeed-forum-cmt-like.tinyfeed-liked:hover { color: #f91880; }
 .tinyfeed-forum-cmt-del:hover,
-.tinyfeed-forum-reply-del:hover { color: #f4212e; }
+.tinyfeed-forum-reply-del:hover { color: var(--tf-danger); }
 
 /* แถบ "กำลังตอบกลับ" เหนือช่องพิมพ์ */
 .tinyfeed-forum-reply-banner {
@@ -2426,7 +2794,7 @@
     opacity: 0.6;
     transition: color 0.2s ease, opacity 0.2s ease;
 }
-.tinyfeed-room-del:hover { color: #f4212e; opacity: 1; }
+.tinyfeed-room-del:hover { color: var(--tf-danger); opacity: 1; }
 #tinyfeed-room-add { margin-top: 4px; }
 
 /* ===== ปรับแต่งหน้าตา: สีไอคอน/พื้นหลังตามธีม ===== */
@@ -2563,7 +2931,7 @@
     padding: 0 3px;
     box-sizing: border-box;
     border-radius: 999px;
-    background: #f4212e;
+    background: var(--tf-danger);
     color: #fff;
     font-size: 0.6em;
     font-weight: 700;
@@ -2604,16 +2972,10 @@
 .tinyfeed-notif-drawer-actions { display: flex; gap: 16px; }
 .tinyfeed-notif-drawer-actions span { cursor: pointer; opacity: 0.7; transition: opacity 0.2s ease, color 0.2s ease; }
 .tinyfeed-notif-drawer-actions span:hover { opacity: 1; }
-#tinyfeed-notif-clear:hover { color: #f4212e; }
+#tinyfeed-notif-clear:hover { color: var(--tf-danger); }
 #tinyfeed-notif-drawer-list {
     overflow-y: auto;
     padding: 6px 0;
-}
-.tinyfeed-notif-drawer-empty {
-    text-align: center;
-    padding: 30px 16px;
-    color: var(--tf-text-muted);
-    font-size: 0.88em;
 }
 .tinyfeed-notif-item {
     display: flex;
@@ -2637,15 +2999,6 @@
     overflow: hidden;
 }
 .tinyfeed-notif-item-time { font-size: 0.72em; color: var(--tf-text-muted); margin-top: 2px; }
-
-/* ปุ่มให้กลุ่มคุยกันต่อ */
-.tinyfeed-connect-thread-tools {
-    flex-shrink: 0;
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    padding: 8px 12px 0;
-}
 
 /* ===== ตัวแก้ Prompt (ขั้นสูง) ===== */
 .tinyfeed-prompt-item {
@@ -2690,7 +3043,7 @@
     resize: vertical;
 }
 .tinyfeed-prompt-text.tinyfeed-prompt-invalid {
-    border-color: #f4212e !important;
+    border-color: var(--tf-danger) !important;
 }
 /* รายการคีย์เวิร์ดต่อแอป */
 .tinyfeed-kw-item { margin-bottom: 12px; }
@@ -2753,7 +3106,7 @@
     transition: color 0.2s ease, background 0.2s ease;
 }
 .tinyfeed-gallery-album-add:hover { color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 12%, transparent); }
-.tinyfeed-gallery-album-del:hover { color: #f4212e; background: color-mix(in srgb, #f4212e 12%, transparent); }
+.tinyfeed-gallery-album-del:hover { color: var(--tf-danger); background: color-mix(in srgb, var(--tf-danger) 12%, transparent); }
 
 /* ฟอร์มเพิ่มรูป/สติกเกอร์ */
 .tinyfeed-gallery-addform {
@@ -2800,13 +3153,6 @@
 .tinyfeed-gallery-grid-sticker {
     grid-template-columns: repeat(4, 1fr);
 }
-.tinyfeed-gallery-empty {
-    grid-column: 1 / -1;
-    text-align: center;
-    color: var(--tf-text-muted);
-    font-size: 0.88em;
-    padding: 24px 8px;
-}
 .tinyfeed-gallery-item {
     display: flex;
     flex-direction: column;
@@ -2840,7 +3186,8 @@
 }
 .tinyfeed-gallery-item:hover .tinyfeed-gallery-item-actions { opacity: 1; }
 .tinyfeed-gallery-item-edit,
-.tinyfeed-gallery-item-del {
+.tinyfeed-gallery-item-del,
+.tinyfeed-gallery-file-del {
     width: 24px;
     height: 24px;
     display: flex;
@@ -2854,7 +3201,8 @@
     transition: background 0.15s ease;
 }
 .tinyfeed-gallery-item-edit:hover { background: var(--tf-accent); }
-.tinyfeed-gallery-item-del:hover { background: #f4212e; }
+.tinyfeed-gallery-item-del:hover,
+.tinyfeed-gallery-file-del:hover { background: var(--tf-danger); }
 .tinyfeed-gallery-item-name {
     font-size: 0.8em;
     color: var(--tf-text);
@@ -2871,6 +3219,42 @@
     opacity: 0.35;
     filter: grayscale(1);
 }
+
+/* ===== TinyGallery: แท็บ "ไฟล์ทั้งหมด" ===== */
+.tinyfeed-gallery-files-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--tf-sp-2);
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-warn);
+    background: color-mix(in srgb, var(--tf-warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tf-warn) 35%, transparent);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-3);
+    margin-bottom: var(--tf-sp-3);
+    line-height: 1.4;
+}
+.tinyfeed-gallery-files-tools {
+    display: flex;
+    gap: var(--tf-sp-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--tf-sp-3);
+}
+.tinyfeed-gallery-files-tools > button { flex: 1; }
+.tinyfeed-gallery-file-status {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    right: 4px;
+    font-size: 0.62em;
+    text-align: center;
+    padding: 2px 4px;
+    border-radius: var(--tf-r-sm);
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+}
+.tinyfeed-gallery-file-status.tinyfeed-gallery-file-used { color: var(--tf-success); }
+.tinyfeed-gallery-file-status.tinyfeed-gallery-file-orphan { color: var(--tf-warn); }
 
 /* ปุ่มสติกเกอร์ในแถบพิมพ์ (ทุกแอป) */
 .tinyfeed-compose-sticker {
@@ -2923,7 +3307,7 @@
 }
 
 /* Picker overlay: เลือกสติกเกอร์/รูปมาส่ง */
-.tinyfeed-gallery-picker {
+.tinyfeed-modal {
     position: absolute;
     inset: 0;
     z-index: 40;
@@ -2932,7 +3316,7 @@
     justify-content: center;
     background: rgba(0, 0, 0, 0.5);
 }
-.tinyfeed-gallery-picker-card {
+.tinyfeed-modal-card {
     width: 100%;
     max-height: 62%;
     display: flex;
@@ -2945,7 +3329,7 @@
     border-top-right-radius: 18px;
     border-top: 1px solid var(--tf-border);
 }
-.tinyfeed-gallery-picker-head {
+.tinyfeed-modal-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -2981,15 +3365,34 @@
     border-radius: 8px;
 }
 
-/* รูป/สติกเกอร์ในโพสต์ TinyFeed — อยู่ใต้แคปชันเสมอ */
+/* รูป/สติกเกอร์ในโพสต์ TinyFeed — อยู่ใต้แคปชันเสมอ · รูป (ไม่ใช่สติกเกอร์) เต็มความกว้างจอ
+ * เป็น block ธรรมดา (ไม่ใช่ flex) เพราะ negative margin ขยายกล่องแบบเชื่อถือได้เฉพาะใน block box model —
+ * ใน flex item ที่ align-items:stretch การขยายจาก margin ติดลบไม่นิ่ง (วัดจริงแล้วไม่ขยายชดเชยให้) */
 .tinyfeed-post-media {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
+    display: block;
     margin-top: 8px;
 }
-.tinyfeed-post-media .tinyfeed-content-img { max-height: 320px; }
+.tinyfeed-post-media > * + * {
+    margin-top: 6px;
+}
+.tinyfeed-post-media .tinyfeed-content-img-wrap {
+    display: block;
+    width: auto;
+    max-width: none;   /* กฎฐาน (.tinyfeed-content-img-wrap) ตั้ง max-width:100% ไว้ — ต้องยกเลิกไม่งั้น margin ติดลบขยายไม่ได้เต็มที่ */
+    margin: 0 calc(var(--tf-sp-5) * -1);
+}
+.tinyfeed-post-media .tinyfeed-content-img {
+    width: 100%;
+    max-width: none;
+    max-height: min(60vh, 420px);
+    border-radius: 0;
+    object-fit: cover;
+}
+/* สติกเกอร์ไม่ควรยืดเต็มจอ — คงขนาดเดิม + จัดกลาง */
+.tinyfeed-post-media .tinyfeed-sticker-img {
+    margin-left: auto;
+    margin-right: auto;
+}
 
 /* จอสัมผัส: ไม่มี hover → โชว์ปุ่มจัดการตลอด */
 @media (pointer: coarse) {
@@ -3175,6 +3578,7 @@
     display: block;
     box-sizing: border-box;
     width: calc(100% - 50px);
+    height: 32px;            /* เตี้ยกว่าช่องโพสต์ (38px) เล็กน้อย */
     margin: 8px 0 0 50px;
 }
 .tinyfeed-compose-bar {
@@ -3253,6 +3657,18 @@
     color: var(--tf-text);
     word-break: break-word;
 }
+/* ตัวเลือกห้องแชตปลายทาง (แชร์/ส่งของขวัญ) — โครงเดียวกับ .tinyfeed-char-pick แต่แยกคลาส กัน handler ของ char-picker ยิงซ้อน */
+.tinyfeed-dest-pick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.tinyfeed-dest-pick:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+.tinyfeed-dest-pick .tinyfeed-avatar { width: 40px; height: 40px; flex-shrink: 0; }
 
 /* ===== TinyStream: ผู้ไลฟ์หลายคนในกรอบสตรีม ===== */
 .tinyfeed-stream-hosts {
@@ -3343,7 +3759,7 @@
 .tinyfeed-host-edit { left: -2px; }
 .tinyfeed-host-remove { right: -2px; }
 .tinyfeed-host-edit:hover { background: var(--tf-accent); }
-.tinyfeed-host-remove:hover { background: #f4212e; }
+.tinyfeed-host-remove:hover { background: var(--tf-danger); }
 
 /* ===== TinyBank ===== */
 .tinyfeed-bank-card {
@@ -3351,7 +3767,7 @@
     padding: 18px 18px 20px;
     border-radius: 16px;
     color: #fff;
-    background: linear-gradient(135deg, #10b981, #047857);
+    background: linear-gradient(135deg, var(--tf-app-bank), #047857);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
     flex-shrink: 0;
 }
@@ -3407,14 +3823,37 @@
     border-radius: 50%;
     font-size: 0.9em;
 }
-.tinyfeed-bank-txn-icon.tinyfeed-bank-in { background: color-mix(in srgb, #10b981 22%, transparent); color: #10b981; }
-.tinyfeed-bank-txn-icon.tinyfeed-bank-out { background: color-mix(in srgb, #f4212e 20%, transparent); color: #f4212e; }
+.tinyfeed-bank-txn-icon.tinyfeed-bank-in { background: color-mix(in srgb, var(--tf-app-bank) 22%, transparent); color: var(--tf-app-bank); }
+.tinyfeed-bank-txn-icon.tinyfeed-bank-out { background: color-mix(in srgb, var(--tf-danger) 20%, transparent); color: var(--tf-danger); }
 .tinyfeed-bank-txn-body { flex: 1; min-width: 0; }
 .tinyfeed-bank-txn-label { font-size: 0.9em; color: var(--tf-text); word-break: break-word; }
 .tinyfeed-bank-txn-sub { font-size: 0.75em; color: var(--tf-text-muted); }
 .tinyfeed-bank-txn-amt { flex-shrink: 0; font-weight: 700; font-size: 0.95em; }
-.tinyfeed-bank-txn-amt.tinyfeed-bank-in { color: #10b981; }
-.tinyfeed-bank-txn-amt.tinyfeed-bank-out { color: #f4212e; }
+.tinyfeed-bank-txn-amt.tinyfeed-bank-in { color: var(--tf-app-bank); }
+.tinyfeed-bank-txn-amt.tinyfeed-bank-out { color: var(--tf-danger); }
+
+/* หน้ารีวิวเงินที่สแกนเจอจากบท RP — ก่อนกดรับเข้าบัญชีจริง */
+.tinyfeed-bank-review-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tf-sp-2);
+    max-height: 50vh;
+    overflow-y: auto;
+}
+.tinyfeed-bank-review-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-3);
+    padding: var(--tf-sp-3);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    cursor: pointer;
+}
+.tinyfeed-bank-review-row input { accent-color: var(--tf-accent); cursor: pointer; flex-shrink: 0; }
+.tinyfeed-bank-review-amt { flex-shrink: 0; font-weight: 700; font-size: var(--tf-fs-md); }
+.tinyfeed-bank-review-amt.tinyfeed-bank-in { color: var(--tf-app-bank); }
+.tinyfeed-bank-review-amt.tinyfeed-bank-out { color: var(--tf-danger); }
+.tinyfeed-bank-review-label { flex: 1; min-width: 0; font-size: var(--tf-fs-sm); color: var(--tf-text); word-break: break-word; }
 
 /* โดเนทบนจอไลฟ์ (SuperChat — สีตาม tier ผ่าน --donate-color) */
 .tinyfeed-stream-donation {
@@ -3476,7 +3915,7 @@
     cursor: pointer;
 }
 .tinyfeed-donate-tier-del { flex-shrink: 0; color: var(--tf-text-muted); cursor: pointer; padding: 4px; }
-.tinyfeed-donate-tier-del:hover { color: #f4212e; }
+.tinyfeed-donate-tier-del:hover { color: var(--tf-danger); }
 
 /* ===== TinyConnect: สลิปโอนเงิน ===== */
 .tinyfeed-slip {
@@ -3497,20 +3936,60 @@
     align-items: center;
     gap: 6px;
 }
-.tinyfeed-slip-out .tinyfeed-slip-head { background: linear-gradient(135deg, #ef4444, #b91c1c); }
-.tinyfeed-slip-in .tinyfeed-slip-head { background: linear-gradient(135deg, #10b981, #047857); }
+.tinyfeed-slip-out .tinyfeed-slip-head { background: linear-gradient(135deg, var(--tf-danger), #b91c1c); }
+.tinyfeed-slip-in .tinyfeed-slip-head { background: linear-gradient(135deg, var(--tf-app-bank), #047857); }
 .tinyfeed-slip-amount { padding: 10px 12px 2px; font-size: 1.35em; font-weight: 800; color: var(--tf-text-strong); }
 .tinyfeed-slip-note { padding: 0 12px; font-size: 0.82em; color: var(--tf-text-muted); word-break: break-word; }
 .tinyfeed-slip-badge {
     padding: 8px 12px 10px;
     font-size: 0.74em;
-    color: #10b981;
+    color: var(--tf-app-bank);
     display: flex;
     align-items: center;
     gap: 5px;
 }
 /* slip ฝั่งเรา (โอนออก) badge เป็นสีกลาง */
 .tinyfeed-slip-out .tinyfeed-slip-badge { color: var(--tf-text-muted); }
+
+/* การ์ดแชร์ (โพสต์/ข่าว/กระทู้/สินค้าที่ส่งเข้าแชท) — โครงเดียวกับ .tinyfeed-slip */
+.tinyfeed-share-card {
+    flex-shrink: 0;
+    width: 220px;
+    max-width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--tf-border);
+    background: var(--tf-bg);
+}
+.tinyfeed-share-img { display: block; width: 100%; max-height: 130px; object-fit: cover; }
+.tinyfeed-share-body { padding: 9px 12px; }
+.tinyfeed-share-head { font-size: 0.86em; font-weight: 700; color: var(--tf-text-strong); }
+.tinyfeed-share-sub { font-size: 0.72em; color: var(--tf-accent); margin-top: 1px; }
+.tinyfeed-share-desc { font-size: 0.78em; color: var(--tf-text-muted); margin-top: 4px; word-break: break-word; line-height: 1.35; }
+
+/* การ์ดของขวัญในแชท */
+.tinyfeed-gift-card {
+    flex-shrink: 0;
+    width: 170px;
+    max-width: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--tf-border);
+    background: var(--tf-bg);
+}
+.tinyfeed-gift-head {
+    padding: 7px 12px;
+    font-size: 0.8em;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, var(--tf-app-bag), #0369a1);
+}
+.tinyfeed-gift-body { padding: 10px 12px 12px; text-align: center; }
+.tinyfeed-gift-thumb-wrap { width: 64px; margin: 0 auto 6px; }
+.tinyfeed-gift-name { font-size: 0.84em; font-weight: 600; color: var(--tf-text); word-break: break-word; }
 
 /* ฟอร์มในโมดัลโอนเงิน */
 .tinyfeed-slip-form { display: flex; flex-direction: column; gap: 10px; }
@@ -3538,7 +4017,7 @@
     color: var(--tf-text-muted);
     border-bottom: 1px solid var(--tf-border);
 }
-.tinyfeed-shop-bar b { color: #10b981; font-size: 1.1em; }
+.tinyfeed-shop-bar b { color: var(--tf-app-bank); font-size: 1.1em; }
 .tinyfeed-shop-addform {
     display: flex;
     flex-direction: column;
@@ -3599,7 +4078,7 @@
     position: absolute;
     top: 5px;
     left: 5px;
-    background: color-mix(in srgb, #10b981 88%, #000);
+    background: color-mix(in srgb, var(--tf-app-bank) 88%, #000);
     color: #fff;
     font-size: 0.68em;
     font-weight: 700;
@@ -3626,15 +4105,127 @@
 .tinyfeed-shop-item:hover .tinyfeed-shop-del { opacity: 1; }
 .tinyfeed-shop-name { font-size: 0.9em; color: var(--tf-text); font-weight: 600; word-break: break-word; }
 .tinyfeed-shop-desc { font-size: 0.76em; color: var(--tf-text-muted); word-break: break-word; line-height: 1.3; }
+.tinyfeed-shop-cardfoot { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .tinyfeed-shop-buy {
-    margin-top: 2px;
+    flex: 1;
+    margin-top: 0;
     padding: 7px 10px;
     font-size: 0.88em;
     background: #f97316;
 }
+.tinyfeed-shop-share {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--tf-r-sm);
+    background: var(--tf-topbar);
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    font-size: 0.8em;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-shop-share:hover { color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 14%, var(--tf-topbar)); }
 @media (pointer: coarse) {
     .tinyfeed-shop-del { opacity: 1; }
 }
+/* ปุ่มแก้ไขสินค้า (ดินสอ) — อยู่ข้างปุ่มลบ */
+.tinyfeed-shop-edit {
+    position: absolute;
+    top: 5px;
+    right: 33px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 0.64em;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.tinyfeed-shop-item:hover .tinyfeed-shop-edit { opacity: 1; }
+@media (pointer: coarse) { .tinyfeed-shop-edit { opacity: 1; } }
+/* ปุ่มซื้อ+ส่งของขวัญ — อยู่ซ้ายของปุ่มแก้ไข */
+.tinyfeed-shop-gift {
+    position: absolute;
+    top: 5px;
+    right: 61px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 0.64em;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+.tinyfeed-shop-gift:hover { color: var(--tf-app-bag); }
+.tinyfeed-shop-item:hover .tinyfeed-shop-gift { opacity: 1; }
+@media (pointer: coarse) { .tinyfeed-shop-gift { opacity: 1; } }
+/* thumbnail แบบอิโมจิ */
+.tinyfeed-shop-emoji-thumb { display: flex; align-items: center; justify-content: center; font-size: 2.6em; }
+/* ป้ายหมวดบนสินค้า */
+.tinyfeed-shop-cat-tag {
+    align-self: flex-start;
+    font-size: 0.66em;
+    color: var(--tf-accent);
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+    border-radius: 999px;
+    padding: 1px 8px;
+}
+/* ปุ่มเพิ่ม/AI + select หมวด ในฟอร์ม */
+.tinyfeed-shop-addbtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.tinyfeed-shop-addbtns > button { flex: 1; }
+.tinyfeed-shop-addform select {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+}
+/* แถบชิปหมวด (เลื่อนแนวนอน) */
+.tinyfeed-shop-catbar {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 2px 0 8px;
+    scrollbar-width: none;
+    flex-shrink: 0;
+}
+.tinyfeed-shop-catbar::-webkit-scrollbar { display: none; }
+.tinyfeed-shop-cat-chip {
+    flex-shrink: 0;
+    font-size: 0.8em;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--tf-border);
+    color: var(--tf-text-muted);
+    background: var(--tf-topbar);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-shop-cat-chip-active { color: #fff; background: var(--tf-accent); border-color: var(--tf-accent); }
+/* ตัวแก้หมวดสินค้าในตั้งค่า (โครงเดียวกับห้อง forum) */
+.tinyfeed-shopcat-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.tinyfeed-shopcat-row input { flex: 1; min-width: 0; }
+.tinyfeed-shopcat-del { flex-shrink: 0; padding: 4px 6px; color: var(--tf-text-muted); cursor: pointer; opacity: 0.6; transition: color 0.2s ease, opacity 0.2s ease; }
+.tinyfeed-shopcat-del:hover { color: var(--tf-danger); opacity: 1; }
 
 /* หัวข้อย่อยในกล่องโปรไฟล์ (แยกส่วนผู้ใช้ / ตัวละคร) */
 .tinyfeed-profile-head {
@@ -3734,3 +4325,519 @@
     border-radius: 999px;
     flex-shrink: 0;
 }
+
+/* ===== TinyBag (แอปที่ 11): กระเป๋าของที่ซื้อ — การ์ดใช้ .tinyfeed-shop-item/-thumb-wrap/-name/-desc/-owned ร่วมกับ TinyShop ===== */
+.tinyfeed-bag-actions {
+    display: flex;
+    gap: var(--tf-sp-2);
+    margin-top: 2px;
+}
+.tinyfeed-bag-use, .tinyfeed-bag-gift, .tinyfeed-bag-discard {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px 8px;
+    font-size: var(--tf-fs-xs);
+    border-radius: var(--tf-r-sm);
+    background: var(--tf-topbar);
+    color: var(--tf-text-muted);
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-bag-use:hover { color: var(--tf-app-bag); background: color-mix(in srgb, var(--tf-app-bag) 14%, var(--tf-topbar)); }
+.tinyfeed-bag-gift:hover { color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 14%, var(--tf-topbar)); }
+.tinyfeed-bag-discard:hover { color: var(--tf-danger); background: color-mix(in srgb, var(--tf-danger) 14%, var(--tf-topbar)); }
+
+/* ===== TinyPet: สัตว์เลี้ยงเสมือน ===== */
+#tinyfeed-app-pet:not(.tinyfeed-hidden) { display: flex; flex-direction: column; }
+.tinyfeed-pet-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+    box-sizing: border-box;
+}
+.tinyfeed-pet-stage-wrap {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding-top: 46px;   /* เว้นที่ให้ฟองคำพูดลอยด้านบน */
+}
+.tinyfeed-pet-spritebox {
+    position: relative;
+    width: 148px;
+    height: 148px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: tinyfeed-pet-bob 2.6s ease-in-out infinite;
+}
+.tinyfeed-pet-state-dead, .tinyfeed-pet-state-sleeping, .tinyfeed-pet-state-sick { animation: none; }
+.tinyfeed-pet-state-dead { opacity: 0.75; filter: grayscale(0.6); }
+.tinyfeed-pet-emoji { position: absolute; font-size: 92px; line-height: 1; user-select: none; display: none; }
+.tinyfeed-pet-noimg .tinyfeed-pet-emoji { display: block; }   /* โชว์อิโมจิเฉพาะตอนไม่มีรูป sprite */
+.tinyfeed-pet-sprite {
+    position: relative;
+    z-index: 1;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.3));
+}
+@keyframes tinyfeed-pet-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-9px); }
+}
+.tinyfeed-pet-name { font-weight: 700; font-size: 1.1em; color: var(--tf-text-strong); }
+.tinyfeed-pet-stagepill {
+    font-size: 0.62em;
+    font-weight: 600;
+    vertical-align: middle;
+    color: #fff;
+    background: var(--tf-accent);
+    border-radius: 999px;
+    padding: 2px 8px;
+    margin-left: 4px;
+}
+.tinyfeed-pet-mood { color: var(--tf-text-muted); font-size: 0.86em; }
+.tinyfeed-pet-bond { display: flex; align-items: center; gap: 8px; font-size: 0.78em; color: var(--tf-text-muted); margin-top: 2px; }
+.tinyfeed-pet-bond-label { white-space: nowrap; }
+.tinyfeed-pet-bond-label i { color: #ec4899; margin-right: 3px; }
+.tinyfeed-pet-bond-bar { width: 96px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--tf-text-muted) 25%, transparent); overflow: hidden; }
+.tinyfeed-pet-bond-bar > span { display: block; height: 100%; background: linear-gradient(90deg, #ec4899, #f472b6); border-radius: 999px; transition: width 0.4s ease; }
+.tinyfeed-pet-bubble {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 90%;
+    background: var(--tf-topbar);
+    border: 1px solid var(--tf-border);
+    border-radius: 14px;
+    padding: 8px 12px;
+    font-size: 0.85em;
+    color: var(--tf-text);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    animation: tinyfeed-rise 0.25s ease backwards;
+}
+.tinyfeed-pet-bubble::after {
+    content: "";
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--tf-topbar);
+}
+/* บาร์สถานะ */
+.tinyfeed-pet-stats { display: flex; flex-direction: column; gap: 9px; }
+.tinyfeed-pet-stat { display: flex; align-items: center; gap: 9px; font-size: 0.82em; }
+.tinyfeed-pet-stat-label {
+    width: 82px;
+    flex-shrink: 0;
+    color: var(--tf-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tinyfeed-pet-stat-label i { width: 15px; text-align: center; margin-right: 3px; color: var(--tf-text-muted); }
+.tinyfeed-pet-stat-bar {
+    flex: 1;
+    min-width: 0;
+    height: 9px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tf-text-muted) 25%, transparent);
+    overflow: hidden;
+}
+.tinyfeed-pet-stat-bar > span { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease, background 0.4s ease; }
+.tinyfeed-pet-stat-num {
+    width: 28px;
+    flex-shrink: 0;
+    text-align: right;
+    color: var(--tf-text-muted);
+    font-variant-numeric: tabular-nums;
+}
+/* ปุ่ม action */
+.tinyfeed-pet-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tinyfeed-pet-act {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 11px 4px;
+    border: 1px solid var(--tf-border);
+    border-radius: 14px;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    cursor: pointer;
+    font-size: 0.72em;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.1s ease;
+}
+.tinyfeed-pet-act i { font-size: 1.5em; color: var(--tf-accent); }
+.tinyfeed-pet-act:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar)); }
+.tinyfeed-pet-act:active { transform: scale(0.94); }
+.tinyfeed-pet-extra-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+/* หน้าจอ create / dead */
+.tinyfeed-pet-screen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 24px 20px;
+}
+.tinyfeed-pet-bigemoji { font-size: 82px; line-height: 1; }
+.tinyfeed-pet-bob { animation: tinyfeed-pet-bob 2.6s ease-in-out infinite; }
+.tinyfeed-pet-screen-title { font-weight: 700; font-size: 1.15em; color: var(--tf-text-strong); }
+.tinyfeed-pet-screen-sub { color: var(--tf-text-muted); font-size: 0.9em; }
+.tinyfeed-pet-screen input {
+    width: 100%;
+    max-width: 260px;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    padding: 10px 14px;
+    font: inherit;
+    text-align: center;
+    outline: none;
+}
+.tinyfeed-pet-screen input:focus { border-color: var(--tf-accent); }
+/* avatar อิโมจิในแจ้งเตือน */
+.tinyfeed-pet-notif-ava { display: flex; align-items: center; justify-content: center; font-size: 1.2em; background: color-mix(in srgb, var(--tf-accent) 20%, transparent); }
+/* เมนูเลือกอาหาร */
+.tinyfeed-pet-food-list { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.tinyfeed-pet-food-opt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 11px;
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    background: var(--tf-topbar);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-pet-food-opt:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar)); }
+.tinyfeed-pet-food-emoji { font-size: 1.5em; width: 34px; text-align: center; flex-shrink: 0; }
+.tinyfeed-pet-food-img { width: 34px; height: 34px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.tinyfeed-pet-food-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tinyfeed-pet-food-info b { color: var(--tf-text-strong); font-size: 0.9em; }
+.tinyfeed-pet-food-info small { color: var(--tf-text-muted); font-size: 0.78em; }
+.tinyfeed-pet-food-price { flex-shrink: 0; font-size: 0.85em; font-weight: 600; color: var(--tf-accent); }
+/* ร้านสัตว์เลี้ยง: แถวไอเทม (thumb + info + edit/del + buy) */
+.tinyfeed-pet-shop-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 11px;
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    background: var(--tf-topbar);
+}
+.tinyfeed-pet-item-edit, .tinyfeed-pet-item-del {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: var(--tf-text-muted);
+    font-size: 0.72em;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-pet-item-edit:hover { color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+.tinyfeed-pet-item-del:hover { color: var(--tf-danger); background: color-mix(in srgb, var(--tf-danger) 14%, transparent); }
+.tinyfeed-pet-buy {
+    flex-shrink: 0;
+    padding: 6px 11px;
+    font-size: 0.82em;
+    background: #8b5cf6;
+    white-space: nowrap;
+}
+.tinyfeed-pet-shop-managebar { display: flex; gap: 8px; margin-top: 10px; }
+.tinyfeed-pet-shop-managebar > button { flex: 1; }
+/* ===== มินิเกม (เกมเซ็นเตอร์ + Memory) ===== */
+.tinyfeed-pet-game-body { display: flex; flex-direction: column; gap: 10px; }
+.tinyfeed-pet-game-energy { font-size: 0.8em; color: var(--tf-text-muted); text-align: center; }
+.tinyfeed-pet-game-energy b { color: var(--tf-text); }
+.tinyfeed-pet-game-list { display: flex; flex-direction: column; gap: 8px; }
+.tinyfeed-pet-game-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--tf-border);
+    border-radius: 12px;
+    background: var(--tf-topbar);
+    cursor: pointer;
+    color: var(--tf-text-muted);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.tinyfeed-pet-game-card[data-game]:hover { border-color: var(--tf-accent); background: color-mix(in srgb, var(--tf-accent) 10%, var(--tf-topbar)); }
+.tinyfeed-pet-game-soon { opacity: 0.55; cursor: default; }
+.tinyfeed-pet-game-emoji { font-size: 1.8em; width: 40px; text-align: center; flex-shrink: 0; }
+.tinyfeed-pet-game-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tinyfeed-pet-game-info b { color: var(--tf-text-strong); font-size: 0.95em; }
+.tinyfeed-pet-game-info small { color: var(--tf-text-muted); font-size: 0.78em; }
+.tinyfeed-pet-game-soonlabel { font-size: 0.72em; color: var(--tf-text-muted); flex-shrink: 0; }
+/* ผลจบเกม */
+.tinyfeed-pet-game-result { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 14px 8px; }
+.tinyfeed-pet-game-result-emoji { font-size: 3em; line-height: 1; }
+.tinyfeed-pet-game-result-title { font-weight: 700; font-size: 1.15em; color: var(--tf-text-strong); }
+.tinyfeed-pet-game-result-detail { font-size: 0.86em; color: var(--tf-text-muted); }
+.tinyfeed-pet-game-result .tinyfeed-btn-primary { width: 100%; max-width: 220px; }
+/* Memory */
+.tinyfeed-mem-bar { font-size: 0.82em; color: var(--tf-text-muted); text-align: center; }
+.tinyfeed-mem-bar b { color: var(--tf-text); }
+.tinyfeed-mem-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tinyfeed-mem-card {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.7em;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--tf-accent) 22%, var(--tf-topbar));
+    border: 1px solid var(--tf-border);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s ease, transform 0.1s ease;
+}
+.tinyfeed-mem-card:active { transform: scale(0.95); }
+.tinyfeed-mem-open { background: var(--tf-topbar); cursor: default; }
+.tinyfeed-mem-matched { background: color-mix(in srgb, var(--tf-success) 25%, var(--tf-topbar)); border-color: var(--tf-success); cursor: default; }
+/* ── เกมหา emoji ที่ต่าง (Spot) ── */
+.tinyfeed-spot-hud { display: flex; justify-content: space-between; align-items: center; font-size: 0.82em; color: var(--tf-text-muted); padding: 0 4px; }
+.tinyfeed-spot-hud b { color: var(--tf-accent); }
+.tinyfeed-spot-grid { display: grid; gap: 6px; touch-action: manipulation; }
+.tinyfeed-spot-tile {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5em;
+    line-height: 1;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--tf-accent) 18%, var(--tf-topbar));
+    border: 1px solid var(--tf-border);
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.08s ease, background 0.15s ease;
+}
+.tinyfeed-spot-tile:active { transform: scale(0.9); }
+.tinyfeed-spot-wrong .tinyfeed-spot-tile { border-color: var(--tf-danger); }
+.tinyfeed-spot-wrong { animation: tinyfeed-spot-shake 0.24s ease; }
+@keyframes tinyfeed-spot-shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}
+.tinyfeed-spot-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
+/* ── เกมตีตัวตุ่น (Whack) ── */
+.tinyfeed-whack-hud { display: flex; justify-content: space-between; align-items: center; font-size: 0.82em; color: var(--tf-text-muted); padding: 0 4px; }
+.tinyfeed-whack-hud b { color: var(--tf-accent); }
+.tinyfeed-whack-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; touch-action: manipulation; }
+.tinyfeed-whack-hole {
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: color-mix(in srgb, #000 22%, var(--tf-topbar));
+    border: 2px solid var(--tf-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+    box-shadow: inset 0 6px 10px rgba(0, 0, 0, 0.35);
+}
+.tinyfeed-whack-hole:active { border-color: var(--tf-accent); }
+.tinyfeed-whack-bomb { border-color: var(--tf-danger); }
+.tinyfeed-whack-mole {
+    font-size: 1.9em;
+    line-height: 1;
+    transform: translateY(120%);
+    opacity: 0;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.tinyfeed-whack-up .tinyfeed-whack-mole { transform: translateY(0); opacity: 1; }
+.tinyfeed-whack-wrong { animation: tinyfeed-spot-shake 0.24s ease; }
+.tinyfeed-whack-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
+
+/* หน้าโปรไฟล์ (ใช้ร่วม feed) */
+.tinyfeed-vprofile-body { max-height: 70vh; overflow-y: auto; }
+.tinyfeed-vprofile-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 6px 4px 12px; }
+.tinyfeed-vprofile-ava .tinyfeed-avatar { width: 84px; height: 84px; font-size: 2em; }
+.tinyfeed-vprofile-name { font-size: 1.1em; font-weight: 700; color: var(--tf-text-strong); }
+.tinyfeed-vprofile-role { font-size: 0.62em; font-weight: 600; color: var(--tf-text-muted); background: color-mix(in srgb, var(--tf-accent) 16%, var(--tf-topbar)); padding: 2px 7px; border-radius: 10px; vertical-align: middle; }
+.tinyfeed-vprofile-bio { font-size: 0.83em; color: var(--tf-text); line-height: 1.5; white-space: pre-wrap; max-width: 92%; }
+.tinyfeed-vprofile-section { border-top: 1px solid var(--tf-border); padding: 12px 4px; }
+.tinyfeed-vprofile-sectitle { font-size: 0.78em; color: var(--tf-text-muted); margin-bottom: 8px; }
+.tinyfeed-vprofile-npcs { display: flex; flex-wrap: wrap; gap: 12px; }
+.tinyfeed-vprofile-npc { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 62px; }
+.tinyfeed-vprofile-npc .tinyfeed-avatar { width: 46px; height: 46px; }
+.tinyfeed-vprofile-npc span { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
+/* แตะชื่อผู้โพสต์ในฟีดได้ (เปิดโปรไฟล์) */
+.tinyfeed-post-author { cursor: pointer; }
+.tinyfeed-post-author:hover { text-decoration: underline; }
+/* ลิงก์ "เติมเหรียญ" ในหัวร้าน */
+.tinyfeed-pet-topup-link {
+    background: none;
+    border: 1px solid var(--tf-accent);
+    color: var(--tf-accent);
+    font: inherit;
+    font-size: 0.78em;
+    border-radius: 999px;
+    padding: 2px 9px;
+    margin-left: 6px;
+    cursor: pointer;
+}
+.tinyfeed-pet-topup-link:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+/* เหรียญในหน้าเพ็ท */
+.tinyfeed-pet-coins {
+    flex-shrink: 0;
+    font-size: 0.86em;
+    font-weight: 600;
+    color: #eab308;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+/* select ในฟอร์มไอเทมเพ็ท / edit สินค้า */
+.tinyfeed-slip-form select {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-topbar);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 0.9em;
+    outline: none;
+}
+/* ตัวแก้ลิงก์ sprite ในหน้า settings */
+.tinyfeed-pet-sprite-stagebar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 0.85em; }
+.tinyfeed-pet-sprite-stagebar select { font-size: 0.9em; }
+.tinyfeed-pet-sprite-stagebar small { flex-basis: 100%; color: var(--tf-text-muted); font-size: 0.72em; line-height: 1.4; }
+.tinyfeed-pet-sprite-stagebar code { background: color-mix(in srgb, var(--tf-accent) 15%, var(--tf-topbar)); padding: 1px 5px; border-radius: 4px; }
+.tinyfeed-pet-sprite-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tinyfeed-pet-sprite-emoji { flex-shrink: 0; font-size: 1.2em; width: 22px; text-align: center; }
+.tinyfeed-pet-sprite-label { flex-shrink: 0; width: 66px; font-size: 0.82em; color: var(--tf-text-muted); }
+#tinyfeed-settings-screen .tinyfeed-pet-sprite-url { flex: 1; min-width: 0; font-size: 0.82em; }
+
+
+/* ===== อัปโหลดรูปจากเครื่อง — ปุ่มเดียวใช้ได้ทุกช่องที่รับลิงก์รูป (URL) =====
+ * โครง: [พรีวิว (ไม่บังคับ)][input][ปุ่มอัปโหลด] — ห่อด้วย .tinyfeed-uploadrow เสมอ
+ * พรีวิวยืมทรง .tinyfeed-gallery-thumb-wrap/-thumb (ได้ .tinyfeed-img-broken ฟรี) แต่ตรึงขนาดเล็กแทน 100% ของกริด */
+.tinyfeed-uploadrow { display: flex; align-items: center; gap: var(--tf-sp-2); }
+.tinyfeed-uploadrow input,
+.tinyfeed-uploadrow textarea { flex: 1; min-width: 0; }
+/* แถวที่ align-items:center (ไม่ stretch) ต้องบอก uploadrow เองให้ยืดเต็มที่ว่าง */
+.tinyfeed-npc-row .tinyfeed-uploadrow,
+.tinyfeed-pet-sprite-row .tinyfeed-uploadrow { flex: 1; min-width: 0; }
+.tinyfeed-upload-preview-wrap.tinyfeed-gallery-thumb-wrap {
+    width: 34px;
+    height: 34px;
+    aspect-ratio: unset;
+    flex-shrink: 0;
+}
+.tinyfeed-upload-btn {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--tf-r-md);
+    background: color-mix(in srgb, var(--tf-accent) 12%, var(--tf-topbar));
+    color: var(--tf-accent);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.tinyfeed-upload-btn:hover { background: color-mix(in srgb, var(--tf-accent) 20%, var(--tf-topbar)); }
+.tinyfeed-upload-btn.tinyfeed-generating { pointer-events: none; opacity: 0.7; }
+
+/* ===== TinyAsk: ถาม-ตอบนิรนาม สไตล์ NGL/ask.fm ===== */
+#tinyfeed-app-ask { position: relative; }
+.tinyfeed-ask-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tinyfeed-ask-tools { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 12px; }
+.tinyfeed-ask-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--tf-sp-3);
+    padding: var(--tf-sp-4);
+    margin-bottom: var(--tf-sp-4);
+    border-radius: var(--tf-r-lg);
+    background: linear-gradient(150deg, color-mix(in srgb, var(--tf-app-ask) 22%, var(--tf-topbar)), var(--tf-topbar) 70%);
+    border: 1px solid var(--tf-border);
+}
+.tinyfeed-ask-q-box { display: flex; align-items: flex-start; gap: var(--tf-sp-3); flex-wrap: wrap; }
+.tinyfeed-ask-q-meta { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+.tinyfeed-ask-asker { font-size: var(--tf-fs-sm); font-weight: 600; color: var(--tf-text-strong); }
+.tinyfeed-ask-owner { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); }
+.tinyfeed-ask-reveal { cursor: pointer; color: var(--tf-text-muted); font-size: 0.8em; }
+.tinyfeed-ask-reveal:hover { color: var(--tf-app-ask); }
+.tinyfeed-ask-q-text {
+    flex-basis: 100%;
+    font-size: var(--tf-fs-md);
+    color: var(--tf-text-strong);
+    padding: var(--tf-sp-3) var(--tf-sp-4);
+    border-radius: var(--tf-r-md);
+    background: color-mix(in srgb, var(--tf-app-ask) 12%, var(--tf-topbar));
+    border-left: 3px solid var(--tf-app-ask);
+}
+.tinyfeed-ask-a-box { display: flex; align-items: flex-start; gap: var(--tf-sp-3); }
+.tinyfeed-ask-a-text { flex: 1; min-width: 0; font-size: var(--tf-fs-md); color: var(--tf-text); line-height: 1.5; }
+.tinyfeed-ask-pending { display: flex; justify-content: flex-start; }
+.tinyfeed-ask-answer-input {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 54px;
+    resize: vertical;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-3);
+    font: inherit;
+    font-size: var(--tf-fs-sm);
+    outline: none;
+}
+.tinyfeed-ask-answer-input:focus { border-color: var(--tf-accent); }
+.tinyfeed-ask-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tinyfeed-ask-like { cursor: pointer; color: var(--tf-text-muted); font-size: var(--tf-fs-sm); }
+.tinyfeed-ask-like.tinyfeed-liked { color: var(--tf-danger); }
+.tinyfeed-ask-del { cursor: pointer; color: var(--tf-text-muted); margin-left: auto; }
+.tinyfeed-ask-del:hover { color: var(--tf-danger); }
+/* ปุ่มลอย (+) มุมล่างขวา — ถามใครสักคนแบบไม่ระบุตัวตน */
+.tinyfeed-fab {
+    position: absolute;
+    right: var(--tf-sp-5);
+    bottom: var(--tf-sp-5);
+    width: 52px;
+    height: 52px;
+    border: none;
+    border-radius: var(--tf-r-pill);
+    background: var(--tf-app-ask);
+    color: #fff;
+    font-size: 1.1em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    z-index: 2;
+}
+.tinyfeed-fab:active { transform: scale(0.94); }
