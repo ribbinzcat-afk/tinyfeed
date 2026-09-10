@@ -2804,7 +2804,11 @@
 
 /* ===== ปรับแต่งหน้าตา: สีไอคอน/พื้นหลังตามธีม ===== */
 #tinyfeed-phone.tinyfeed-themed-icons .tinyfeed-app-tile {
-    background: linear-gradient(135deg, var(--tf-accent), color-mix(in srgb, var(--tf-accent) 55%, #000));
+    /* เดิมผสมดำ 45% เข้มไปจนมุมล่างขวาดูเป็นเงาดำจางๆ ลดลงเหลือ 25% ให้ยังไล่เฉดแต่ไม่หม่น */
+    background: linear-gradient(135deg, var(--tf-accent), color-mix(in srgb, var(--tf-accent) 75%, #000));
+    /* เงาต้องคำนวณจาก --tf-accent เหมือนพื้นหลังตรงนี้ — ไม่งั้นเงายังใช้สีประจำแอปเดิม (--app-a)
+       ค้างอยู่ ได้เงาสีไม่ตรงกับตัวไอคอนที่เปลี่ยนเป็นสีธีมไปแล้ว (บั๊กที่ทำให้ดู muddy ของจริง) */
+    box-shadow: 0 6px 16px color-mix(in srgb, var(--tf-accent) 50%, transparent), inset 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 #tinyfeed-phone.tinyfeed-themed-home #tinyfeed-home:not(.tinyfeed-has-wallpaper) {
     background:
