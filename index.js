@@ -2022,17 +2022,27 @@ async function deleteTinyUploadedImage(url) {
     }
 }
 
-// ตั้ง src ของ <img> อย่างปลอดภัย — รับเฉพาะ http(s)/ไฟล์ในเซิร์ฟเวอร์ ST เอง (user/images/...)/data:image เท่านั้น
-// กัน scheme แปลกๆ เช่น javascript: ที่หลุดมาจากค่าที่ผู้ใช้พิมพ์เอง (.val()) หรือนำเข้าจาก settings/ไฟล์ที่แชร์กันมา
-// (แก้ตาม CodeQL "DOM text reinterpreted as HTML" — jQuery .attr("src", ...) ถูกขึ้นทะเบียนเป็น HTML-construction
-// sink ทุกแอตทริบิวต์โดยไม่สนว่าค่าผ่านการกรองมาก่อนหรือยัง จึงเลี่ยงมาตั้งผ่าน DOM property ตรงๆ แทน ซึ่งไม่ใช่ sink ของ query นี้)
-// ใช้แทน .attr("src", url)/element.src = url ตรงๆ ทุกจุดในไฟล์นี้ — ห้ามเขียนตัวตรวจซ้ำที่อื่น
-const TINY_SAFE_IMG_SRC_RE = /^(https?:\/\/|\.?\/?user\/images\/|data:image\/)/i;
+// ตรวจว่า URL ปลอดภัยพอจะโหลดเป็นรูปไหม — ผ่าน URL parser จริงแทน regex ธรรมดา (regex .test() รอบก่อนหน้า CodeQL
+// ไม่ยอมรับว่าเป็นตัวตัดสาย taint ทั้งที่กรอง scheme ถูกต้อง) รับเฉพาะ http(s) ทุก origin + data:image/ + path
+// สัมพัทธ์ของเซิร์ฟเวอร์ ST เอง (user/images/...) — ปฏิเสธ javascript:/vbscript:/data:text อื่นๆ ทั้งหมด
+function isSafeImgUrl(u) {
+    if (!u) return false;   // ว่างเปล่า → new URL("", base) จะ resolve เป็น origin เฉยๆ (protocol http: ผ่านเงื่อนไขข้างล่างไปแบบผิดๆ) กันไว้ตรงนี้
+    if (/^data:image\//i.test(u)) return true;
+    if (/^\.?\/?user\/images\//i.test(u)) return true;
+    try {
+        const parsed = new URL(u, window.location.origin);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch (e) {
+        return false;   // parse ไม่ผ่าน = ไม่ใช่ URL รูปแบบที่ยอมรับ
+    }
+}
+
+// ตั้ง src ของ <img> อย่างปลอดภัย — ใช้แทน .attr("src", url)/element.src = url ตรงๆ ทุกจุดในไฟล์นี้ ห้ามเขียนตัวตรวจซ้ำที่อื่น
 function setImgSrcSafe($img, url) {
     const u = String(url || "").trim();
     const el = $img.get(0);
     if (!el) return false;
-    if (u && TINY_SAFE_IMG_SRC_RE.test(u)) {
+    if (u && isSafeImgUrl(u)) {
         $img.removeClass("tinyfeed-img-broken");
         el.src = u;
         return true;
