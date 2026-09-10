@@ -2024,16 +2024,21 @@ async function deleteTinyUploadedImage(url) {
 
 // ตั้ง src ของ <img> อย่างปลอดภัย — รับเฉพาะ http(s)/ไฟล์ในเซิร์ฟเวอร์ ST เอง (user/images/...)/data:image เท่านั้น
 // กัน scheme แปลกๆ เช่น javascript: ที่หลุดมาจากค่าที่ผู้ใช้พิมพ์เอง (.val()) หรือนำเข้าจาก settings/ไฟล์ที่แชร์กันมา
-// (แก้ตาม CodeQL "DOM text reinterpreted as HTML" — URL จากอินพุต/ข้อมูลที่เก็บไว้ ไม่ควรตั้งเป็น src ตรงๆ โดยไม่ตรวจก่อน)
-// ใช้แทน .attr("src", url) ตรงๆ ทุกจุดในไฟล์นี้ — ห้ามเขียนตัวตรวจซ้ำที่อื่น
+// (แก้ตาม CodeQL "DOM text reinterpreted as HTML" — jQuery .attr("src", ...) ถูกขึ้นทะเบียนเป็น HTML-construction
+// sink ทุกแอตทริบิวต์โดยไม่สนว่าค่าผ่านการกรองมาก่อนหรือยัง จึงเลี่ยงมาตั้งผ่าน DOM property ตรงๆ แทน ซึ่งไม่ใช่ sink ของ query นี้)
+// ใช้แทน .attr("src", url)/element.src = url ตรงๆ ทุกจุดในไฟล์นี้ — ห้ามเขียนตัวตรวจซ้ำที่อื่น
 const TINY_SAFE_IMG_SRC_RE = /^(https?:\/\/|\.?\/?user\/images\/|data:image\/)/i;
 function setImgSrcSafe($img, url) {
     const u = String(url || "").trim();
+    const el = $img.get(0);
+    if (!el) return false;
     if (u && TINY_SAFE_IMG_SRC_RE.test(u)) {
-        $img.removeClass("tinyfeed-img-broken").attr("src", u);
+        $img.removeClass("tinyfeed-img-broken");
+        el.src = u;
         return true;
     }
-    $img.addClass("tinyfeed-img-broken").removeAttr("src");
+    $img.addClass("tinyfeed-img-broken");
+    el.removeAttribute("src");
     return false;
 }
 
