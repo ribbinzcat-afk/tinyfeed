@@ -185,6 +185,7 @@ const OVERLAYS = [
     { sel: "#tinyfeed-bank-review-modal", close: closeBankReviewModal },
     { sel: "#tinyfeed-dest-picker", close: closeConnectDestPicker },
     { sel: "#tinyfeed-giftbag-modal", close: closeGiftFromBag },
+    { sel: "#tinyfeed-share-menu", close: closeShareMenu },
 ];
 
 function anyOverlayOpen() {
@@ -207,6 +208,7 @@ let currentApp = "home";
 
 function goHome() {
     currentApp = "home";
+    if (quoteTarget) cancelQuotePost();   // ออกจากฟีดแล้วเลิกโควทที่ค้างไว้ ไม่ให้ข้ามหน้าจอ
     clearScreenTimers();
     closeOpenOverlays();
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
@@ -226,6 +228,7 @@ function openApp(id) {
         toastr.info("แอปนี้กำลังจะมา เร็วๆ นี้! 📱", "TinyPhone");
         return;
     }
+    if (id !== "feed" && quoteTarget) cancelQuotePost();   // สลับไปแอปอื่นแล้วเลิกโควทที่ค้างไว้ (id==="feed" = ยังอยู่หน้าเดิม ไม่ต้องยกเลิก)
     clearScreenTimers();
     closeOpenOverlays();   // กัน overlay ค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
@@ -381,16 +384,49 @@ function applyConnectBg(key) {
     const perRoom = String((getConnectData().threadBg || {})[key] || "").trim();
     const url = perRoom || String(getSetting("connectBgUrl") || "").trim();
     if (url) {
-        box.style.backgroundImage = `url("${url.replace(/["\\]/g, encodeURIComponent)}")`;
+        // ตั้งผ่าน custom property แทน box.style.backgroundImage ตรงๆ — ให้ CSS (.tinyfeed-has-bg)
+        // เป็นคนผสมฝ้ากับรูปเป็น background-image เดียวกัน กันฝ้าเลื่อนหายตอนสกรอลล์ (ดู style.css)
+        box.style.setProperty("--tf-connect-bg-img", `url("${url.replace(/["\\]/g, encodeURIComponent)}")`);
         box.classList.add("tinyfeed-has-bg");
     } else {
-        box.style.backgroundImage = "";
+        box.style.removeProperty("--tf-connect-bg-img");
         box.classList.remove("tinyfeed-has-bg");
     }
     let ov = parseInt(getSetting("connectBgOverlay"), 10);
     if (!Number.isFinite(ov)) ov = 45;
     ov = Math.min(100, Math.max(0, ov));
     box.style.setProperty("--tf-connect-bg-alpha", String(ov / 100));
+}
+
+// ปุ่มมอร์ฟช่องพิมพ์ TinyConnect: ว่าง = คทา (ให้ตอบกลับ/ให้กลุ่มคุยต่อ) · พิมพ์แล้ว = จรวด (ส่ง) ·
+// กำลังรอ AI = สปินเนอร์ · ห้องเพ็ทไม่มี AI ตอบเลยซ่อนปุ่มตอนว่าง — เรียกซ้ำได้เสมอ (idempotent)
+function updateConnectSendBtn() {
+    const $btn = $("#tinyfeed-connect-send");
+    if (!$btn.length || !activeThread) return;
+    const $icon = $btn.find("i");
+    const hasText = String($("#tinyfeed-connect-input").val() || "").trim().length > 0;
+    $btn.removeClass("tinyfeed-connect-send-wand tinyfeed-connect-send-busy");
+
+    if (isConnectReplying) {
+        $btn.removeClass("tinyfeed-hidden").addClass("tinyfeed-connect-send-busy");
+        $icon.attr("class", "fa-solid fa-spinner fa-spin");
+        $btn.attr("title", "กำลังตอบ…");
+        return;
+    }
+    if (hasText) {
+        $btn.removeClass("tinyfeed-hidden");
+        $icon.attr("class", "fa-solid fa-paper-plane");
+        $btn.attr("title", "ส่ง");
+        return;
+    }
+    if (activeThread === "pet") {
+        $btn.addClass("tinyfeed-hidden");
+        return;
+    }
+    const isGroup = Boolean(findGroup(activeThread));
+    $btn.removeClass("tinyfeed-hidden").addClass("tinyfeed-connect-send-wand");
+    $icon.attr("class", "fa-solid fa-wand-magic-sparkles");
+    $btn.attr("title", isGroup ? "ให้กลุ่มคุยกันต่อ" : "ให้ตอบกลับ");
 }
 
 function clearStreamTimer() {
@@ -1144,9 +1180,23 @@ function getBag() {
     return data.bag;
 }
 function saveBag() { saveFeedDataDebounced(); }
-// จำนวนของชิ้นหนึ่งในกระเป๋าที่มาจากสินค้าร้าน itemId นี้ (รวมทุกครั้งที่ซื้อ) — ใช้ทำป้าย "มี N" บนการ์ดร้าน
+// เพิ่มของเข้ากระเป๋าจากสินค้าในร้าน — สแนปช็อตชื่อ/รูป/รายละเอียด ณ ตอนนั้น (ใช้ร่วมกัน: ผู้ใช้ซื้อเอง + AI ซื้อของขวัญให้)
+// opts.src: "shop" (ซื้อเอง, ค่าเริ่มต้น) | "gift" (ได้จาก AI) — แยกกันไว้เผื่ออยากแสดง/กรองต่างกันทีหลัง
+function addToBag(shopItem, opts) {
+    opts = opts || {};
+    const src = opts.src || "shop";
+    const bag = getBag();
+    const existing = bag.find((x) => x.itemId === shopItem.id && x.src === src);
+    if (existing) existing.qty = (existing.qty || 0) + 1;
+    else bag.push({
+        id: bagId(), itemId: shopItem.id, name: shopItem.name, emoji: shopItem.emoji || "", image: shopItem.image || "",
+        desc: shopItem.desc || "", qty: 1, src, from: opts.from || "", ts: Date.now(),
+    });
+    saveBag();
+}
+// จำนวนของชิ้นหนึ่งในกระเป๋าที่มาจากสินค้าร้าน itemId นี้ (รวมทั้งที่ซื้อเองและได้รับเป็นของขวัญ) — ใช้ทำป้าย "มี N" บนการ์ดร้าน
 function bagQtyForShopItem(itemId) {
-    return getBag().filter((x) => x.itemId === itemId && x.src === "shop").reduce((sum, x) => sum + (x.qty || 0), 0);
+    return getBag().filter((x) => x.itemId === itemId && (x.src === "shop" || x.src === "gift")).reduce((sum, x) => sum + (x.qty || 0), 0);
 }
 function shopId() { return "sh" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 // หมวดสินค้า (global setting) — คล้ายห้องของ TinyForum · คืน "ดิบ" (รวมช่องว่าง) ให้ตัวแก้ในตั้งค่าทำงานได้
@@ -1333,17 +1383,54 @@ function buyShopItem(id) {
     const it = getShop().find((x) => String(x.id) === String(id));
     if (!it) return;
     if (!bankDeduct(it.price, `ซื้อ ${it.name}`, "shop")) return;   // ยอดไม่พอ → toast ในตัว
-    const bag = getBag();
-    // สแนปช็อตชื่อ/รูป/รายละเอียดตอนซื้อ — ถ้าร้านลบสินค้านี้ทีหลัง ของในกระเป๋ายังอยู่ครบ
-    const existing = bag.find((x) => x.itemId === id && x.src === "shop");
-    if (existing) existing.qty = (existing.qty || 0) + 1;
-    else bag.push({
-        id: bagId(), itemId: id, name: it.name, emoji: it.emoji || "", image: it.image || "",
-        desc: it.desc || "", qty: 1, src: "shop", from: "", ts: Date.now(),
-    });
-    saveBag();
+    addToBag(it, { src: "shop" });   // สแนปช็อตชื่อ/รูป/รายละเอียดตอนซื้อ — ถ้าร้านลบสินค้านี้ทีหลัง ของในกระเป๋ายังอยู่ครบ
     renderShop();
     toastr.success(`ซื้อ "${it.name}" แล้ว`, "TinyShop");
+}
+
+// จับคู่ชื่อสินค้าที่ AI พิมพ์มา (จากบรรทัด GIFT:) กับแคตตาล็อกจริงใน TinyShop — ฟังก์ชันบริสุทธิ์ ทดสอบแยกได้
+// ไม่เจอ หรือเจอมากกว่า 1 ชิ้น (กำกวม) = คืน null เสมอ — ห้ามเดา/แต่งสินค้าขึ้นมาเอง (นอกขอบเขตที่ผู้ใช้เลือก)
+function findShopItemByName(raw) {
+    const wanted = cleanAiName(raw).trim().toLowerCase();
+    if (!wanted) return null;
+    const items = getShop();
+    const nameOf = (it) => String(it.name || "").trim().toLowerCase();
+    let hit = items.filter((it) => nameOf(it) === wanted);
+    if (hit.length === 1) return hit[0];
+    if (hit.length > 1) return null;
+    hit = items.filter((it) => nameOf(it).startsWith(wanted));
+    if (hit.length === 1) return hit[0];
+    if (hit.length > 1) return null;
+    hit = items.filter((it) => nameOf(it).includes(wanted));
+    if (hit.length === 1) return hit[0];
+    return null;
+}
+
+// ให้ AI เห็นแคตตาล็อก TinyShop เสมอเมื่อเปิดสวิตช์ของขวัญ — แม้ผู้ใช้ไม่ได้เปิด "ให้แอปอื่นเห็นร้านค้า" ไว้
+// (ถ้าไม่มีจุดนี้ AI จะไม่เห็นรายการสินค้าเลย เดาชื่อส่งมาแบบมั่วๆ จับคู่ไม่ติดสักที ดูเหมือนฟีเจอร์พังเงียบๆ ไม่มี error ให้เห็น)
+function giftShopVisibleContext() {
+    if (getSetting("crossAppEnabled") && getSetting("crossAppShop")) return "";   // มองเห็นอยู่แล้วผ่าน crossAppContext ปกติ
+    const count = Math.max(1, parseInt(getSetting("crossAppCount"), 10) || 3);
+    const blocks = buildAppBlocks({ shop: true, count });
+    return blocks.length ? `\n${blocks.join("\n\n")}\n` : "";
+}
+
+// ประมวลผลบรรทัด GIFT: <ชื่อสินค้า> จากคำตอบ AI ในแชต 1:1 — จับคู่กับแคตตาล็อกเท่านั้น ไม่หักเงินผู้ใช้ (ตัวละครจ่ายเองนอกจอ)
+// ของเข้ากระเป๋าผู้ใช้จริง + ดันการ์ดของขวัญเข้าแชท — คืน true ถ้าส่งสำเร็จ (ใช้กันข้อความเตือน "คำตอบว่าง" หลอกใน CONNECT_MARKERS)
+function handleAiGift(raw, ctx) {
+    if (!activeThread) return false;
+    const m = /GIFT:\s*(.+)/i.exec(stripReasoning(raw));
+    if (!m) return false;
+    const it = findShopItemByName(m[1]);
+    if (!it) { console.warn(`[${extensionName}] AI ส่ง GIFT มาแต่จับคู่สินค้าไม่ติด:`, m[1]); return false; }
+    addToBag(it, { src: "gift", from: ctx.name });
+    getThread(activeThread).push({
+        from: "contact", author: ctx.name, isGift: true, dir: "in",
+        gift: { name: it.name, emoji: it.emoji || "", image: it.image || "", desc: it.desc || "" },
+        ts: Date.now(),
+    });
+    saveThread(activeThread);
+    return true;
 }
 
 // ===== TinyBag (แอปที่ 11): กระเป๋าของที่ซื้อ — แสดง/ใช้/ทิ้ง (ส่งเป็นของขวัญ → เฟส 4) =====
@@ -1407,7 +1494,8 @@ function giftBagItem(id) {
         if (item.qty <= 0) bag.splice(bag.indexOf(item), 1);
         saveBag();
         getThread(key).push({ from: "user", isGift: true, gift: giftSnap, ts: Date.now() });
-        if (key === "pet") { petBondAdd(3); savePet(); } else saveFeedDataDebounced();
+        if (key === "pet") petBondAdd(3);
+        saveThread(key);
         if (currentApp === "connect" && activeThread === key) renderThread();
         renderBag();
         updateChatInjection();
@@ -1429,13 +1517,15 @@ function openGallery() {
     switchGalleryTab(galleryTab);
 }
 
+// เพิ่มแท็บใหม่ = เพิ่มชื่อในลิสต์นี้ที่เดียว (ต้องมี panel #tinyfeed-gallery-panel-<ชื่อ> คู่กันใน phone.html)
+const GALLERY_TABS = ["images", "stickers", "files"];
 function switchGalleryTab(tab) {
-    galleryTab = tab === "stickers" ? "stickers" : "images";
+    galleryTab = GALLERY_TABS.includes(tab) ? tab : "images";
     $(".tinyfeed-tab[data-gtab]").removeClass("tinyfeed-tab-active");
     $(`.tinyfeed-tab[data-gtab="${galleryTab}"]`).addClass("tinyfeed-tab-active");
-    $("#tinyfeed-gallery-panel-images").toggleClass("tinyfeed-hidden", galleryTab !== "images");
-    $("#tinyfeed-gallery-panel-stickers").toggleClass("tinyfeed-hidden", galleryTab !== "stickers");
-    renderGalleryGrid(galleryTab === "stickers" ? "sticker" : "image");
+    for (const t of GALLERY_TABS) $(`#tinyfeed-gallery-panel-${t}`).toggleClass("tinyfeed-hidden", t !== galleryTab);
+    if (galleryTab === "files") renderGalleryFiles();
+    else renderGalleryGrid(galleryTab === "stickers" ? "sticker" : "image");
 }
 
 // เติม dropdown อัลบั้ม (คงค่าที่เลือกไว้ถ้ายังมีอยู่)
@@ -1564,6 +1654,193 @@ function deleteGalleryItem(kind, id) {
     saveGallery();
     renderGalleryGrid(kind);
     if (!galleryUrlStillUsed(url, id)) deleteTinyUploadedImage(url);
+}
+
+// ===== หน้าจัดการไฟล์ (แท็บที่ 3 ใน TinyGallery) — ลิสต์ไฟล์จริงบนดิสก์ที่อัปโหลดผ่านโทรศัพท์ + ลบได้จริง =====
+
+// ดึงรายชื่อไฟล์ทั้งหมดในโฟลเดอร์ user/images/tinyphone/ จากเซิร์ฟเวอร์ ST จริง (ไม่ใช่แค่ที่ถูกอ้างอิงในแอปใดแอปหนึ่ง)
+// คืน array ของ path เต็ม (เช่น "user/images/tinyphone/xxx.webp") · คืน null เมื่อโหลดไม่สำเร็จ (แยกจาก [] ที่แปลว่าโฟลเดอร์ว่างจริงๆ)
+async function listTinyUploads() {
+    try {
+        const res = await fetch("/api/images/list", {
+            method: "POST",
+            headers: getContext().getRequestHeaders(),
+            body: JSON.stringify({ folder: "tinyphone", type: 1, sortField: "date", sortOrder: "desc" }),
+        });
+        if (!res.ok) { console.error(`[${extensionName}] listTinyUploads: เซิร์ฟเวอร์ตอบ ${res.status}`); return null; }
+        const names = await res.json();
+        return Array.isArray(names) ? names.map((n) => `user/images/tinyphone/${n}`) : [];
+    } catch (e) {
+        console.error(`[${extensionName}] listTinyUploads failed:`, e);
+        return null;
+    }
+}
+
+/* สแกนหา "ใครใช้ URL รูปนี้อยู่บ้าง" ทั่วทั้งโปรแกรม — ทะเบียนกลางจุดเดียว ห้ามกระจายเช็ค "ใช้อยู่ไหม" ไปที่อื่น
+ * (galleryUrlStillUsed เช็คแค่ในคลังตัวเอง ใช้ตอนลบจากในคลัง — ฟังก์ชันนี้กว้างกว่า ครอบทุกที่ที่ TinyPhone เก็บ URL รูป)
+ * คืน Map<url, string[]> (url → ป้ายภาษาไทยบอกว่าเจอที่ไหนบ้าง) — เรียกใหม่ทุกครั้งก่อนตัดสินใจลบไฟล์ (ห้าม cache ข้ามการแก้ข้อมูล) */
+function tinyRefIndex() {
+    const idx = new Map();
+    const add = (url, label) => {
+        const u = String(url || "").trim();
+        if (!u) return;
+        if (!idx.has(u)) idx.set(u, []);
+        const arr = idx.get(u);
+        if (!arr.includes(label)) arr.push(label);
+    };
+
+    // ----- global (extension_settings.tinyfeed) — เห็นเสมอไม่ว่าจะเปิดแชทไหนอยู่ -----
+    add(getSetting("wallpaperUrl"), "วอลเปเปอร์");
+    add(getSetting("streamBgUrl"), "พื้นหลัง TinyStream");
+    add(getSetting("connectBgUrl"), "พื้นหลังแชทกลาง");
+    add(getSetting("userAvatarUrl"), "รูปโปรไฟล์ (เก่า)");
+    const charAvatarUrls = getSetting("charAvatarUrls") || {};
+    for (const k of Object.keys(charAvatarUrls)) add(charAvatarUrls[k], "รูปโปรไฟล์ (เก่า)");
+    const userProfiles = getSetting("userProfiles") || {};
+    for (const k of Object.keys(userProfiles)) add((userProfiles[k] || {}).avatarUrl, "โปรไฟล์ผู้ใช้");
+    const charProfiles = getSetting("charProfiles") || {};
+    for (const k of Object.keys(charProfiles)) add((charProfiles[k] || {}).avatarUrl, "โปรไฟล์ตัวละคร");
+    const npcsByChar = getSetting("npcsByChar") || {};
+    for (const k of Object.keys(npcsByChar)) {
+        for (const npc of (npcsByChar[k] || [])) add(npc.avatar, "NPC");
+    }
+    const petSprites = getSetting("petSprites") || {};
+    for (const k of Object.keys(petSprites)) add(petSprites[k], "สไปรต์เพ็ท");
+    for (const it of (getSetting("petShop") || [])) add(it.image, "ไอเทมร้านเพ็ท");
+    const g = getGallery();
+    for (const it of g.images) add(it.url, "คลังรูป");
+    for (const it of g.stickers) add(it.url, "คลังสติกเกอร์");
+    for (const m of (getPet().dm || [])) {   // ห้องแชตเพ็ทเป็น global เก็บที่ extension_settings ไม่ใช่ chat_metadata
+        if (m.share) add(m.share.image, "การ์ดในแชตเพ็ท");
+        if (m.gift) add(m.gift.image, "การ์ดในแชตเพ็ท");
+    }
+
+    // ----- ต่อแชท (chat_metadata.tinyfeed) — เห็นเฉพาะแชทที่เปิดอยู่ตอนนี้เท่านั้น (getFeedData โยน error ถ้าไม่มีแชทเปิด) -----
+    try {
+        const c = getConnectData();
+        const threadBg = c.threadBg || {};
+        for (const k of Object.keys(threadBg)) add(threadBg[k], "พื้นหลังห้องแชต");
+        for (const grp of (c.groups || [])) add(grp.avatar, "รูปกลุ่มแชต");
+        for (const key of Object.keys(c.threads || {})) {
+            for (const m of (c.threads[key] || [])) {
+                if (m.share) add(m.share.image, "การ์ดแชร์ในแชต");
+                if (m.gift) add(m.gift.image, "การ์ดของขวัญในแชต");
+            }
+        }
+        for (const it of getShop()) add(it.image, "สินค้า TinyShop");
+        for (const it of getBag()) add(it.image, "ของในกระเป๋า TinyBag");
+    } catch (e) {
+        console.warn(`[${extensionName}] tinyRefIndex: อ่านข้อมูลต่อแชทไม่ได้ (อาจไม่มีแชทเปิดอยู่ตอนนี้)`, e);
+    }
+
+    return idx;
+}
+window.__debug = Object.assign(window.__debug || {}, { tinyRefIndex, listTinyUploads });   // ไล่ดูผลสแกนจริงได้จากคอนโซล (ลบทิ้งได้ถ้าไม่ต้องการแล้ว)
+
+let isGalleryFilesBusy = false;   // กันกดรีเฟรช/ลบทั้งหมดซ้อนกัน
+
+async function renderGalleryFiles() {
+    if (isGalleryFilesBusy) return;
+    isGalleryFilesBusy = true;
+    const $btn = $("#tinyfeed-gallery-files-refresh");
+    $btn.addClass("tinyfeed-generating").prop("disabled", true);
+    const $grid = $("#tinyfeed-gallery-files-grid");
+    try {
+        const urls = await listTinyUploads();
+        if (urls === null) {
+            $grid.html(emptyInlineHtml("โหลดรายชื่อไฟล์ไม่สำเร็จ ลองกดรีเฟรชอีกครั้ง"));
+            return;
+        }
+        if (!urls.length) {
+            $grid.html(emptyInlineHtml("ยังไม่มีไฟล์ที่อัปโหลดผ่านโทรศัพท์เลย"));
+            return;
+        }
+        const refIdx = tinyRefIndex();
+        $grid.html(urls.map((url) => {
+            const labels = refIdx.get(url) || [];
+            const used = labels.length > 0;
+            const name = url.split("/").pop();
+            const status = used
+                ? `<span class="tinyfeed-gallery-file-status tinyfeed-gallery-file-used">ใช้อยู่ (${labels.length})</span>`
+                : `<span class="tinyfeed-gallery-file-status tinyfeed-gallery-file-orphan">ไม่พบการอ้างอิง</span>`;
+            return `
+            <div class="tinyfeed-gallery-item" data-url="${escapeAttr(url)}">
+                <div class="tinyfeed-gallery-thumb-wrap">
+                    <img class="tinyfeed-gallery-thumb" src="${escapeAttr(url)}" alt="${escapeText(name)}" onerror="this.classList.add('tinyfeed-img-broken')" />
+                    ${status}
+                    <span class="tinyfeed-gallery-item-actions">
+                        <span class="tinyfeed-gallery-file-del" title="ลบไฟล์นี้"><i class="fa-solid fa-trash"></i></span>
+                    </span>
+                </div>
+                <div class="tinyfeed-gallery-item-name" title="${escapeAttr(labels.join(", "))}">${escapeText(name)}</div>
+            </div>`;
+        }).join(""));
+    } finally {
+        isGalleryFilesBusy = false;
+        $btn.removeClass("tinyfeed-generating").prop("disabled", false);
+    }
+}
+
+// เปิด lightbox เดิม (#tinyfeed-gallery-view) แต่ยัดป้ายการใช้งานแทนคำบรรยาย — ไม่มี kind/id แบบไอเทมคลังปกติ จึงเลี่ยง openGalleryView
+function openFileView(url) {
+    const name = String(url || "").split("/").pop();
+    const labels = tinyRefIndex().get(url) || [];
+    $("#tinyfeed-gallery-view-img").removeClass("tinyfeed-img-broken").attr("src", url);
+    $("#tinyfeed-gallery-view-name").text(name);
+    $("#tinyfeed-gallery-view-cap").text(labels.length ? `ใช้อยู่ที่: ${labels.join(", ")}` : "ไม่พบการอ้างอิง").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-gallery-view").removeClass("tinyfeed-hidden");
+}
+
+// ลบไฟล์เดียว — confirm ก่อนเสมอ (ลบจริงจากดิสก์ กู้คืนไม่ได้)
+async function deleteOneTinyFile(url) {
+    const name = String(url || "").split("/").pop();
+    if (!window.confirm(`ลบไฟล์ "${name}" ถาวรจากดิสก์ กู้คืนไม่ได้ ต้องการลบไหม?`)) return;
+    const ok = await deleteTinyUploadedImage(url);
+    if (ok) toastr.success(`ลบ "${name}" แล้ว`, "TinyGallery");
+    else toastr.error(`ลบ "${name}" ไม่สำเร็จ`, "TinyGallery");
+    renderGalleryFiles();
+}
+
+// ลบไฟล์ที่ "ไม่พบการอ้างอิง" ทั้งหมดทีเดียว — guard กันพลาด 2 ชั้น เพราะลบแล้วกู้คืนไม่ได้:
+// (1) ปฏิเสธถ้าไม่มีแชทเปิดอยู่ (ตรวจต่อแชทไม่ได้ = เสี่ยงลบของแชทอื่นที่ยังใช้อยู่)
+// (2) ปฏิเสธถ้า ref index ว่างเปล่าทั้งที่มีไฟล์อยู่ (ตัวสแกนน่าจะพัง — ไม่งั้นทุกไฟล์จะดูเหมือนกำพร้าแล้วโดนลบเกลี้ยง)
+async function cleanupOrphanTinyFiles() {
+    if (isGalleryFilesBusy) return;
+    if (!getCurrentCharacter()) {
+        toastr.warning("เปิดแชทที่มีตัวละครก่อนนะ — ไม่งั้นตรวจการใช้งานต่อแชทไม่ได้ อาจลบไฟล์ที่ยังใช้อยู่โดยไม่รู้ตัว", "TinyGallery");
+        return;
+    }
+    isGalleryFilesBusy = true;
+    const $btn = $("#tinyfeed-gallery-files-cleanup");
+    const $label = $btn.find("span");
+    const originalLabel = $label.text();
+    $btn.addClass("tinyfeed-generating").prop("disabled", true);
+    try {
+        const urls = await listTinyUploads();
+        if (urls === null) { toastr.error("โหลดรายชื่อไฟล์ไม่สำเร็จ ลองรีเฟรชก่อนนะ", "TinyGallery"); return; }
+        if (!urls.length) { toastr.info("ไม่มีไฟล์ให้ตรวจ", "TinyGallery"); return; }
+        const refIdx = tinyRefIndex();
+        if (refIdx.size === 0) {
+            console.error(`[${extensionName}] cleanupOrphanTinyFiles: tinyRefIndex ว่างเปล่าทั้งที่มีไฟล์ ${urls.length} ไฟล์ — ปฏิเสธลบเพื่อความปลอดภัย`);
+            toastr.error("ตรวจการใช้งานไฟล์ไม่ได้ตามปกติ — ยกเลิกการลบทั้งหมดเพื่อความปลอดภัย ลองรีเฟรชใหม่อีกครั้ง", "TinyGallery");
+            return;
+        }
+        const orphans = urls.filter((u) => !refIdx.has(u));
+        if (!orphans.length) { toastr.info("ไม่มีไฟล์ที่ไม่พบการอ้างอิงเลย", "TinyGallery"); return; }
+        if (!window.confirm(`ลบไฟล์ที่ไม่พบการอ้างอิงทั้งหมด ${orphans.length} ไฟล์ถาวรจากดิสก์ กู้คืนไม่ได้ ต้องการลบไหม?`)) return;
+        let done = 0;
+        for (const url of orphans) {
+            done++;
+            $label.text(`กำลังลบ ${done}/${orphans.length}…`);
+            await deleteTinyUploadedImage(url);
+        }
+        toastr.success(`ลบไฟล์ที่ไม่พบการอ้างอิงแล้ว ${orphans.length} ไฟล์`, "TinyGallery");
+    } finally {
+        isGalleryFilesBusy = false;
+        $btn.removeClass("tinyfeed-generating").prop("disabled", false);
+        $label.text(originalLabel);
+        renderGalleryFiles();   // เรียกหลังปลด busy flag เท่านั้น — renderGalleryFiles เช็คธงเดียวกัน ไม่งั้น no-op ทันที
+    }
 }
 
 // หาไอเท็มในคลังตาม kind + id
@@ -1727,18 +2004,21 @@ async function uploadTinyImage(file, kind) {
     return await saveBase64AsFile(base64, "tinyphone", name, ext);
 }
 
-// ลบไฟล์ที่เราอัปโหลดเองทิ้งจากดิสก์ (เงียบๆ พอ ไม่ต้องบล็อกการลบรายการถ้าล้มเหลว)
+// ลบไฟล์ที่เราอัปโหลดเองทิ้งจากดิสก์ — คืน true/false ว่าลบสำเร็จจริงไหม (caller เดิม 2 จุดไม่รอผล ยังเงียบเหมือนเดิม
+// ส่วนแท็บ "ไฟล์ทั้งหมด" ใหม่จะเอาค่านี้ไป toast ให้ผู้ใช้เห็นว่าลบสำเร็จ/ไม่สำเร็จจริง)
 async function deleteTinyUploadedImage(url) {
     const path = String(url || "");
-    if (!path.startsWith("user/images/tinyphone/")) return;   // ลิงก์ภายนอก/รูปในตัว → ไม่ยุ่ง
+    if (!path.startsWith("user/images/tinyphone/")) return false;   // ลิงก์ภายนอก/รูปในตัว → ไม่ยุ่ง
     try {
-        await fetch("/api/images/delete", {
+        const res = await fetch("/api/images/delete", {
             method: "POST",
             headers: getContext().getRequestHeaders(),
             body: JSON.stringify({ path }),
         });
+        return res.ok;
     } catch (e) {
-        console.error(`[${extensionName}] deleteTinyUploadedImage failed:`, e);   // ไม่ต้อง toast — ไฟล์ขยะไม่กระทบการใช้งาน
+        console.error(`[${extensionName}] deleteTinyUploadedImage failed:`, e);   // ไม่ต้อง toast — caller เดิมไม่รอผล ไฟล์ขยะไม่กระทบการใช้งาน
+        return false;
     }
 }
 
@@ -1909,6 +2189,8 @@ function getConnectData() {
     if (!data.connect || typeof data.connect !== "object") data.connect = { threads: {} };
     if (!data.connect.threads) data.connect.threads = {};
     if (!data.connect.threadBg || typeof data.connect.threadBg !== "object") data.connect.threadBg = {};
+    // watermark "อ่านถึงเวลาไหนแล้ว" ต่อห้อง (ไม่ใช่ flag ต่อข้อความ — รอดจากการลบข้อความ/แก้ index ได้)
+    if (!data.connect.readUpTo || typeof data.connect.readUpTo !== "object") data.connect.readUpTo = {};
     return data.connect;
 }
 
@@ -1917,6 +2199,12 @@ function getThread(key) {
     const c = getConnectData();
     if (!Array.isArray(c.threads[key])) c.threads[key] = [];
     return c.threads[key];
+}
+// เซฟห้องแชตให้ถูกที่ตามชนิดข้อมูล — ห้องเพ็ทเป็น global (extension_settings) ห้องอื่นผูกแชท (chat_metadata)
+// ใช้แทนการเช็ค key==="pet" ซ้ำเองทุกจุดที่ push ข้อความเข้าห้อง (พลาดจุดเดียว = ข้อความห้องเพ็ทเซฟผิดที่แล้วหายตอนสลับแชท)
+function saveThread(key) {
+    if (key === "pet") savePet();
+    else saveFeedDataDebounced();
 }
 
 // แชตกลุ่ม: [{ id, name, members:[ชื่อ] }]
@@ -2094,14 +2382,9 @@ function openThread(key, name) {
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
     $("#tinyfeed-back").removeClass("tinyfeed-hidden");
     $(".tinyfeed-title").text(name);
-    // แถบเครื่องมือในห้องแชต: 1:1 = ปุ่ม "ให้ตอบกลับ" · กลุ่ม = "ให้กลุ่มคุยกันต่อ" · เพ็ท = ไม่มี (คุยเล่นได้ ไม่ใช้ AI RP)
-    const isGroup = Boolean(findGroup(key));
-    const isPet = key === "pet";
-    $("#tinyfeed-connect-thread-tools").toggleClass("tinyfeed-hidden", isPet);
-    $("#tinyfeed-connect-reply").toggleClass("tinyfeed-hidden", isGroup || isPet);
-    $("#tinyfeed-group-continue").toggleClass("tinyfeed-hidden", !isGroup);
     applyConnectBg(key);
     renderThread();
+    updateConnectSendBtn();   // ว่าง+1:1=คทา · ว่าง+กลุ่ม=คทา(ให้กลุ่มคุยต่อ) · ว่าง+เพ็ท=ซ่อนปุ่ม
     saveLastScreen();
     $("#tinyfeed-connect-input").trigger("focus");
 }
@@ -2153,6 +2436,16 @@ function renderThread() {
     const gapMs = Math.max(1, parseInt(getSetting("connectTimeGapMin"), 10) || 30) * 60000;
     let prevTs = null;
     const timeDivider = (ts) => `<div class="tinyfeed-msg-timediv"><span>${escapeText(formatChatTime(ts))}</span></div>`;
+    // สถานะ "อ่านแล้ว" — เฉพาะแชต 1:1 (ไม่ใช่กลุ่ม/ห้องเพ็ท) ใช้ watermark เวลา ไม่ใช่ flag ต่อข้อความ
+    // (ฟองที่ i ไหนคือฟองผู้ใช้ล่าสุดที่ถูกอ่านแล้ว หาใหม่ทุกครั้ง — ไม่กระทบ data-idx ที่ deleteConnectMessage ใช้ลบตามตำแหน่ง)
+    const readUpTo = (!group && activeThread !== "pet" && getSetting("connectReadReceipts"))
+        ? ((getConnectData().readUpTo || {})[activeThread] || 0) : 0;
+    let readIdx = -1;
+    if (readUpTo > 0) {
+        for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].from === "user" && itemTimestamp(msgs[i]) <= readUpTo) { readIdx = i; break; }
+        }
+    }
     const rows = msgs.map((m, i) => {
         const ts = itemTimestamp(m);
         let divider = "";
@@ -2162,9 +2455,10 @@ function renderThread() {
         }
         const content = m.isSlip ? slipCardHtml(m) : m.isShare ? shareCardHtml(m) : m.isGift ? giftCardHtml(m) : bubblesHtml(m.text);
         if (m.from === "user") {
+            const readLabel = i === readIdx ? `<div class="tinyfeed-msg-read">อ่านแล้ว · ${escapeText(formatChatTime(readUpTo))}</div>` : "";
             return divider + `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
                 ${delBtn(i)}
-                <div class="tinyfeed-msg-stack">${content}</div>
+                <div class="tinyfeed-msg-stack">${content}${readLabel}</div>
             </div>`;
         }
         // แชตกลุ่ม: ใช้ avatar/ชื่อของสมาชิกที่พูด
@@ -2191,6 +2485,7 @@ function renderThread() {
     box.html(rows + typing);
     if (box[0]) box.scrollTop(box[0].scrollHeight);   // เลื่อนลงล่างสุด
     updateChatInjection();
+    updateConnectSendBtn();   // renderThread ถูกเรียกทั้งตอนเริ่ม/ระหว่าง/จบการตอบของ AI เสมอ → จุดนี้ครอบปุ่มมอร์ฟให้ฟรี
 }
 
 // ลบบับเบิลแชท 1 อัน (อ้างตาม index ในเธรด)
@@ -2230,10 +2525,12 @@ function shareCardHtml(m) {
 }
 
 // การ์ดของขวัญในแชท — ใช้ thumbnail แบบเดียวกับสินค้า TinyShop/TinyBag
+// dir:"in" = ตัวละครส่งของขวัญมาให้เรา (เช่นจาก GIFT: ในแชต 1:1) ไม่ใส่ dir/ใส่อย่างอื่น = ฝั่งเราส่งไป (ของเดิม)
 function giftCardHtml(m) {
     const g = m.gift || {};
+    const inbound = m.dir === "in";
     return `<div class="tinyfeed-gift-card">
-        <div class="tinyfeed-gift-head"><i class="fa-solid fa-gift"></i> ส่งของขวัญ</div>
+        <div class="tinyfeed-gift-head"><i class="fa-solid fa-gift"></i> ${inbound ? "ได้รับของขวัญ" : "ส่งของขวัญ"}</div>
         <div class="tinyfeed-gift-body">
             <div class="tinyfeed-shop-thumb-wrap tinyfeed-gift-thumb-wrap">${shopThumbHtml(g)}</div>
             <div class="tinyfeed-gift-name">${escapeText(g.name || "ของขวัญ")}</div>
@@ -2332,7 +2629,8 @@ function maybeGiftThankYou(key) {
 function openSharePicker(payload) {
     openConnectDestPicker("แชร์ถึงใคร", (key, name) => {
         getThread(key).push({ from: "user", isShare: true, share: payload, ts: Date.now() });
-        if (key === "pet") { petBondAdd(1); savePet(); } else saveFeedDataDebounced();
+        if (key === "pet") petBondAdd(1);
+        saveThread(key);
         if (currentApp === "connect" && activeThread === key) renderThread();
         updateChatInjection();
         toastr.success(`แชร์ถึง ${name} แล้ว`, "TinyConnect");
@@ -2350,7 +2648,8 @@ function buyGiftShopItem(itemId) {
             gift: { name: it.name, emoji: it.emoji || "", image: it.image || "", desc: it.desc || "" },
             ts: Date.now(),
         });
-        if (key === "pet") { petBondAdd(3); savePet(); } else saveFeedDataDebounced();
+        if (key === "pet") petBondAdd(3);
+        saveThread(key);
         if (currentApp === "connect" && activeThread === key) renderThread();
         updateChatInjection();
         toastr.success(`ซื้อและส่ง "${it.name}" ให้ ${name} แล้ว`, "TinyShop");
@@ -2388,7 +2687,8 @@ function sendGiftFromBag(bagItemId) {
     if (x.qty <= 0) bag.splice(bag.indexOf(x), 1);
     saveBag();
     getThread(key).push({ from: "user", isGift: true, gift: giftSnap, ts: Date.now() });
-    if (key === "pet") { petBondAdd(3); savePet(); } else saveFeedDataDebounced();
+    if (key === "pet") petBondAdd(3);
+    saveThread(key);
     closeGiftFromBag();
     closeConnectPlusMenu();
     renderThread();
@@ -2431,18 +2731,72 @@ function sendUserSlip() {
     renderThread();
 }
 
-// คู่แชท (1:1) ส่งสลิปโอนเข้า: SLIP: จำนวนเงิน | โน้ต
+// คู่แชท (1:1) ส่งสลิปโอนเข้า: SLIP: จำนวนเงิน | โน้ต — คืน true ถ้าดันสลิปเข้าแชทจริง (ใช้กันข้อความเตือน "ยังไม่มีคำตอบ" หลอก)
 function processConnectSlip(raw, fromName) {
-    if (!getSetting("connectSlipEnabled") || !activeThread) return;
+    if (!getSetting("connectSlipEnabled") || !activeThread) return false;
     const m = /SLIP:\s*([^\n|]+)(?:\|([^\n]*))?/i.exec(stripReasoning(raw));
-    if (!m) return;
+    if (!m) return false;
     const amount = Math.abs(Math.round(parseFloat(String(m[1]).replace(/[^\d.]/g, "")) || 0));
-    if (!amount) return;
+    if (!amount) return false;
     const note = String(m[2] || "").trim();
     if (bankAdd(amount, `รับโอนจาก ${fromName}`, "connect", { silentToast: true })) {
         getThread(activeThread).push({ from: "contact", author: fromName, isSlip: true, dir: "in", amount, note, ts: Date.now() });
+        return true;
     }
+    return false;
 }
+
+// ประมวลผลบรรทัด READ: — ชั้นที่ 2 ของสถานะ "อ่านแล้ว" ให้ AI เลือกเองว่าจะอ่านเฉยๆ ไม่ตอบไหม (ชั้นที่ 1 คือทอยก่อนเจนใน generateConnectReply)
+// แค่เจอบรรทัดนี้ก็ถือว่า "อ่านแล้ว" ทันที ไม่สนว่าข้อความที่เหลือ (ถ้ามี) จะว่างหรือไม่ — คืน true เสมอเมื่อเจอ
+function handleAiReadOnly(raw, ctx) {
+    if (!/^READ:/im.test(stripReasoning(raw))) return false;
+    if (!activeThread) return false;
+    getConnectData().readUpTo[activeThread] = Date.now();
+    saveThread(activeThread);
+    return true;
+}
+
+// ===== TinyConnect: ทะเบียนกลางของ "บรรทัดคำสั่งพิเศษ" ที่ AI ใส่ท้ายคำตอบแชต 1:1 (นอกเหนือจากคำตอบปกติ) =====
+// เพิ่ม marker ใหม่ = เพิ่ม entry เดียวที่นี่ — ห้ามแปะเงื่อนไขแยกใน generateConnectReply (จะกลายเป็นหลายจุดที่ต้องแก้พร้อมกัน)
+//   setting  ชื่อ setting ที่ต้องเปิดถึงจะสอน AI ด้วย prompt บรรทัดนี้ + ประมวลผลตอนได้คำตอบ
+//   line(ctx)  ข้อความ prompt สอน AI (ต่อเข้า {{markers}} ของ PROMPT_DEFS.connectReply)
+//   re       regex ตัดบรรทัดนี้ออกจากข้อความที่โชว์ในบับเบิลแชต (ต้องมี flag รวม g + im)
+//   handle(raw, ctx)  ประมวลผลจากข้อความดิบ (ยังไม่ตัด marker ออก) — คืน true ถ้าทำอะไรจริง (เช่น ดันการ์ดเข้าแชท)
+const CONNECT_MARKERS = [
+    {
+        id: "slip", setting: "connectSlipEnabled",
+        line: (ctx) => `[ระบบโอนเงิน] ถ้า ${ctx.name} อยากโอนเงินให้ ${ctx.you} (เฉพาะตอนที่เข้ากับเนื้อเรื่องจริงๆ ไม่ต้องบ่อย) ให้ใส่บรรทัดแยกท้ายข้อความ: SLIP: <จำนวนเงิน> | <โน้ตสั้นๆ>.\n`,
+        re: /^SLIP:.*$/gim,
+        handle: (raw, ctx) => processConnectSlip(raw, ctx.name),
+    },
+    {
+        id: "gift", setting: "connectGiftEnabled",
+        line: (ctx) =>
+            `[ระบบของขวัญ] ถ้า ${ctx.name} อยากซื้อของจากร้าน TinyShop ส่งให้ ${ctx.you} (นานๆ ครั้งเท่านั้น เฉพาะตอนที่เข้ากับเนื้อเรื่อง) ` +
+            `ให้ใส่บรรทัดแยกท้ายข้อความ: GIFT: <ชื่อสินค้าตรงตามรายการในร้าน>. เลือกได้เฉพาะสินค้าที่มีในร้านเท่านั้น ห้ามแต่งชื่อสินค้าขึ้นมาเอง.\n` +
+            giftShopVisibleContext(),
+        re: /^GIFT:.*$/gim,
+        handle: (raw, ctx) => handleAiGift(raw, ctx),
+    },
+    {
+        id: "petcare", setting: "petAiCareEnabled",
+        line: (ctx) => {
+            const p = getPet();
+            if (!p.exists || p.isDead) return "";   // ไม่มีเพ็ทมีชีวิตให้ดูแล — ไม่ต้องสอน AI เรื่องนี้เลย
+            return `[ระบบดูแลสัตว์เลี้ยง] ถ้า ${ctx.name} อยากช่วยดูแล ${p.name} (สัตว์เลี้ยงของ ${ctx.you} ในแอป TinyPet) ` +
+                `ให้ใส่บรรทัดแยกท้ายข้อความ: PETCARE: <feed|play|clean> — นานๆ ครั้งเท่านั้น เฉพาะตอนที่เข้ากับเนื้อเรื่อง.\n` +
+                petCareVisibleContext();
+        },
+        re: /^PETCARE:.*$/gim,
+        handle: (raw, ctx) => handleAiPetCare(raw, ctx),
+    },
+    {
+        id: "read", setting: "connectReadReceipts",
+        line: (ctx) => `[ระบบอ่านข้อความ] ถ้า ${ctx.name} แค่อ่านข้อความล่าสุดแต่ยังไม่อยากตอบตอนนี้ (เข้ากับเนื้อเรื่อง เช่นกำลังยุ่งอยู่) ให้ตอบแค่คำเดียวว่า: READ: อ่านแล้ว (ห้ามมีข้อความอื่นปนเลย)\n`,
+        re: /^READ:.*$/gim,
+        handle: (raw, ctx) => handleAiReadOnly(raw, ctx),
+    },
+];
 
 // ส่งข้อความ = แค่ต่อคิว (ไม่ generate ทันที) เพื่อพิมพ์/แนบรูป/สติกเกอร์หลายอันใน 1 รอบ
 // แล้วค่อยกดปุ่ม "ให้ตอบกลับ" ให้ตัวละครตอบทีเดียว
@@ -2450,8 +2804,8 @@ function sendConnectMessage(text) {
     const clean = String(text || "").trim();
     if (!clean || !activeThread) return;
     getThread(activeThread).push({ from: "user", text: escapeHtml(clean), ts: Date.now() });
-    if (activeThread === "pet") { petBondAdd(2); savePet(); }   // เพ็ท = global → persist ด้วย savePet + คุยด้วยเพิ่มผูกพันนิดหน่อย
-    else saveFeedDataDebounced();
+    if (activeThread === "pet") petBondAdd(2);   // เพ็ท = global → persist ด้วย saveThread + คุยด้วยเพิ่มผูกพันนิดหน่อย
+    saveThread(activeThread);
     $("#tinyfeed-connect-input").val("").css("height", "");   // เคลียร์ + คืนความสูงเริ่มต้น
     renderThread();
 }
@@ -2504,19 +2858,32 @@ async function generateConnectReply() {
         return;
     }
 
-    const slipLine = getSetting("connectSlipEnabled")
-        ? `[ระบบโอนเงิน] ถ้า ${name} อยากโอนเงินให้ ${you} (เฉพาะตอนที่เข้ากับเนื้อเรื่องจริงๆ ไม่ต้องบ่อย) ให้ใส่บรรทัดแยกท้ายข้อความ: SLIP: <จำนวนเงิน> | <โน้ตสั้นๆ>.\n`
-        : "";
-    const q =
-        `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือแชตส่วนตัวในแอปแชต (คล้ายไลน์) ระหว่าง ${you} กับ ${name}. ` +
-        `ตอบข้อความล่าสุดในบทบาทของ ${name} แบบเป็นธรรมชาติ สั้นกระชับเหมือนแชตจริง (1-3 ประโยค) ` +
-        `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน ${you}.\n` +
-        (String(getSetting("connectExtraPrompt") || "").trim() ? `คำสั่งเพิ่มเติม: ${String(getSetting("connectExtraPrompt")).trim()}.\n` : "") +
-        slipLine +
-        crossAppContext("connect") +
-        galleryPromptBlock() +
-        `บทแชตล่าสุด:\n${transcript}\n` +
-        `ตอบเฉพาะข้อความของ ${name} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`;
+    // เฟส 4: ทอยก่อนเจน — เปิด "อ่านไม่ตอบ" ไว้แล้วทอยชนะ = ตั้งเวลาอ่านแล้วจบเลย ไม่ยิงโมเดลเลย (0 token ตรงตามสไลเดอร์เป๊ะ)
+    // ต่างจาก marker READ: ที่ให้ AI "เลือกเอง" อีกชั้นหนึ่งหลังทอยไม่ชนะ (ดู CONNECT_MARKERS ด้านล่าง)
+    // เหตุผลที่ทอยฝั่งนี้ก่อนแยกไว้ต่างหาก: สั่งโมเดลด้วยความน่าจะเป็นตรงๆ ("25% ของครั้งให้อ่านเฉยๆ") มักไม่แม่น
+    // สไลเดอร์จะโกหกถ้าพึ่ง AI ล้วน — ชั้นนี้การันตีตัวเลขตรง ส่วน AI เลือกเองเป็นชั้นเสริมให้ตัดสินใจเองได้ตามเนื้อเรื่องด้วย
+    if (getSetting("connectReadReceipts")) {
+        const chance = Math.max(0, Math.min(100, parseInt(getSetting("connectReadOnlyChance"), 10) || 0));
+        if (chance > 0 && Math.random() * 100 < chance) {
+            getConnectData().readUpTo[activeThread] = Date.now();
+            saveThread(activeThread);
+            renderThread();
+            return;
+        }
+    }
+
+    // marker ที่เปิดใช้อยู่ (ดู CONNECT_MARKERS) — สอน AI ผ่าน {{markers}} แล้วตัด/ประมวลผลบรรทัดเดียวกันตอนได้คำตอบ
+    const activeMarkers = CONNECT_MARKERS.filter((mk) => getSetting(mk.setting));
+    const markerCtx = { name, you };
+    const extra = String(getSetting("connectExtraPrompt") || "").trim();
+    const q = buildPrompt("connectReply", {
+        you, name,
+        extra: extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "",
+        markers: activeMarkers.map((mk) => mk.line(markerCtx)).join(""),
+        context: crossAppContext("connect"),
+        gallery: galleryPromptBlock(),
+        transcript,
+    });
 
     isConnectReplying = true;
     renderThread();   // โชว์ "กำลังพิมพ์…"
@@ -2526,17 +2893,20 @@ async function generateConnectReply() {
         // ถ้าโมเดลห่อด้วย [... Message: ข้อความ] ให้ดึงเฉพาะเนื้อในออกมา
         const wrapped = [...reply.matchAll(/\[[^\]]*?Message:\s*([^\]]+)\]/gi)];
         if (wrapped.length) reply = wrapped.map((m) => m[1].trim()).join("\n");
-        reply = reply.replace(/^SLIP:.*$/gim, "").trim();   // ตัดบรรทัดสลิปออกจากข้อความ (จัดการแยก)
+        for (const mk of activeMarkers) reply = reply.replace(mk.re, "");   // ตัดบรรทัด marker ออกจากข้อความที่จะโชว์
+        reply = reply.trim();
         // ตัดวงเล็บ/ป้ายกำกับที่หลงเหลือ + "ชื่อ:" นำหน้า (ไม่ทำลายโทเคนสติกเกอร์/รูป)
         reply = stripWrapBrackets(reply);
         const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         reply = reply.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
         if (reply) {
             getThread(activeThread).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
-            saveFeedDataDebounced();
+            if (getSetting("connectReadReceipts")) getConnectData().readUpTo[activeThread] = Date.now();   // ตอบ = อ่านด้วย
+            saveThread(activeThread);
         }
-        processConnectSlip(raw, name);   // คู่แชทโอนเงินเข้า (ถ้าเปิดระบบ + AI ส่ง SLIP)
-        if (!reply && !getThread(activeThread).some((m) => m.isSlip && m.ts > Date.now() - 3000)) {
+        // ประมวลผล marker ทุกตัวจากข้อความดิบ (เช่น สลิปโอนเงินเข้า) — คืน true ถ้าทำอะไรจริง ใช้กันเตือน "คำตอบว่าง" หลอก
+        const markerDidSomething = activeMarkers.map((mk) => mk.handle(raw, markerCtx)).some(Boolean);
+        if (!reply && !markerDidSomething) {
             toastr.warning("ยังไม่มีคำตอบกลับมา ลองใหม่นะ", "TinyConnect");
         }
     } catch (e) {
@@ -3069,6 +3439,9 @@ function getPet() {
     if (typeof p.bond !== "number" || !isFinite(p.bond)) p.bond = 0;
     if (typeof p.coins !== "number" || !isFinite(p.coins)) p.coins = 0;
     if (!Array.isArray(p.dm)) p.dm = [];
+    // เวลาที่ตัวละครในแชตเพิ่งช่วยดูแลเพ็ทครั้งล่าสุด (กันสแปม) — เก็บบนตัวเพ็ทเอง ไม่ใช่ setting
+    // เพราะเพ็ทเป็น global ถ้าเก็บแยกต่อแชทคูลดาวน์จะรีเซ็ตทุกครั้งที่สลับแชท
+    if (typeof p.aiCareAt !== "number") p.aiCareAt = 0;
     store.pet = p;
     return p;
 }
@@ -3269,33 +3642,116 @@ function petOnCooldown(action) {
 function petActionLabel(action) {
     return ({ feed: "ให้อาหาร", play: "เล่นด้วย", clean: "อาบน้ำให้", sleep: "กล่อมให้นอน" })[action] || "เข้ามาดู";
 }
-function petAct(action) {
+// opts: { by:"", silent:false, react:true, skipCooldown:false } — ปุ่มในแอปเรียกเปล่าๆ ได้เหมือนเดิม (ค่าเริ่มต้นทั้งหมด)
+// ตัวเรียกจากภายนอก (เช่นตัวละครในแชตสั่งดูแล) ต้องส่ง silent+skipCooldown+react:false เสมอ — ไม่งั้นไปกินคูลดาวน์ปุ่มผู้ใช้
+// และไปยิง tinyGenerate ซ้อนจาก petReactThrottled ระหว่างที่ generateConnectReply ยังทำงานอยู่ (เคยเป็นบั๊กจริง)
+// คืนผลลัพธ์ชัดเจนแทนการคาดเดาจาก side-effect: "ok"|"full"|"tired"|"sleeping"|"cooldown"|"none"
+function petAct(action, opts) {
+    opts = opts || {};
     const p = getPet();
-    if (!p.exists || p.isDead) return;
-    if (p.isSleeping && action !== "sleep") { toastr.info("เพ็ทกำลังหลับอยู่ ปลุกก่อนนะ", "TinyPet"); return; }
-    if (petOnCooldown(action)) return;
+    if (!p.exists || p.isDead) return "none";
+    if (p.isSleeping && action !== "sleep") {
+        if (!opts.silent) toastr.info("เพ็ทกำลังหลับอยู่ ปลุกก่อนนะ", "TinyPet");
+        return "sleeping";
+    }
+    if (!opts.skipCooldown && petOnCooldown(action)) return "cooldown";
     petApplyDecay();
     const s = p.stats;
-    let sprite = "", react = false;
+    let sprite = "", result = "ok";
     if (action === "feed") {
-        if (s.hunger <= 10) { s.mood = clamp100(s.mood - 5); s.health = clamp100(s.health - 3); toastr.info("เพ็ทอิ่มแล้ว อย่าให้กินเยอะเกินไป!", "TinyPet"); }
-        else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); petBondAdd(3); }
-        sprite = "eating"; react = true;
+        if (s.hunger <= 10) {
+            s.mood = clamp100(s.mood - 5); s.health = clamp100(s.health - 3);
+            if (!opts.silent) toastr.info("เพ็ทอิ่มแล้ว อย่าให้กินเยอะเกินไป!", "TinyPet");
+            result = "full";
+        } else { s.hunger = clamp100(s.hunger - 35); s.mood = clamp100(s.mood + 5); petBondAdd(3); }
+        sprite = "eating";
     } else if (action === "play") {
-        if (s.energy < 15) { toastr.info("เพ็ทเหนื่อยเกินกว่าจะเล่น ให้พักก่อนนะ", "TinyPet"); return; }
+        if (s.energy < 15) {
+            if (!opts.silent) toastr.info("เพ็ทเหนื่อยเกินกว่าจะเล่น ให้พักก่อนนะ", "TinyPet");
+            return "tired";
+        }
         s.mood = clamp100(s.mood + 20); s.energy = clamp100(s.energy - 15);
         s.hunger = clamp100(s.hunger + 6); s.cleanliness = clamp100(s.cleanliness - 6);
-        petBondAdd(6); sprite = "playing"; react = true;
+        petBondAdd(6); sprite = "playing";
     } else if (action === "clean") {
-        s.cleanliness = 100; s.mood = clamp100(s.mood + 5); petBondAdd(3); sprite = "cleaning"; react = true;
+        s.cleanliness = 100; s.mood = clamp100(s.mood + 5); petBondAdd(3); sprite = "cleaning";
     } else if (action === "sleep") {
         p.isSleeping = !p.isSleeping;
+    } else {
+        return "none";
     }
     p.lastUpdateTimestamp = Date.now();
     savePet();
     if (sprite) setPetActionSprite(sprite, 1600);
     renderPet();
-    if (react && getSetting("petAiReactions")) petReactThrottled(action);
+    if (opts.react !== false && getSetting("petAiReactions")) petReactThrottled(action);
+    return result;
+}
+
+// สรุปสถานะเพ็ทเป็นข้อความบรรทัดเดียว — ใช้ทั้งตอนแชร์และตอนสรุปผลหลังตัวละครช่วยดูแล
+function petStatusLine(p) {
+    const s = p.stats || {};
+    return `อิ่ม ${Math.round(100 - (s.hunger || 0))}% · พลังงาน ${Math.round(s.energy || 0)}% · สะอาด ${Math.round(s.cleanliness || 0)}% · อารมณ์ ${Math.round(s.mood || 0)}% · สุขภาพ ${Math.round(s.health || 0)}%`;
+}
+
+// แชร์สถานะเพ็ทเข้าห้องแชตที่เลือก — ให้ตัวละครเห็นค่าปัจจุบันแล้วช่วยดูแลได้จริง (ดู marker PETCARE ใน CONNECT_MARKERS)
+// ใช้ openSharePicker เดิมทั้งดุ้น (ไม่มี HTML/CSS ใหม่) — connectMsgText สาขา isShare ย่อยข้อความให้โมเดลอยู่แล้ว
+function sharePetStatus() {
+    const p = getPet();
+    if (!p.exists || p.isDead) { toastr.info("ยังไม่มีเพ็ทให้แชร์ตอนนี้", "TinyPet"); return; }
+    petApplyDecay();
+    savePet();
+    openSharePicker({
+        kind: "pet", title: `${p.name} (${PET_STAGE_LABEL[p.stage] || p.stage})`,
+        sub: "สถานะตอนนี้จากแอป TinyPet", body: petStatusLine(p),
+        image: petSpriteUrl(petState()), emoji: "🐾",
+    });
+}
+
+// ให้ AI เห็นสถานะเพ็ทเสมอเมื่อเปิดสวิตช์ดูแลเพ็ท — แม้ผู้ใช้ไม่ได้เปิด "ให้แอปอื่นเห็นเพ็ท" ไว้ (เหตุผลเดียวกับ giftShopVisibleContext)
+function petCareVisibleContext() {
+    if (getSetting("crossAppEnabled") && getSetting("crossAppPet")) return "";
+    const count = Math.max(1, parseInt(getSetting("crossAppCount"), 10) || 3);
+    const blocks = buildAppBlocks({ pet: true, count });
+    return blocks.length ? `\n${blocks.join("\n\n")}\n` : "";
+}
+
+// ป้ายหัวข้อการ์ด "ตัวละครดูแลเพ็ท" — แยกจาก petActionLabel เพราะข้อความปุ่มในแอปกับประโยคในแชตต้องการไวยากรณ์ต่างกัน
+const PETCARE_TITLE_LABEL = { feed: "ให้อาหาร", play: "เล่นกับ", clean: "อาบน้ำให้" };
+
+// ประมวลผลบรรทัด PETCARE: <feed|play|clean> จากคำตอบ AI — ไม่รวม sleep (เป็น toggle ให้ AI สั่งจะแย่งคุมกับผู้ใช้)
+// มีคูลดาวน์กันสแปม (petAiCareCooldownMin) เก็บบนตัวเพ็ทเอง ไม่ใช่ setting — คืน true ถ้าดูแลสำเร็จจริง
+function handleAiPetCare(raw, ctx) {
+    const p = getPet();
+    if (!p.exists || p.isDead) return false;
+    const m = /PETCARE:\s*(feed|play|clean)/i.exec(stripReasoning(raw));
+    if (!m) return false;
+    const cdMs = Math.max(0, parseInt(getSetting("petAiCareCooldownMin"), 10) || 30) * 60000;
+    if (cdMs > 0 && Date.now() - (p.aiCareAt || 0) < cdMs) {
+        console.warn(`[${extensionName}] AI สั่งดูแลเพ็ทแต่ยังติดคูลดาวน์กันสแปม`);
+        return false;
+    }
+    const action = m[1].toLowerCase();
+    const result = petAct(action, { by: ctx.name, silent: true, react: false, skipCooldown: true });
+    // "full" ก็นับว่า "ทำจริง" (มีผลข้างเคียงจริง แค่เป็นโทษป้อนซ้ำตอนอิ่มแล้ว) ต้องกินคูลดาวน์เหมือนกัน
+    // ไม่งั้น AI สั่ง feed รัวๆ ตอนอิ่มแล้วจะไม่โดนคูลดาวน์เลยสักที (ช่องโหว่สแปมที่คูลดาวน์นี้ตั้งใจกันอยู่)
+    if (result !== "ok" && result !== "full") {
+        console.warn(`[${extensionName}] petAct("${action}") จาก AI ไม่สำเร็จ (ผลลัพธ์: ${result})`);
+        return false;
+    }
+    p.aiCareAt = Date.now();
+    savePet();
+    if (!activeThread) return true;   // ดูแลสำเร็จแล้ว แต่ไม่มีห้องแชตให้ดันการ์ด (ไม่ควรเกิดขึ้นจริงเพราะ marker นี้ทำงานเฉพาะตอนตอบแชต 1:1)
+    getThread(activeThread).push({
+        from: "contact", author: ctx.name, isShare: true,
+        share: {
+            kind: "petcare", title: `${ctx.name} ${PETCARE_TITLE_LABEL[action] || "ดูแล"}${p.name}`,
+            sub: "TinyPet", body: petStatusLine(p), image: petSpriteUrl(petState()), emoji: "🐾",
+        },
+        ts: Date.now(),
+    });
+    saveThread(activeThread);
+    return true;
 }
 
 // ===== TinyPet: เหรียญเพ็ท + ร้านสัตว์เลี้ยง (แยกจาก TinyShop) =====
@@ -4163,6 +4619,7 @@ function renderPet() {
             <button id="tinyfeed-pet-shop-btn" class="tinyfeed-btn-generate"><i class="fa-solid fa-store"></i> <span>ร้านค้า</span></button>
             <button id="tinyfeed-pet-speak" class="tinyfeed-btn-generate"><i class="fa-solid fa-comment-dots"></i> <span>ให้เพ็ทพูด</span></button>
             <button id="tinyfeed-pet-post" class="tinyfeed-btn-generate"><i class="fa-solid fa-hashtag"></i> <span>โพสต์ลงฟีด</span></button>
+            <button id="tinyfeed-pet-share" class="tinyfeed-btn-generate"><i class="fa-solid fa-share-nodes"></i> <span>แชร์สถานะ</span></button>
         </div>
     `);
 }
@@ -5091,6 +5548,7 @@ function renderFeed() {
     }
     const html = data.feed.map((post) => `
         <div class="tinyfeed-post" data-post="${post.id}">
+            ${post.repostOf ? `<div class="tinyfeed-repost-tag"><i class="fa-solid fa-retweet"></i> ${escapeText(post.author)} รีโพสต์</div>` : ""}
             <div class="tinyfeed-post-head">
                 ${makeAvatar(post)}
                 <div class="tinyfeed-post-meta">
@@ -5100,6 +5558,7 @@ function renderFeed() {
                 ${(post.isUser || post.isAI) ? `<span class="tinyfeed-delete" data-post="${post.id}" title="ลบโพสต์"><i class="fa-solid fa-trash"></i></span>` : ""}
             </div>
             <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
+            ${(post.quoteOf || post.repostOf) ? embeddedPostHtml(post.quoteOf || post.repostOf) : ""}
             <div class="tinyfeed-post-actions">
                 <span class="tinyfeed-like ${post.liked ? "tinyfeed-liked" : ""}" data-post="${post.id}">
                     <i class="fa-solid fa-heart"></i> ${formatCount(post.likes)}
@@ -5139,6 +5598,7 @@ function posterAvatarNode() {
 // ปรับสภาพช่องเขียนโพสต์ตามคนโพสต์: เราเอง = พิมพ์เอง · ตัวละครอื่น/อัตโนมัติ = โหมด AI
 function applyFeedComposeMode() {
     const aiMode = feedPoster !== POSTER_USER;
+    if (aiMode && quoteTarget) cancelQuotePost();   // โควทได้เฉพาะตอนโพสต์เป็นตัวเราเอง — สลับไปโหมด AI แล้วยกเลิกโควทที่ค้างไว้
     $("#tinyfeed-compose-avatar").html(posterAvatarNode());
     $("#tinyfeed-compose-input")
         .prop("disabled", aiMode)
@@ -5216,6 +5676,7 @@ function openPostDetail(postId) {
     if (!post) return;
     const html = `
         <div class="tinyfeed-post tinyfeed-post-detail">
+            ${post.repostOf ? `<div class="tinyfeed-repost-tag"><i class="fa-solid fa-retweet"></i> ${escapeText(post.author)} รีโพสต์</div>` : ""}
             <div class="tinyfeed-post-head">
                 ${makeAvatar(post)}
                 <div class="tinyfeed-post-meta">
@@ -5224,6 +5685,7 @@ function openPostDetail(postId) {
                 </div>
             </div>
             <div class="tinyfeed-post-body">${renderPostBody(post.text)}</div>
+            ${(post.quoteOf || post.repostOf) ? embeddedPostHtml(post.quoteOf || post.repostOf) : ""}
             <div class="tinyfeed-post-actions">
                 <span><span class="fa-regular fa-heart"></span> ${Number(post.likes || 0).toLocaleString()}</span>
                 <span><span class="fa-regular fa-comment"></span> ${post.comments.length.toLocaleString()}</span>
@@ -5275,7 +5737,40 @@ function feedPostSharePayload(post) {
     const image = imgMatch ? ((findGalleryImage(unescapeLite(imgMatch[1])) || {}).url || "") : "";
     return { kind: "post", title: post.author, sub: "โพสต์จาก TinyFeed", body: htmlToPlain(post.text).slice(0, 200), image, emoji: "📝" };
 }
-function shareFeedPost(postId) {
+
+// สแนปช็อตโพสต์ (ใช้ฝังในโพสต์โควท/รีโพสต์) — ตัด quoteOf/repostOf ทิ้งเสมอ: กันซ้อนไม่จำกัดชั้นด้วยโครงสร้าง
+// (ลึกสุด 1 ชั้นเสมอ) และถ้าต้นฉบับถูกลบ/แก้ทีหลัง การ์ดที่ฝังไว้ยังอยู่ครบ ไม่ต้องออกแบบสถานะ "โพสต์ถูกลบ" แยก
+function postSnapshot(post) {
+    return {
+        id: post.id, author: post.author, text: post.text, ts: post.ts,
+        isUser: Boolean(post.isUser), isMain: Boolean(post.isMain), isAI: Boolean(post.isAI), isPet: Boolean(post.isPet),
+        avatar: post.avatar || "",
+    };
+}
+// การ์ดโพสต์ที่ฝังอยู่ในโพสต์โควท/รีโพสต์ — ไม่ผูก handler คลิกเอง ปล่อยให้คลิกทะลุไปเปิดรายละเอียดของโพสต์ที่ห่อมันแทน
+// (ถูกต้องตามโมเดล snapshot — การ์ดนี้ไม่ใช่ "ไปที่ต้นฉบับ" แต่คือสำเนา ณ ตอนโควท/รีโพสต์)
+function embeddedPostHtml(snap) {
+    return `<div class="tinyfeed-post-embed">
+        <div class="tinyfeed-post-embed-head">
+            ${makeAvatar(snap)}
+            <span class="tinyfeed-post-embed-author">${escapeText(snap.author)}</span>
+            <span class="tinyfeed-post-embed-time">${displayTime(snap)}</span>
+        </div>
+        <div class="tinyfeed-post-embed-body">${renderPostBody(snap.text)}</div>
+    </div>`;
+}
+
+// ===== เมนูแชร์โพสต์: ส่งเข้าแชท / รีโพสต์ / โควท =====
+let shareMenuTargetId = null;
+function openShareMenu(postId) {
+    const post = getFeedData().feed.find((p) => p.id === postId);
+    if (!post) return;
+    shareMenuTargetId = postId;
+    $("#tinyfeed-share-menu").removeClass("tinyfeed-hidden");
+}
+function closeShareMenu() { $("#tinyfeed-share-menu").addClass("tinyfeed-hidden"); shareMenuTargetId = null; }
+
+function shareFeedPostToChat(postId) {
     const post = getFeedData().feed.find((p) => p.id === postId);
     if (!post) return;
     openSharePicker(feedPostSharePayload(post));
@@ -5283,6 +5778,48 @@ function shareFeedPost(postId) {
     post.shared = true;
     saveFeedDataDebounced();
     $(`.tinyfeed-share[data-post="${postId}"]`).addClass("tinyfeed-shared");
+}
+
+// รีโพสต์ — สร้างโพสต์ใหม่ของเรา ไม่มีข้อความตัวเอง ห่อโพสต์เดิมไว้เป็นสแนปช็อต (ต้นฉบับถูกลบ/แก้ทีหลังไม่กระทบการ์ดที่ฝัง)
+function repostFeedPost(postId) {
+    const data = getFeedData();
+    const post = data.feed.find((p) => p.id === postId);
+    if (!post) { closeShareMenu(); return; }
+    if (data.feed.some((p) => p.isUser && p.repostOf && p.repostOf.id === postId)) {
+        toastr.info("รีโพสต์โพสต์นี้ไปแล้ว", "TinyFeed");
+        closeShareMenu();
+        return;
+    }
+    data.feed.unshift({
+        id: "rp" + Date.now(), author: getUserName(), isUser: true, avatar: "",
+        ts: Date.now(), text: "", likes: randomInitialLikes(), comments: [],
+        repostOf: postSnapshot(post),
+    });
+    post.shared = true;
+    saveFeedDataDebounced();
+    renderFeed();
+    closeShareMenu();
+    toastr.success("รีโพสต์แล้ว", "TinyFeed");
+}
+
+// โควท — เก็บ postId ที่กำลังโควทไว้ใน quoteTarget แล้วให้ addUserPost() แนบสแนปช็อตให้ตอนโพสต์จริง
+// ต้องล้างค่านี้ทุกจุดที่ออกจากหน้าฟีด (openApp/goHome) และตอนสลับคนโพสต์ไปเป็น AI (applyFeedComposeMode) ไม่งั้นค้างข้ามหน้าจอ
+let quoteTarget = null;
+function startQuotePost(postId) {
+    const post = getFeedData().feed.find((p) => p.id === postId);
+    if (!post) { closeShareMenu(); return; }
+    quoteTarget = postId;
+    feedPoster = POSTER_USER;   // โควทในนามตัวละครอื่นไม่สมเหตุผล — บังคับกลับมาเป็นเราเอง
+    closeShareMenu();
+    if (!$("#tinyfeed-detail").hasClass("tinyfeed-hidden")) closeDetail();   // มาจากหน้ารายละเอียด → กลับไปหน้าฟีดหลักที่มีช่องพิมพ์
+    $("#tinyfeed-quote-chip-name").text(post.author);
+    $("#tinyfeed-quote-chip").removeClass("tinyfeed-hidden");
+    applyFeedComposeMode();
+    $("#tinyfeed-compose-input").trigger("focus");
+}
+function cancelQuotePost() {
+    quoteTarget = null;
+    $("#tinyfeed-quote-chip").addClass("tinyfeed-hidden");
 }
 
 // ผู้ใช้โพสต์เอง — แทรกบนสุดของฟีด เก็บผูกกับแชท
@@ -5299,6 +5836,12 @@ async function addUserPost(text) {
         likes: randomInitialLikes(),   // สุ่มไลค์เริ่มต้นเหมือนโพสต์ AI
         comments: [],
     };
+    if (quoteTarget) {
+        const quoted = getFeedData().feed.find((p) => p.id === quoteTarget);
+        if (quoted) post.quoteOf = postSnapshot(quoted);
+        quoteTarget = null;
+        $("#tinyfeed-quote-chip").addClass("tinyfeed-hidden");
+    }
     getFeedData().feed.unshift(post);
     saveFeedDataDebounced();
     renderFeed();
@@ -5448,6 +5991,16 @@ const PROMPT_DEFS = {
             `บทล่าสุด:\n{{recent}}\n` +
             `{{existing}}{{extra}}{{context}}\n` +
             `ตอบบรรทัดละ 1 รายการในรูปแบบนี้เท่านั้น (ไม่มีเหตุการณ์ใหม่ก็ไม่ต้องตอบอะไรเลย):\nMONEY: <+จำนวน หรือ -จำนวน> | <รายละเอียดสั้นๆ>`,
+    },
+    connectReply: {
+        label: "ตอบแชต 1:1 (TinyConnect)", marker: "", tokens: ["you", "name", "extra", "markers", "context", "gallery", "transcript"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] นี่คือแชตส่วนตัวในแอปแชต (คล้ายไลน์) ระหว่าง {{you}} กับ {{name}}. ` +
+            `ตอบข้อความล่าสุดในบทบาทของ {{name}} แบบเป็นธรรมชาติ สั้นกระชับเหมือนแชตจริง (1-3 ประโยค) ` +
+            `ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน {{you}}.\n` +
+            `{{extra}}{{markers}}{{context}}{{gallery}}` +
+            `บทแชตล่าสุด:\n{{transcript}}\n` +
+            `ตอบเฉพาะข้อความของ {{name}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`,
     },
 };
 
@@ -7236,7 +7789,9 @@ async function proactiveDM() {
     reply = reply.replace(/^\[|\]$/g, "").trim();
     if (!reply) return;
     getThread(c.key).push({ from: "contact", text: escapeHtml(reply), ts: Date.now() });
-    saveFeedDataDebounced();
+    // คนที่ทักเราขึ้นมาเองแปลว่าอ่านข้อความล่าสุดของเราแล้ว (ข้ามห้องเพ็ท — ไม่มีสถานะอ่านแล้ว)
+    if (c.key !== "pet" && getSetting("connectReadReceipts")) getConnectData().readUpTo[c.key] = Date.now();
+    saveThread(c.key);   // เดิมเป็น saveFeedDataDebounced() ตรงๆ — ถ้า c.key เป็น "pet" ข้อความจะเซฟผิดที่ (เพ็ทเป็น global ต้อง savePet())
     if (currentApp === "connect" && activeThread === c.key) renderThread();
     updateChatInjection();
     showNotif(makeAvatar(contactAvatarItem(c)), c.name, reply, "contact", "connect", c.key, c.name);
@@ -7564,6 +8119,10 @@ function populateSettings() {
     $("#tinyfeed-cfg-connect-extra").val(getSetting("connectExtraPrompt"));
     $("#tinyfeed-cfg-connect-split").prop("checked", Boolean(getSetting("connectSplitBubbles")));
     $("#tinyfeed-cfg-connect-slip").prop("checked", Boolean(getSetting("connectSlipEnabled")));
+    $("#tinyfeed-cfg-connect-gift").prop("checked", Boolean(getSetting("connectGiftEnabled")));
+    $("#tinyfeed-cfg-connect-read").prop("checked", Boolean(getSetting("connectReadReceipts")));
+    $("#tinyfeed-cfg-connect-read-chance").val(getSetting("connectReadOnlyChance"));
+    $("#tinyfeed-connect-read-chance-val").text(`${parseInt(getSetting("connectReadOnlyChance"), 10) || 0}%`);
     populateConnectBubbleColorCfg();
     $("#tinyfeed-cfg-connect-timegap").val(getSetting("connectTimeGapMin") || 30);
 
@@ -7620,6 +8179,8 @@ function populateSettings() {
     $("#tinyfeed-cfg-pet-offline").val(getSetting("petOfflineCapHours"));
     $("#tinyfeed-cfg-pet-idlepause").val(getSetting("petIdlePauseMin"));
     $("#tinyfeed-cfg-pet-nodeath").prop("checked", Boolean(getSetting("petNoDeath")));
+    $("#tinyfeed-cfg-pet-aicare").prop("checked", Boolean(getSetting("petAiCareEnabled")));
+    $("#tinyfeed-cfg-pet-aicare-cooldown").val(getSetting("petAiCareCooldownMin"));
     $("#tinyfeed-cfg-pet-coinrate").val(getSetting("petCoinRate"));
     renderPetSpriteCfg();
     $("#tinyfeed-cfg-gallery-prompt").prop("checked", Boolean(getSetting("galleryPrompt")));
@@ -7683,7 +8244,7 @@ function mountComposeBars() {
             { id: "tinyfeed-connect-plus", cls: "tinyfeed-compose-plus", icon: "fa-solid fa-plus", title: "เพิ่มเติม" },
             { id: "tinyfeed-connect-image", icon: "fa-regular fa-image", title: "ส่งรูป" },
         ],
-        field: { id: "tinyfeed-connect-input", multiline: true, placeholder: "พิมพ์ข้อความ..." },
+        field: { id: "tinyfeed-connect-input", multiline: true, placeholder: "พิมพ์ข้อความ... (ปล่อยว่างแล้วกด ✨ = ให้ตอบกลับ)" },
         sticker: { id: "tinyfeed-connect-sticker" },
         send: { id: "tinyfeed-connect-send" },
         after: `<div id="tinyfeed-connect-plusmenu" class="tinyfeed-plusmenu tinyfeed-hidden"></div>`,
@@ -7961,8 +8522,14 @@ jQuery(async () => {
             e.stopPropagation();
             deleteConnectMessage(parseInt($(this).data("idx"), 10));
         });
+        // ปุ่มมอร์ฟ: มีข้อความ = ส่ง · ว่าง = ให้ตอบกลับ/ให้กลุ่มคุยต่อ (ดู updateConnectSendBtn) · กำลังตอบอยู่ = ไม่ทำอะไร
         $(document).on("click", "#tinyfeed-connect-send", function () {
-            sendConnectMessage($("#tinyfeed-connect-input").val());
+            if (isConnectReplying || !activeThread) return;
+            const text = $("#tinyfeed-connect-input").val();
+            if (String(text || "").trim()) { sendConnectMessage(text); return; }
+            if (activeThread === "pet") return;   // ห้องเพ็ทไม่มี AI ตอบ — ปุ่มถูกซ่อนอยู่แล้ว
+            if (findGroup(activeThread)) groupSelfChat(activeThread, {});
+            else generateConnectReply();
         });
         $(document).on("keydown", "#tinyfeed-connect-input", function (e) {
             // เดสก์ท็อป: Enter=ส่ง, Shift+Enter=บรรทัดใหม่ · มือถือ (จอสัมผัส): Enter=บรรทัดใหม่ ส่งด้วยปุ่ม ✈
@@ -7974,6 +8541,7 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-connect-input", function () {
             autoGrowCompose(this);
+            updateConnectSendBtn();
         });
 
         // TinyStream: เริ่ม/จบไลฟ์ + โหลดคอมเมนต์ + ส่งคอมเมนต์
@@ -8192,6 +8760,7 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-post-author", function () { openCharProfile($(this).text()); });
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
         $(document).on("click", "#tinyfeed-pet-post", function () { petPostToFeed({ notify: false, silent: false }); });
+        $(document).on("click", "#tinyfeed-pet-share", sharePetStatus);
         $(document).on("click", "#tinyfeed-pet-adopt", function () { petAdopt($("#tinyfeed-pet-name-input").val()); });
         $(document).on("keydown", "#tinyfeed-pet-name-input", function (e) {
             if (e.key === "Enter") { e.preventDefault(); petAdopt($(this).val()); }
@@ -8299,6 +8868,17 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-gallery-view", function (e) {
             if (e.target === this) closeGalleryView();
         });
+        // แท็บ "ไฟล์ทั้งหมด" — ใช้ lightbox #tinyfeed-gallery-view ตัวเดียวกัน แต่คนละ handler (scope เฉพาะในกริดนี้
+        // กัน handler .tinyfeed-gallery-item .tinyfeed-gallery-thumb ด้านบนชนกัน — ตัวนั้นยิงด้วยแต่ no-op เพราะไม่มี data-kind/id)
+        $(document).on("click", "#tinyfeed-gallery-files-grid .tinyfeed-gallery-thumb", function () {
+            openFileView($(this).closest(".tinyfeed-gallery-item").data("url"));
+        });
+        $(document).on("click", ".tinyfeed-gallery-file-del", function (e) {
+            e.stopPropagation();
+            deleteOneTinyFile($(this).closest(".tinyfeed-gallery-item").data("url"));
+        });
+        $(document).on("click", "#tinyfeed-gallery-files-refresh", function () { renderGalleryFiles(); });
+        $(document).on("click", "#tinyfeed-gallery-files-cleanup", cleanupOrphanTinyFiles);
         // แก้ไข/ย้ายอัลบั้ม
         $(document).on("click", "#tinyfeed-gallery-edit-save", saveGalleryEdit);
         $(document).on("click", "#tinyfeed-gallery-edit-cancel, #tinyfeed-gallery-edit-close", closeGalleryEdit);
@@ -8454,8 +9034,22 @@ jQuery(async () => {
         });
         $(document).on("click", ".tinyfeed-share", function (e) {
             e.stopPropagation();
-            shareFeedPost($(this).data("post"));
+            openShareMenu($(this).data("post"));
         });
+        // เมนูแชร์โพสต์: ส่งเข้าแชท / รีโพสต์ / โควท
+        $(document).on("click", "#tinyfeed-share-menu-close", closeShareMenu);
+        $(document).on("click", "#tinyfeed-share-menu", function (e) { if (e.target === this) closeShareMenu(); });
+        $(document).on("click", "#tinyfeed-share-menu-chat", function () {
+            if (shareMenuTargetId) shareFeedPostToChat(shareMenuTargetId);
+            closeShareMenu();
+        });
+        $(document).on("click", "#tinyfeed-share-menu-repost", function () {
+            if (shareMenuTargetId) repostFeedPost(shareMenuTargetId);
+        });
+        $(document).on("click", "#tinyfeed-share-menu-quote", function () {
+            if (shareMenuTargetId) startQuotePost(shareMenuTargetId);
+        });
+        $(document).on("click", "#tinyfeed-quote-chip-close", cancelQuotePost);
         // กันปุ่มคอมเมนต์เด้งเข้า detail ไปก่อน (ค่อยทำจริงตอนคอมเมนต์)
         $(document).on("click", ".tinyfeed-comment-btn", function (e) {
             e.stopPropagation();
@@ -8534,15 +9128,6 @@ jQuery(async () => {
         $(document).on("click", ".tinyfeed-notif-item", function () {
             const e = notifLog[parseInt($(this).data("idx"), 10)];
             if (e) { toggleNotifDrawer(false); routeFromNotif(e); }
-        });
-
-        // ให้กลุ่มคุยกันต่อ (ปุ่มสั่งเอง)
-        $(document).on("click", "#tinyfeed-group-continue", function () {
-            if (activeThread && findGroup(activeThread)) groupSelfChat(activeThread, {});
-        });
-        // ให้ตัวละครตอบกลับ(แชต 1:1) — หลังผู้ใช้พิมพ์/แนบครบแล้ว
-        $(document).on("click", "#tinyfeed-connect-reply", function () {
-            if (activeThread && !findGroup(activeThread)) generateConnectReply();
         });
 
         // Stage 8: คอมเมนต์
@@ -8845,6 +9430,19 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-connect-slip", function () {
             setSetting("connectSlipEnabled", $(this).prop("checked"));
         });
+        $(document).on("change", "#tinyfeed-cfg-connect-gift", function () {
+            setSetting("connectGiftEnabled", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-connect-read", function () {
+            setSetting("connectReadReceipts", $(this).prop("checked"));
+            if (currentApp === "connect" && isConnectThreadOpen()) renderThread();
+        });
+        $(document).on("input", "#tinyfeed-cfg-connect-read-chance", function () {
+            let v = parseInt($(this).val(), 10);
+            if (!Number.isFinite(v)) v = 25;
+            setSetting("connectReadOnlyChance", v);
+            $("#tinyfeed-connect-read-chance-val").text(`${v}%`);
+        });
         $(document).on("change", "#tinyfeed-cfg-connect-bubble-mode", function () {
             const mode = String($(this).val() || "");
             $("#tinyfeed-cfg-connect-bubble-custom-row").toggleClass("tinyfeed-hidden", mode !== "custom");
@@ -9089,6 +9687,13 @@ jQuery(async () => {
         $(document).on("change", "#tinyfeed-cfg-pet-nodeath", function () {
             setSetting("petNoDeath", $(this).prop("checked"));
         });
+        $(document).on("change", "#tinyfeed-cfg-pet-aicare", function () {
+            setSetting("petAiCareEnabled", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-pet-aicare-cooldown", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("petAiCareCooldownMin", Number.isFinite(v) && v >= 0 ? v : 30);
+        });
         $(document).on("input", "#tinyfeed-cfg-pet-coinrate", function () {
             const v = parseInt($(this).val(), 10);
             setSetting("petCoinRate", Number.isFinite(v) && v > 0 ? v : 1);
@@ -9250,7 +9855,7 @@ jQuery(async () => {
 
         // เดสก์ท็อป (มีเมาส์/คีย์บอร์ด): ใบ้ว่ากด Shift+Enter ขึ้นบรรทัดใหม่ได้
         if (!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches)) {
-            $("#tinyfeed-connect-input").attr("placeholder", "พิมพ์ข้อความ... (Shift+Enter ขึ้นบรรทัดใหม่)");
+            $("#tinyfeed-connect-input").attr("placeholder", "พิมพ์ข้อความ... (Shift+Enter ขึ้นบรรทัดใหม่ · ว่างแล้วกด ✨ = ให้ตอบกลับ)");
         }
 
         // โหลดค่าที่บันทึกไว้

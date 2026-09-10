@@ -65,6 +65,11 @@
         <div class="tinyfeed-screen">
             <div id="tinyfeed-panel-feed" class="tinyfeed-panel">
                 <div id="tinyfeed-compose" class="tinyfeed-compose">
+                    <div id="tinyfeed-quote-chip" class="tinyfeed-quote-chip tinyfeed-hidden">
+                        <i class="fa-solid fa-quote-left"></i>
+                        <span>กำลังโควท: <b id="tinyfeed-quote-chip-name"></b></span>
+                        <span id="tinyfeed-quote-chip-close" title="ยกเลิกโควท"><i class="fa-solid fa-xmark"></i></span>
+                    </div>
                     <div class="tinyfeed-compose-row">
                         <div class="tinyfeed-compose-avatar" id="tinyfeed-compose-avatar" title="เลือกคนโพสต์"></div>
                         <textarea id="tinyfeed-compose-input" rows="1" placeholder="คุณกำลังคิดอะไรอยู่?"></textarea>
@@ -319,6 +324,20 @@
                         <input id="tinyfeed-cfg-connect-slip" type="checkbox" />
                     </label>
                     <small class="tinyfeed-field-hint">เราโอนออกเองได้เสมอจากปุ่ม 💸 ในแชท (หักจาก TinyBank) · เปิดตัวเลือกนี้ = ตอนกด "ให้ตอบกลับ" คู่แชทอาจโอนเงินเข้าบัญชีเรา (ตามเนื้อเรื่อง) เข้า TinyBank อัตโนมัติ</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชทซื้อของจากร้าน TinyShop ส่งเป็นของขวัญได้ (AI)</span>
+                        <input id="tinyfeed-cfg-connect-gift" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ตัวละครจ่ายเองนอกจอ ไม่หักบัญชีเรา — เลือกได้เฉพาะสินค้าที่มีในร้านจริงเท่านั้น (จับคู่ด้วยชื่อ) ของที่ได้จะเข้ากระเป๋า TinyBag · ตั้งค่าเฉพาะสินค้าน้อย/ชื่อซ้ำกันในร้านจะช่วยให้จับคู่แม่นขึ้น</small>
+                    <label class="tinyfeed-field-row">
+                        <span>เปิดสถานะ "อ่านแล้ว" (เฉพาะแชต 1:1)</span>
+                        <input id="tinyfeed-cfg-connect-read" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โอกาสที่จะ "อ่านไม่ตอบ" ต่อรอบ: <b id="tinyfeed-connect-read-chance-val">25%</b></span>
+                        <input id="tinyfeed-cfg-connect-read-chance" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ทอยตามเปอร์เซ็นต์นี้ก่อนทุกครั้งที่กด "ให้ตอบกลับ" — ถ้าทอยติด จะขึ้นป้าย "อ่านแล้ว" ใต้ข้อความล่าสุดของเราทันที ไม่เจนคำตอบเลย · ถ้าทอยไม่ติด ตัวละครยังเลือกเองได้อีกทีว่าจะอ่านเฉยๆ ไหมตามเนื้อเรื่อง</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สีบับเบิลแชทฝั่งเรา</span>
                         <select id="tinyfeed-cfg-connect-bubble-mode">
@@ -926,6 +945,15 @@
                         <span>โหมดไม่ตาย (ป่วยหนักสุดได้ แต่ไม่ตาย)</span>
                         <input id="tinyfeed-cfg-pet-nodeath" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชท (ตัวละคร) ช่วยดูแลเพ็ทได้จากในแชต</span>
+                        <input id="tinyfeed-cfg-pet-aicare" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">กันสแปม: ดูแลได้ห่างกันอย่างน้อยกี่นาที</span>
+                        <input id="tinyfeed-cfg-pet-aicare-cooldown" type="number" min="0" />
+                    </label>
+                    <small class="tinyfeed-field-hint">แชร์สถานะเพ็ท (ปุ่ม "แชร์สถานะ" ในแอป) เข้าห้องแชตตัวละคร แล้วตอนตอบกลับตัวละครอาจเลือกป้อนอาหาร/เล่นด้วย/อาบน้ำให้เอง (ไม่รวมกล่อมนอน) ค่าเพ็ทขยับจริง</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">เรตเติมเหรียญ (เหรียญ/1 บาท TinyBank)</span>
                         <input id="tinyfeed-cfg-pet-coinrate" type="number" min="1" />
@@ -1001,15 +1029,8 @@
             <div id="tinyfeed-connect-list" class="tinyfeed-connect-list"></div>
             <div id="tinyfeed-connect-thread" class="tinyfeed-connect-thread tinyfeed-hidden">
                 <div id="tinyfeed-connect-messages" class="tinyfeed-connect-messages"></div>
-                <div id="tinyfeed-connect-thread-tools" class="tinyfeed-connect-thread-tools tinyfeed-hidden">
-                    <button id="tinyfeed-connect-reply" class="tinyfeed-btn-generate tinyfeed-hidden">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ตอบกลับ</span>
-                    </button>
-                    <button id="tinyfeed-group-continue" class="tinyfeed-btn-generate tinyfeed-hidden">
-                        <i class="fa-solid fa-comments"></i> <span>ให้กลุ่มคุยกันต่อ</span>
-                    </button>
-                </div>
-                <!-- แถบพิมพ์สร้างจาก composeBarHtml() ตอน init — ดู mountComposeBars() -->
+                <!-- แถบพิมพ์สร้างจาก composeBarHtml() ตอน init — ดู mountComposeBars()
+                     ปุ่มส่งมอร์ฟเป็นคทา (ให้ตอบกลับ/ให้กลุ่มคุยต่อ) เวลาช่องว่าง — ดู updateConnectSendBtn() -->
                 <div id="tinyfeed-connect-compose" class="tinyfeed-connect-compose"></div>
             </div>
         </div>
@@ -1137,6 +1158,9 @@
                 <div class="tinyfeed-tab" data-gtab="stickers">
                     <span class="fa-regular fa-face-smile"></span> สติกเกอร์
                 </div>
+                <div class="tinyfeed-tab" data-gtab="files">
+                    <span class="fa-solid fa-folder-open"></span> ไฟล์ทั้งหมด
+                </div>
             </div>
             <div class="tinyfeed-screen">
                 <div id="tinyfeed-gallery-panel-images" class="tinyfeed-gallery-panel">
@@ -1181,6 +1205,21 @@
                         </div>
                     </div>
                     <div id="tinyfeed-gallery-stk-grid" class="tinyfeed-gallery-grid tinyfeed-gallery-grid-sticker"></div>
+                </div>
+                <div id="tinyfeed-gallery-panel-files" class="tinyfeed-gallery-panel tinyfeed-hidden">
+                    <div class="tinyfeed-gallery-files-warn">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        ตรวจได้เฉพาะแชทที่เปิดอยู่ตอนนี้ — ไฟล์ที่แชทอื่นใช้จะขึ้นว่าไม่พบการอ้างอิง · ลบแล้วกู้คืนไม่ได้
+                    </div>
+                    <div class="tinyfeed-gallery-files-tools">
+                        <button id="tinyfeed-gallery-files-refresh" class="tinyfeed-btn-generate">
+                            <i class="fa-solid fa-rotate"></i> <span>รีเฟรช</span>
+                        </button>
+                        <button id="tinyfeed-gallery-files-cleanup" class="tinyfeed-btn-ghost">
+                            <i class="fa-solid fa-broom"></i> <span>ลบไฟล์ที่ไม่พบการอ้างอิงทั้งหมด</span>
+                        </button>
+                    </div>
+                    <div id="tinyfeed-gallery-files-grid" class="tinyfeed-gallery-grid"></div>
                 </div>
             </div>
         </div>
@@ -1331,6 +1370,18 @@
                     <span id="tinyfeed-dest-picker-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
                 <div id="tinyfeed-dest-picker-list" class="tinyfeed-char-picker-list"></div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-share-menu" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>แชร์โพสต์นี้</span>
+                    <span id="tinyfeed-share-menu-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-share-menu-chat" class="tinyfeed-plusmenu-item"><i class="fa-solid fa-paper-plane"></i> ส่งเข้าแชท</div>
+                <div id="tinyfeed-share-menu-repost" class="tinyfeed-plusmenu-item"><i class="fa-solid fa-retweet"></i> รีโพสต์</div>
+                <div id="tinyfeed-share-menu-quote" class="tinyfeed-plusmenu-item"><i class="fa-solid fa-quote-left"></i> โควท</div>
             </div>
         </div>
 

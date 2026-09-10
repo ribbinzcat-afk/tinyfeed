@@ -319,6 +319,56 @@
     color: var(--tf-accent);
 }
 
+/* ป้าย "X รีโพสต์" เหนือโพสต์ (renderFeed/openPostDetail) */
+.tinyfeed-repost-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    margin-bottom: 6px;
+}
+
+/* การ์ดโพสต์ฝัง (โควท/รีโพสต์) — ไม่ผูก handler คลิกเอง ปล่อยให้คลิกทะลุไปเปิดโพสต์ที่ห่อมันแทน */
+.tinyfeed-post-embed {
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-3);
+    margin-bottom: 10px;
+    background: var(--tf-topbar);
+}
+.tinyfeed-post-embed-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+.tinyfeed-post-embed-head .tinyfeed-avatar { width: 22px; height: 22px; flex-shrink: 0; }
+.tinyfeed-post-embed-author { font-size: var(--tf-fs-sm); font-weight: 600; color: var(--tf-text-strong); }
+.tinyfeed-post-embed-time { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); }
+.tinyfeed-post-embed-body { font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.4; }
+/* ยกเลิก bleed เต็มจอของรูปโพสต์ปกติ (.tinyfeed-content-img-wrap ใน style.css กฎ .tinyfeed-post-media ทะลุ padding
+ * ของ .tinyfeed-screen ด้วย margin ติดลบ) — ในการ์ดฝังไม่มี padding แบบนั้นให้ทะลุ จึงต้องคืนกรอบ + จำกัดความสูงแทน */
+.tinyfeed-post-embed-body .tinyfeed-content-img-wrap { margin: 0; }
+.tinyfeed-post-embed-body .tinyfeed-content-img { max-height: 200px; border-radius: var(--tf-r-md); }
+
+/* ชิป "กำลังโควท: ชื่อ" เหนือช่องพิมพ์โพสต์ */
+.tinyfeed-quote-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--tf-fs-sm);
+    color: var(--tf-text-muted);
+    background: var(--tf-topbar);
+    border-radius: var(--tf-r-sm);
+    padding: 6px 10px;
+    margin-bottom: 8px;
+}
+.tinyfeed-quote-chip i.fa-quote-left { color: var(--tf-accent); }
+.tinyfeed-quote-chip span:not(:last-child) { flex: 1; min-width: 0; }
+#tinyfeed-quote-chip-close { cursor: pointer; color: var(--tf-text-muted); }
+#tinyfeed-quote-chip-close:hover { color: var(--tf-danger); }
+
 /* ===== ช่องเขียนโพสต์ (compose) ===== */
 .tinyfeed-compose {
     padding-bottom: 12px;
@@ -1481,24 +1531,20 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    background-image: var(--tf-connect-bg-img, none);
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
 }
-/* มีพื้นหลังห้อง: ใส่ฝ้าจางทับให้บับเบิลอ่านชัด (แพตเทิร์นเดียวกับวอลเปเปอร์หน้าโฮม) */
+/* มีพื้นหลังห้อง: ผสมฝ้าจางเข้าเป็น layer เดียวกับรูปใน background-image เลย (ไม่ใช้ ::before แยก)
+ * เหตุผล: กล่องนี้เป็นทั้งกล่องสกรอลล์ (overflow-y:auto) และ containing block ของลูก ::before แบบ
+ * position:absolute;inset:0 จึงสูงแค่ "หนึ่งหน้าจอ" (เทียบกับกรอบที่มองเห็น ไม่ใช่ scrollHeight) แล้ว
+ * เลื่อนหายไปพร้อมข้อความตอนสกรอลล์ ในขณะที่ background-image เกาะ border box ไม่เลื่อนตามอยู่แล้ว
+ * → รวมฝ้าเข้า background-image เดียวกัน จะได้พฤติกรรม "ไม่เลื่อน" แบบเดียวกันฟรี */
 .tinyfeed-connect-messages.tinyfeed-has-bg {
-    position: relative;
-}
-.tinyfeed-connect-messages.tinyfeed-has-bg::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, var(--tf-connect-bg-alpha, 0.45));
-    pointer-events: none;
-}
-.tinyfeed-connect-messages.tinyfeed-has-bg > * {
-    position: relative;
-    z-index: 1;
+    background-image:
+        linear-gradient(rgba(0, 0, 0, var(--tf-connect-bg-alpha, 0.45)), rgba(0, 0, 0, var(--tf-connect-bg-alpha, 0.45))),
+        var(--tf-connect-bg-img, none);
 }
 
 .tinyfeed-msg {
@@ -1590,6 +1636,13 @@
     border-radius: var(--tf-r-pill);
 }
 
+/* ป้าย "อ่านแล้ว" — เกาะฟองข้อความของเราตัวล่าสุดที่ตัวละครอ่านแล้ว (ดู renderThread) */
+.tinyfeed-msg-read {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    padding-right: 2px;
+}
+
 /* ปุ่มลบบับเบิลแชท — จางไว้ให้แตะได้บนมือถือ เข้มขึ้นตอน hover บนเดสก์ท็อป */
 .tinyfeed-msg-del {
     flex-shrink: 0;
@@ -1654,7 +1707,7 @@
 }
 
 #tinyfeed-connect-input:focus {
-    border-color: var(--tf-app-connect);
+    border-color: var(--tf-accent);
 }
 
 /* ปุ่มไอคอนที่อยู่ "ในช่องอินพุต" (สติกเกอร์) */
@@ -1712,14 +1765,19 @@
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    color: var(--tf-app-connect);
+    color: var(--tf-accent);
     cursor: pointer;
-    transition: background 0.2s ease;
+    transition: background 0.2s ease, color 0.2s ease;
 }
 
 #tinyfeed-connect-send:hover {
-    background: color-mix(in srgb, var(--tf-app-connect) 15%, transparent);
+    background: color-mix(in srgb, var(--tf-accent) 15%, transparent);
 }
+/* ปุ่มมอร์ฟ: ว่าง = คทา (ให้ตอบกลับ) สีจาง · พิมพ์แล้ว = จรวด (ส่ง) สี accent เต็ม (ดู updateConnectSendBtn) */
+#tinyfeed-connect-send.tinyfeed-connect-send-wand { color: var(--tf-text-muted); }
+#tinyfeed-connect-send.tinyfeed-connect-send-wand:hover { color: var(--tf-accent); }
+#tinyfeed-connect-send.tinyfeed-connect-send-busy { pointer-events: none; opacity: 0.6; }
+#tinyfeed-connect-send.tinyfeed-connect-send-busy i { animation: tinyfeed-spin 0.9s linear infinite; }
 
 /* ===== TinyStream: ไลฟ์สตรีม ===== */
 #tinyfeed-app-stream:not(.tinyfeed-hidden) {
@@ -2942,15 +3000,6 @@
 }
 .tinyfeed-notif-item-time { font-size: 0.72em; color: var(--tf-text-muted); margin-top: 2px; }
 
-/* ปุ่มให้กลุ่มคุยกันต่อ */
-.tinyfeed-connect-thread-tools {
-    flex-shrink: 0;
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    padding: 8px 12px 0;
-}
-
 /* ===== ตัวแก้ Prompt (ขั้นสูง) ===== */
 .tinyfeed-prompt-item {
     margin-bottom: 16px;
@@ -3137,7 +3186,8 @@
 }
 .tinyfeed-gallery-item:hover .tinyfeed-gallery-item-actions { opacity: 1; }
 .tinyfeed-gallery-item-edit,
-.tinyfeed-gallery-item-del {
+.tinyfeed-gallery-item-del,
+.tinyfeed-gallery-file-del {
     width: 24px;
     height: 24px;
     display: flex;
@@ -3151,7 +3201,8 @@
     transition: background 0.15s ease;
 }
 .tinyfeed-gallery-item-edit:hover { background: var(--tf-accent); }
-.tinyfeed-gallery-item-del:hover { background: var(--tf-danger); }
+.tinyfeed-gallery-item-del:hover,
+.tinyfeed-gallery-file-del:hover { background: var(--tf-danger); }
 .tinyfeed-gallery-item-name {
     font-size: 0.8em;
     color: var(--tf-text);
@@ -3168,6 +3219,42 @@
     opacity: 0.35;
     filter: grayscale(1);
 }
+
+/* ===== TinyGallery: แท็บ "ไฟล์ทั้งหมด" ===== */
+.tinyfeed-gallery-files-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--tf-sp-2);
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-warn);
+    background: color-mix(in srgb, var(--tf-warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tf-warn) 35%, transparent);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-3);
+    margin-bottom: var(--tf-sp-3);
+    line-height: 1.4;
+}
+.tinyfeed-gallery-files-tools {
+    display: flex;
+    gap: var(--tf-sp-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--tf-sp-3);
+}
+.tinyfeed-gallery-files-tools > button { flex: 1; }
+.tinyfeed-gallery-file-status {
+    position: absolute;
+    bottom: 4px;
+    left: 4px;
+    right: 4px;
+    font-size: 0.62em;
+    text-align: center;
+    padding: 2px 4px;
+    border-radius: var(--tf-r-sm);
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+}
+.tinyfeed-gallery-file-status.tinyfeed-gallery-file-used { color: var(--tf-success); }
+.tinyfeed-gallery-file-status.tinyfeed-gallery-file-orphan { color: var(--tf-warn); }
 
 /* ปุ่มสติกเกอร์ในแถบพิมพ์ (ทุกแอป) */
 .tinyfeed-compose-sticker {
