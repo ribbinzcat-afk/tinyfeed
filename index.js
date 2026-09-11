@@ -2908,6 +2908,15 @@ function clearCallTimer() {
     if (callTimer) { clearInterval(callTimer); callTimer = null; }
 }
 
+// ตัดจบการเจนคำตอบในแชทหลักที่ยังค้างอยู่ (ถ้ามี) ก่อนเปิดหน้าจอสาย — เหมือนผู้ใช้กดปุ่ม "หยุด" เอง
+// กันซีนซ้ำ: ถ้าปล่อยให้เจนต่อไปพร้อมกับคุยสาย จะได้ทั้งคุยจริงในโทรศัพท์ และคำบรรยายฉากโทรศัพท์อีกชุด
+// โผล่ในแชทหลักหลังวางสายไปแล้ว (เจนเสร็จช้ากว่าคุยสายในโทรศัพท์ที่มักไวกว่า) — ไม่มีอะไรค้างก็เงียบ ไม่มีผล
+function interruptMainChatGeneration(ctx) {
+    try {
+        if (typeof ctx.stopGeneration === "function") ctx.stopGeneration();
+    } catch (e) { /* เงียบไว้ — กันซีนซ้ำไม่ได้ก็ไม่ใช่เรื่องคอขาดบาดตาย */ }
+}
+
 // เปิดหน้าจอสาย (โทรออกเอง) — kind: "voice"|"video" · เชื่อมต่อทันทีเสมอ (ยังไม่ทำ "ฝั่งโน้นไม่รับสาย")
 function openCall(key, name, kind) {
     if (!canCallThread(key) || activeCall) return;   // สายซ้อนสายไม่ได้
@@ -2915,6 +2924,7 @@ function openCall(key, name, kind) {
     closeConnectPlusMenu();
     const voiceMode = kind !== "video";
     const ctxNow = getContext();
+    interruptMainChatGeneration(ctxNow);
     activeCall = {
         id: "call" + Date.now(), key, name,
         kind: voiceMode ? "voice" : "video", dir: "out",
@@ -2938,6 +2948,7 @@ function startIncomingCall(key, name, kind) {
     if (!canCallThread(key) || activeCall) return false;   // สายซ้อนสายไม่ได้
     const voiceMode = kind !== "video";
     const ctxNow = getContext();
+    interruptMainChatGeneration(ctxNow);
     activeCall = {
         id: "call" + Date.now(), key, name,
         kind: voiceMode ? "voice" : "video", dir: "in",
@@ -3078,11 +3089,12 @@ function callLogHtml(call) {
         return `📞 <b>${escapeText(statusLabel)}</b> — ${escapeText(kindLabel)}จาก ${escapeText(call.name)} · ${escapeText(timeLabel)}`;
     }
     const you = getUserName();
+    const withWhom = call.dir === "out" ? `กับ` : `จาก`;   // โทรออกเอง = "กับ" · สายเข้า = "จาก" (ให้ตรงกับ callPlainTranscript)
     const lines = call.turns.map((t) =>
         `<div style="margin:4px 0;"><b>${escapeText(t.who === "user" ? you : call.name)}:</b> ${escapeText(t.text)}</div>`
     ).join("");
     return `<details style="border:1px solid rgba(128,128,128,.35); border-radius:10px; padding:8px 12px; margin:6px 0; background:rgba(128,128,128,.1);">` +
-        `<summary style="cursor:pointer; font-weight:600;">📞 ${escapeText(kindLabel)}กับ ${escapeText(call.name)} · ${escapeText(timeLabel)} · ${escapeText(formatCallDuration(call.durationSec))}</summary>` +
+        `<summary style="cursor:pointer; font-weight:600;">📞 ${escapeText(kindLabel)}${withWhom} ${escapeText(call.name)} · ${escapeText(timeLabel)} · ${escapeText(formatCallDuration(call.durationSec))}</summary>` +
         `<div style="margin-top:8px; line-height:1.6;">${lines || "(ไม่มีบทสนทนา)"}</div>` +
         `</details>`;
 }
@@ -3198,13 +3210,14 @@ async function generateCallReply() {
     const you = getUserName();
     const name = activeCall.name;
     const kindLabel = activeCall.kind === "video" ? "วิดีโอคอล" : "คุยโทรศัพท์";
+    const dirLabel = activeCall.dir === "out" ? `${you} เป็นฝ่ายโทรหา ${name}` : `${name} เป็นฝ่ายโทรหา ${you}`;
     const recentRaw = getThread(activeCall.key).slice(-6)
         .map((m) => `${m.from === "user" ? you : (m.author || name)}: ${connectMsgText(m)}`).join("\n");
     const transcript = activeCall.turns.slice(-14)
         .map((t) => `${t.who === "user" ? you : name}: ${t.text}`).join("\n");
     const extra = String(getSetting("callExtraPrompt") || "").trim();
     const q = buildPrompt("callReply", {
-        you, name, kind: kindLabel,
+        you, name, kind: kindLabel, dir: dirLabel,
         extra: extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "",
         context: crossAppContext("connect"),
         recent: recentRaw || "(ยังไม่เคยคุยกันมาก่อน)",
@@ -6568,10 +6581,11 @@ const PROMPT_DEFS = {
             `ตอบเฉพาะข้อความของ {{name}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`,
     },
     callReply: {
-        label: "คุยสาย (TinyConnect)", marker: "", tokens: ["you", "name", "kind", "extra", "context", "recent", "transcript"],
+        label: "คุยสาย (TinyConnect)", marker: "", tokens: ["you", "name", "kind", "dir", "extra", "context", "recent", "transcript"],
         default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{you}} กำลัง{{kind}}อยู่กับ {{name}}. ` +
-            `พูดในบทบาทของ {{name}} แบบเป็นธรรมชาติเหมือนกำลังคุยโทรศัพท์จริง สั้นกระชับ 1-2 ประโยค ` +
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{you}} กำลัง{{kind}}อยู่กับ {{name}} — {{dir}}. ` +
+            `พูดในบทบาทของ {{name}} แบบเป็นธรรมชาติเหมือนกำลังคุยโทรศัพท์จริง ให้น้ำเสียงสอดคล้องกับว่าใครเป็นฝ่ายโทร ` +
+            `(เช่นถ้า {{name}} เป็นฝ่ายโทรมาเอง ควรมีเหตุผลที่โทรมา ถ้า {{you}} เป็นฝ่ายโทรไป {{name}} ควรรับสายแบบทักทายธรรมดา) สั้นกระชับ 1-2 ประโยค ` +
             `ห้ามใช้สติกเกอร์หรือคำบรรยายท่าทางยาวๆ (คุยสาย ไม่ใช่แชตข้อความ) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน {{you}}.\n` +
             `{{extra}}{{context}}` +
             `ก่อนหน้านี้คุยอะไรกันไว้ในแชต:\n{{recent}}\n` +
@@ -7929,13 +7943,14 @@ function recentRpLines(n) {
     }
 }
 // คืน true = เจอคีย์เวิร์ด (ในฝั่งที่เลือกจับ) + พ้น cooldown แล้ว (แล้วจับเวลา cooldown ใหม่)
-function keywordShouldTrigger(app) {
+// forceScope: ข้ามการตั้งค่า keywordScope กลาง บังคับขอบเขตของแอปนี้แอปเดียว (ใช้กับ "call" — ดูเหตุผลที่ onChatMessage)
+function keywordShouldTrigger(app, forceScope) {
     const list = keywordListFor(app);
     if (!list.length) return false;
     const msg = lastRpMsg();
     if (!msg) return false;
     // ขอบเขตฝั่งที่จับ: char = เฉพาะข้อความตัวละคร, user = เฉพาะผู้ใช้, both = ทั้งคู่
-    const scope = getSetting("keywordScope") || "both";
+    const scope = forceScope || getSetting("keywordScope") || "both";
     if (scope === "char" && msg.isUser) return false;
     if (scope === "user" && !msg.isUser) return false;
     const text = String(msg.text || "").toLowerCase();
@@ -8018,7 +8033,10 @@ async function aiDecidesBank() {
     }
 }
 
-async function onChatMessage() {
+// isCharTurn: true = มาจาก MESSAGE_RECEIVED (ข้อความของตัวละครเพิ่งลงแชทแล้ว) · false = มาจาก MESSAGE_SENT (ข้อความของเราเอง)
+// แอปที่ตั้ง charOnly:true (ดูรายการ apps ข้างล่าง) จะยิงได้เฉพาะตอน isCharTurn — กันแข่งกับการเจนคำตอบปกติของ
+// เทิร์นนั้นที่ยังค้างอยู่พอดี (ยิงตอนเทิร์นผู้ใช้เอง = ต้องยกเลิกคำตอบที่กำลังเจนทิ้ง เสียโควตา input ไปฟรีๆ)
+async function onChatMessage(isCharTurn) {
     // ข้อความที่เรายิงเข้าแชทหลักเอง (บันทึกการโทร) ไม่ใช่ RP จริง — กันวนกลับเข้า auto-generate/pet-mention ของตัวเอง
     if (isWritingCallLog) return;
     lastRpMsgTs = Date.now();   // มี RP activity → รีเซ็ตตัวจับเวลา idle
@@ -8034,11 +8052,13 @@ async function onChatMessage() {
         { on: "connectAutoGenerate", mode: "connectAutoMode", interval: "connectAutoInterval", defInt: 12, kw: "connect",
             bump: () => ++autoConnectCount, get: () => autoConnectCount, reset: () => { autoConnectCount = 0; },
             // ถึงจังหวะทักแล้ว — สุ่มก่อนว่าจะ "โทรมา" แทนหรือเปล่า (มีสายอยู่แล้ว/ไม่เข้าเงื่อนไข = ทักข้อความตามปกติ)
-            decide: aiDecidesConnect, run: () => { if (!maybeCallInsteadOfDM()) return proactiveDM(); } },
+            // การ "ทักข้อความ" ธรรมดายังยิงได้ทุกเทิร์นเหมือนเดิม — ที่ต้องกันเฉพาะฝั่งโทร (ส่ง isCharTurn เข้าไปเช็ค)
+            decide: aiDecidesConnect, run: () => { if (!maybeCallInsteadOfDM(isCharTurn)) return proactiveDM(); } },
         // ทริกเกอร์โทรมาเองโดยเฉพาะ (แยกจากแถวข้างบนที่ทักข้อความเป็นหลัก) — คีย์เวิร์ด/AI ตัดสินใจ/ทุกกี่ข้อความ ของตัวเอง
+        // charOnly:true — ยิงได้เฉพาะตอนเป็นเทิร์นตัวละคร (ดูคำอธิบาย isCharTurn ด้านบนฟังก์ชัน)
         { on: "callAutoGenerate", mode: "callAutoMode", interval: "callAutoInterval", defInt: 20, kw: "call",
             bump: () => ++autoCallCount, get: () => autoCallCount, reset: () => { autoCallCount = 0; },
-            decide: aiDecidesCall, run: () => { triggerAutoCall(); } },
+            decide: aiDecidesCall, run: () => { triggerAutoCall(); }, charOnly: true },
         { on: "memoAutoGenerate", mode: "memoAutoMode", interval: "memoAutoInterval", defInt: 15, kw: "memo",
             bump: () => ++autoMemoCount, get: () => autoMemoCount, reset: () => { autoMemoCount = 0; },
             decide: aiDecidesMemo, run: () => scanMemo({ notify: true, silent: true }) },
@@ -8065,9 +8085,12 @@ async function onChatMessage() {
 
     for (const a of apps) {
         if (!getSetting(a.on)) continue;
+        // charOnly (การโทรอัตโนมัติ) — ข้ามเทิร์นนี้ไปก่อนถ้ายังไม่ใช่เทิร์นตัวละคร ตัวนับ/threshold ยังไม่รีเซ็ต
+        // (bump ไปแล้วด้านบน) รอบถัดไปที่เป็นเทิร์นตัวละครจะยิงทันทีถ้ายังถึงเกณฑ์อยู่
+        if (a.charOnly && !isCharTurn) continue;
         const mode = getSetting(a.mode) || "interval";
         if (mode === "keyword") {
-            if (!keywordShouldTrigger(a.kw)) continue;
+            if (!keywordShouldTrigger(a.kw, a.charOnly ? "char" : null)) continue;
             isAutoBusy = true;
             try { await a.run(); } finally { isAutoBusy = false; }
             return;
@@ -8347,8 +8370,12 @@ function callRandomContact() {
     return startIncomingCall(c.key, c.name, Math.random() < 0.5 ? "video" : "voice");
 }
 
-function maybeCallInsteadOfDM() {
+// isCharTurn: ส่งมาจาก onChatMessage เท่านั้น (undefined จาก proactiveTick = ไม่เกี่ยว ปล่อยผ่าน — ทริกเกอร์พื้นหลัง
+// ไม่ได้แข่งกับการเจนคำตอบของเทิร์นไหนโดยเฉพาะ) · false ตรงๆ (มาจากเทิร์นผู้ใช้เอง) เท่านั้นที่ห้าม — กันแข่งกับ
+// การเจนคำตอบปกติของเทิร์นนั้นที่ยังค้างอยู่พอดี เสียโควตา input ไปฟรีๆ
+function maybeCallInsteadOfDM(isCharTurn) {
     if (isCallActive()) return true;
+    if (isCharTurn === false) return false;
     if (!getSetting("callAiCallEnabled")) return false;
     const chance = Math.max(0, Math.min(100, parseInt(getSetting("callProactiveChance"), 10) || 0));
     if (chance <= 0 || Math.random() * 100 >= chance) return false;
@@ -9028,8 +9055,19 @@ jQuery(async () => {
         });
 
         // Stage 7: นับข้อความในแชทเพื่อ auto-generate
-        context.eventSource.on(context.eventTypes.MESSAGE_SENT, onChatMessage);
-        context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, onChatMessage);
+        context.eventSource.on(context.eventTypes.MESSAGE_SENT, () => onChatMessage(false));
+        context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, () => onChatMessage(true));
+        // สายเข้า/สายที่โทรออกเองอาจแข่งกับการเจนคำตอบในแชทหลักที่พึ่งเริ่ม (คนละจังหวะกับตอนเรียก
+        // interruptMainChatGeneration ใน openCall/startIncomingCall เอง — จุดนั้นกันกรณีมีเจนค้างอยู่ก่อนแล้ว
+        // ส่วนตัวนี้กันกรณีเจนเพิ่งเริ่มหลังจากนั้น) ไม่งั้นจะได้ทั้งคุยสายจริงในโทรศัพท์ และคำบรรยายฉากโทรศัพท์
+        // อีกชุดโผล่ในแชทหลักหลังวางสายไปแล้ว
+        context.eventSource.on(context.eventTypes.GENERATION_STARTED, () => {
+            if (!isCallActive()) return;
+            interruptMainChatGeneration(getContext());
+            // GENERATION_STARTED ยิงตอนเริ่มฟังก์ชัน Generate() ก่อน abortController/streamingProcessor ตัวจริงของ
+            // รอบนี้จะถูกสร้าง (สร้างอีกไม่กี่บรรทัดถัดไปในนั้น) เรียกซ้ำอีกทีถัดจากนี้ 1 tick ให้ชัวร์ว่าจับตัวจริงทัน
+            setTimeout(() => { if (isCallActive()) interruptMainChatGeneration(getContext()); }, 0);
+        });
 
         // ผูก event
         menuButton.on("click", openPhone);
