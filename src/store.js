@@ -83,6 +83,14 @@ export const defaultSettings = {
     connectAutoGenerate: false,   // ให้คู่แชททักหาเราเองอัตโนมัติ (ตามจังหวะ RP)
     connectAutoMode: "interval",  // "interval" | "ai" | "keyword"
     connectAutoInterval: 12,      // ทักทุกๆ กี่ข้อความ (โหมด interval)
+    // TinyConnect: การโทร
+    callAiCallEnabled: false,     // ให้ตัวละครโทรหาเราเองได้ (ผ่าน marker CALL: ตอนตอบแชต)
+    callProactiveChance: 0,       // % โอกาสที่จะโทรมาแทน DM ทักปกติ ตอนถึงรอบทักเชิงรุก (0 = ปิด)
+    callRingSec: 30,              // สายเข้าเรียกกี่วินาทีก่อนถือว่าไม่ได้รับ
+    callTokens: 160,              // token ต่อคำตอบ 1 เทิร์นระหว่างคุยสาย
+    callExtraPrompt: "",          // คำสั่งเสริมของบทพูดตอนคุยสาย
+    callLogToMainChat: true,      // แทรกบันทึกการโทรลงประวัติแชทหลักของ SillyTavern (บล็อกพับได้ + ให้ AI อ่านได้)
+    callHistoryMax: 30,           // เก็บประวัติการโทรสูงสุดกี่รายการต่อแชท (เก่ากว่านั้นตัดทิ้ง)
     // TinyStream
     streamStreamer: "char",       // "char" | "user" | "npc"
     streamStreamerNpc: "",        // ชื่อ NPC ที่เป็นสตรีมเมอร์ (เมื่อ streamStreamer = "npc")

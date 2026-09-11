@@ -4854,3 +4854,274 @@
     z-index: 2;
 }
 .tinyfeed-fab:active { transform: scale(0.94); }
+
+/* ===== TinyConnect: หน้าจอโทร (เสียง/วิดีโอ) =====
+ * overlay เต็มจอคลุมทั้งเครื่องรวม topbar (แนวเดียวกับ .tinyfeed-gallery-view)
+ * ตั้งใจไม่มีฝ้าคลุมทั้งจอ — ใช้ scrim เฉพาะจุดหลังตัวหนังสือ/ปุ่มเท่านั้น ให้รูปเห็นชัดที่สุด */
+.tinyfeed-call-screen {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    overflow: hidden;
+    /* ไม่มีรูป (--tf-call-bg-img ว่าง) = ไล่เฉดสีของแอปนี้โชว์แทน */
+    background: linear-gradient(135deg, var(--tf-app-connect), color-mix(in srgb, var(--tf-app-connect) 55%, #000));
+}
+.tinyfeed-call-bg {
+    position: absolute;
+    inset: 0;
+    background-image: var(--tf-call-bg-img, none);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+/* โหมดเสียง: เบลอ+หรี่เฉพาะ layer รูป ไม่ใช่ทั้งจอ (ไม่งั้นตัวหนังสือ/ปุ่มเบลอตามไปด้วย) */
+.tinyfeed-call-voice .tinyfeed-call-bg {
+    filter: blur(18px) brightness(0.55);
+    transform: scale(1.1);   /* กันขอบเบลอโปร่งโผล่ให้เห็นตอนขยายเบลอ */
+}
+.tinyfeed-call-inner {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    padding: var(--tf-sp-6) var(--tf-sp-5) var(--tf-sp-5);
+}
+.tinyfeed-call-head {
+    flex-shrink: 0;
+    text-align: center;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.tinyfeed-call-name { font-size: var(--tf-fs-xl); font-weight: 700; }
+.tinyfeed-call-status { font-size: var(--tf-fs-sm); opacity: 0.85; margin-top: var(--tf-sp-1); }
+.tinyfeed-call-timer {
+    font-size: var(--tf-fs-md);
+    opacity: 0.85;
+    margin-top: var(--tf-sp-2);
+    font-variant-numeric: tabular-nums;   /* เลขนาฬิกาไม่ขยับความกว้างเวลาเปลี่ยนหลัก */
+}
+
+/* พื้นที่กลางจอ — เว้นที่ไว้เสมอ (ทั้งสองโหมด) เพื่อดันหัว/ปุ่มเข้าที่ ส่วนวงกลมอวาตาร์โชว์เฉพาะโหมดเสียง */
+.tinyfeed-call-portrait {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.tinyfeed-call-portrait-img {
+    display: none;   /* โหมดวิดีโอเห็นรูปเต็มจอจาก .tinyfeed-call-bg อยู่แล้ว ไม่ต้องซ้อนวงกลม */
+    width: 55vw;
+    height: 55vw;
+    max-width: 220px;
+    max-height: 220px;
+    border-radius: var(--tf-r-pill);
+    object-fit: cover;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+.tinyfeed-call-voice .tinyfeed-call-portrait-img { display: block; }
+
+/* บทสนทนาเต็ม (กดปุ่มขยาย) */
+.tinyfeed-call-transcript {
+    flex-shrink: 0;
+    max-height: 40vh;
+    overflow-y: auto;
+    margin-bottom: var(--tf-sp-3);
+    padding: var(--tf-sp-4);
+    border-radius: var(--tf-r-lg);
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    color: #fff;
+}
+.tinyfeed-call-transcript-line { font-size: var(--tf-fs-sm); line-height: 1.5; margin-bottom: var(--tf-sp-2); }
+.tinyfeed-call-transcript-line:last-child { margin-bottom: 0; }
+.tinyfeed-call-transcript-who { font-weight: 600; }
+
+/* ซับไตเติล — 1-2 บรรทัดล่าสุด ทับล่างจอ */
+.tinyfeed-call-sub {
+    flex-shrink: 0;
+    margin-bottom: var(--tf-sp-3);
+    padding: 10px 14px;
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    color: #fff;
+    font-size: var(--tf-fs-sm);
+    line-height: 1.5;
+}
+.tinyfeed-call-sub div + div { margin-top: 2px; opacity: 0.75; }   /* บรรทัดเก่ากว่าจางลงนิดหน่อย เน้นบรรทัดล่าสุด */
+
+/* แถบพิมพ์ลอยทับรูป — กระจกฝ้า ไม่ใช้ token สีธีม (ต้องอ่านออกบนรูปได้ทุกสี ไม่ขึ้นกับ dark/light) */
+.tinyfeed-call-compose {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: var(--tf-sp-3);
+}
+#tinyfeed-call-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: var(--tf-r-pill);
+    padding: 11px 16px;
+    font: inherit;
+}
+#tinyfeed-call-input::placeholder { color: rgba(255, 255, 255, 0.62); }
+#tinyfeed-call-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.55); }
+#tinyfeed-call-send {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--tf-r-pill);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tf-accent);
+    color: #fff;
+    font-size: 1.05em;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s ease;
+}
+#tinyfeed-call-send:active { transform: scale(0.92); }
+
+.tinyfeed-call-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--tf-sp-6);
+}
+.tinyfeed-call-actionbtn {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--tf-r-pill);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2em;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.18);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+.tinyfeed-call-actionbtn:active { transform: scale(0.92); }
+.tinyfeed-call-hangup,
+.tinyfeed-call-decline { background: var(--tf-danger); }
+.tinyfeed-call-accept { background: var(--tf-success); }
+
+/* การ์ดโทรในแชท — เตือนย่อว่าโทรหากันไปแล้ว (บทเต็มอยู่ในหน้าต่างรายละเอียด กดที่การ์ดเพื่อเปิด) */
+.tinyfeed-call-card {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-3);
+    width: 200px;
+    max-width: 100%;
+    padding: 10px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--tf-border);
+    background: var(--tf-topbar);
+    box-sizing: border-box;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.tinyfeed-call-card-clickable { cursor: pointer; transition: transform 0.15s ease; }
+.tinyfeed-call-card-clickable:active { transform: scale(0.97); }
+.tinyfeed-call-card-icon {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: var(--tf-r-pill);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--tf-app-connect), color-mix(in srgb, var(--tf-app-connect) 60%, #000));
+    color: #fff;
+    font-size: 0.95em;
+}
+.tinyfeed-call-card-body { min-width: 0; }
+.tinyfeed-call-card-status {
+    font-size: var(--tf-fs-sm);
+    font-weight: 600;
+    color: var(--tf-text-strong);
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-1);
+}
+.tinyfeed-call-card-dur { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); margin-top: 2px; }
+
+/* แท็บ "ประวัติการโทร" ใน TinyConnect */
+.tinyfeed-connect-calls { display: flex; flex-direction: column; gap: var(--tf-sp-3); }
+.tinyfeed-call-hist-item {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-4);
+    padding: var(--tf-sp-3);
+    border-radius: var(--tf-r-md);
+    background: var(--tf-topbar);
+    cursor: pointer;
+}
+.tinyfeed-call-hist-icon {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: var(--tf-r-pill);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tf-app-connect);
+    color: #fff;
+}
+.tinyfeed-call-hist-icon.tinyfeed-call-hist-missed { background: var(--tf-danger); }
+.tinyfeed-call-hist-body { flex: 1; min-width: 0; }
+.tinyfeed-call-hist-name {
+    font-size: var(--tf-fs-md);
+    font-weight: 600;
+    color: var(--tf-text-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tinyfeed-call-hist-meta {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-1);
+}
+.tinyfeed-call-hist-meta.tinyfeed-call-hist-missed { color: var(--tf-danger); }
+.tinyfeed-call-hist-callback {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    border-radius: var(--tf-r-pill);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, var(--tf-accent) 14%, transparent);
+    color: var(--tf-accent);
+    cursor: pointer;
+}
+
+/* หน้าต่างรายละเอียดสาย (บทเต็ม) — ใช้โครง .tinyfeed-modal มาตรฐาน แต่ตัวบท (.tinyfeed-call-transcript-line/-who)
+ * เป็นคลาสเดียวกับซับไตเติลตอนคุยสายจริง (ขาวบนรูปเบลอ) ต้อง override สีให้เข้ากับพื้นการ์ดตั้งค่าปกติที่นี่ */
+.tinyfeed-call-detail-body { max-height: 50vh; overflow-y: auto; padding-top: var(--tf-sp-2); }
+.tinyfeed-call-detail-body .tinyfeed-call-transcript-line {
+    color: var(--tf-text);
+    padding: var(--tf-sp-2) 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+    margin-bottom: 0;
+}
+.tinyfeed-call-detail-body .tinyfeed-call-transcript-line:last-child { border-bottom: none; }
+.tinyfeed-call-detail-body .tinyfeed-call-transcript-who { color: var(--tf-text-strong); }
