@@ -95,6 +95,7 @@ export const defaultSettings = {
     callAutoMode: "interval",     // "interval" | "ai" | "keyword"
     callAutoInterval: 20,         // โทรมาทุกๆ กี่ข้อความ (โหมด interval)
     callKeywords: "โทรหา, โทรมา, โทรศัพท์, วิดีโอคอล, โทรสาย, call me, calling, phone call",
+    callAiHangupEnabled: false,   // ให้ตัวละครวางสายเองได้กลางบทสนทนา (มาร์คเกอร์ HANGUP: ในคำตอบระหว่างคุยสาย)
     // TinyStream
     streamStreamer: "char",       // "char" | "user" | "npc"
     streamStreamerNpc: "",        // ชื่อ NPC ที่เป็นสตรีมเมอร์ (เมื่อ streamStreamer = "npc")

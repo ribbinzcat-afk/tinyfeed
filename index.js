@@ -77,12 +77,20 @@ function onEnabledChange(event) {
 }
 
 // เปิด/ปิด panel โทรศัพท์
+// true = เปิดเครื่องข้ามการ restoreLastScreen() ไปเพราะตอนนั้นสายกำลังเรียกเข้าอยู่ — ต้องกลับมา
+// restore ให้ทีหลังตอนสายจบ (ดู endCall/abortActiveCall) ไม่งั้นเจอหน้าโฮมที่ยังไม่เคย render อะไรเลย (ว่างเปล่า)
+let pendingScreenRestore = false;
+
 function openPhone() {
     $("#tinyfeed-overlay").addClass("tinyfeed-visible");
     clearUnread();          // เปิดดูแล้ว เคลียร์จุดแดง
     // สายกำลังเรียกเข้าอยู่ (ยังไม่รับ) — หน้าจอสายพร้อมโชว์อยู่แล้ว ห้ามเรียก restoreLastScreen()
     // เพราะมันไปทาง goHome()/openApp() ที่เรียก closeOpenOverlays() ซึ่งจะวางสายทิ้งทันที (endCall ผูกกับ OVERLAYS)
-    if (!(activeCall && !activeCall.answered)) restoreLastScreen();
+    if (activeCall && !activeCall.answered) {
+        pendingScreenRestore = true;
+    } else {
+        restoreLastScreen();
+    }
     console.log(`[${extensionName}] Phone opened`);
 }
 
@@ -3024,6 +3032,12 @@ function resetCallScreenUI() {
     $("#tinyfeed-call-compose, #tinyfeed-call-expand, #tinyfeed-call-accept, #tinyfeed-call-decline").addClass("tinyfeed-hidden");
     $("#tinyfeed-call-transcript, #tinyfeed-call-sub").addClass("tinyfeed-hidden").empty();
     $("#tinyfeed-call-input").val("");
+    // เปิดเครื่องมาตอนสายกำลังเรียกไว้เมื่อกี้ (openPhone ข้าม restoreLastScreen ไปตอนนั้นเพื่อไม่ให้ไปวางสายทิ้ง)
+    // ตอนนี้สายจบแล้ว มา restore แทนให้ ไม่งั้นจะเจอหน้าโฮมที่ยังไม่เคย render อะไรเลย (ว่างเปล่า) ต้องปิดเปิดเครื่องใหม่ถึงจะกลับมาถูก
+    if (pendingScreenRestore) {
+        pendingScreenRestore = false;
+        restoreLastScreen();
+    }
 }
 
 // ยกเลิกสายที่กำลังคุยโดย "ไม่บันทึก" — ใช้เฉพาะตอนแชท ST สลับระหว่างคุยสาย เพราะ CHAT_CHANGED ยิงหลังจาก
@@ -3216,9 +3230,15 @@ async function generateCallReply() {
     const transcript = activeCall.turns.slice(-14)
         .map((t) => `${t.who === "user" ? you : name}: ${t.text}`).join("\n");
     const extra = String(getSetting("callExtraPrompt") || "").trim();
+    const hangupEnabled = getSetting("callAiHangupEnabled");
+    const hangupLine = hangupEnabled
+        ? `ถ้า ${name} อยากจบสายตอนนี้ (คุยจบเรื่องแล้ว/มีธุระต้องไป — นานๆ ครั้งเท่านั้น ไม่ใช่ทุกเทิร์น) ` +
+          `ให้ขึ้นต้นคำพูดประโยคสุดท้ายด้วย HANGUP: แล้วตามด้วยคำพูดปิดท้ายสั้นๆ ก่อนวางสาย เช่น HANGUP: แล้วเจอกันนะ บาย~\n`
+        : "";
     const q = buildPrompt("callReply", {
         you, name, kind: kindLabel, dir: dirLabel,
         extra: extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "",
+        hangup: hangupLine,
         context: crossAppContext("connect"),
         recent: recentRaw || "(ยังไม่เคยคุยกันมาก่อน)",
         transcript: transcript || "(ยังไม่มีใครพูดอะไร)",
@@ -3231,12 +3251,21 @@ async function generateCallReply() {
         reply = stripWrapBrackets(reply);
         const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         reply = reply.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
+        // มาร์คเกอร์ HANGUP: — ตัดแค่คำนำหน้าออก (ข้อความตามหลังยังเป็นคำพูดจริงที่ต้องโชว์) ไม่ใช่ตัดทั้งบรรทัดแบบ marker อื่น
+        const hangupRe = /HANGUP:\s*/i;
+        const willHangup = hangupEnabled && hangupRe.test(reply);
+        if (willHangup) reply = reply.replace(hangupRe, "").trim();
         if (activeCall && activeCall.id === callId) {
             if (reply) {
                 activeCall.turns.push({ who: "contact", text: reply, ts: Date.now() });
                 renderCallTranscript();
             } else {
                 toastr.warning("ฝั่งโน้นเงียบไป ลองพูดอะไรอีกทีนะ", "TinyConnect");
+            }
+            // วางไว้หลัง turns.push ให้ผู้ใช้เห็นคำพูดปิดท้ายก่อน แล้วค่อยวางสายให้เอง (หน่วงสั้นๆ ให้อ่านทัน)
+            if (willHangup) {
+                $("#tinyfeed-call-status").text("กำลังจะวางสาย…");
+                setTimeout(() => { if (activeCall && activeCall.id === callId) endCall(); }, 1800);
             }
         }
     } catch (e) {
@@ -6581,13 +6610,13 @@ const PROMPT_DEFS = {
             `ตอบเฉพาะข้อความของ {{name}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`,
     },
     callReply: {
-        label: "คุยสาย (TinyConnect)", marker: "", tokens: ["you", "name", "kind", "dir", "extra", "context", "recent", "transcript"],
+        label: "คุยสาย (TinyConnect)", marker: "", tokens: ["you", "name", "kind", "dir", "extra", "hangup", "context", "recent", "transcript"],
         default:
             `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{you}} กำลัง{{kind}}อยู่กับ {{name}} — {{dir}}. ` +
             `พูดในบทบาทของ {{name}} แบบเป็นธรรมชาติเหมือนกำลังคุยโทรศัพท์จริง ให้น้ำเสียงสอดคล้องกับว่าใครเป็นฝ่ายโทร ` +
             `(เช่นถ้า {{name}} เป็นฝ่ายโทรมาเอง ควรมีเหตุผลที่โทรมา ถ้า {{you}} เป็นฝ่ายโทรไป {{name}} ควรรับสายแบบทักทายธรรมดา) สั้นกระชับ 1-2 ประโยค ` +
             `ห้ามใช้สติกเกอร์หรือคำบรรยายท่าทางยาวๆ (คุยสาย ไม่ใช่แชตข้อความ) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน {{you}}.\n` +
-            `{{extra}}{{context}}` +
+            `{{extra}}{{hangup}}{{context}}` +
             `ก่อนหน้านี้คุยอะไรกันไว้ในแชต:\n{{recent}}\n` +
             `บทสนทนาในสายนี้ล่าสุด:\n{{transcript}}\n` +
             `ตอบเฉพาะคำพูดของ {{name}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า ไม่ต้องมีเครื่องหมายคำพูด`,
@@ -8793,6 +8822,7 @@ function populateSettings() {
     $("#tinyfeed-cfg-call-ring").val(getSetting("callRingSec") || 30);
     $("#tinyfeed-cfg-call-tokens").val(getSetting("callTokens"));
     $("#tinyfeed-cfg-call-extra").val(getSetting("callExtraPrompt"));
+    $("#tinyfeed-cfg-call-ai-hangup").prop("checked", Boolean(getSetting("callAiHangupEnabled")));
     $("#tinyfeed-cfg-call-log").prop("checked", Boolean(getSetting("callLogToMainChat")));
 
     populateApiProfiles();
@@ -10214,6 +10244,9 @@ jQuery(async () => {
         });
         $(document).on("input", "#tinyfeed-cfg-call-extra", function () {
             setSetting("callExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-call-ai-hangup", function () {
+            setSetting("callAiHangupEnabled", $(this).prop("checked"));
         });
         $(document).on("change", "#tinyfeed-cfg-call-log", function () {
             setSetting("callLogToMainChat", $(this).prop("checked"));
