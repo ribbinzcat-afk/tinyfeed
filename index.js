@@ -77,10 +77,20 @@ function onEnabledChange(event) {
 }
 
 // เปิด/ปิด panel โทรศัพท์
+// true = เปิดเครื่องข้ามการ restoreLastScreen() ไปเพราะตอนนั้นสายกำลังเรียกเข้าอยู่ — ต้องกลับมา
+// restore ให้ทีหลังตอนสายจบ (ดู endCall/abortActiveCall) ไม่งั้นเจอหน้าโฮมที่ยังไม่เคย render อะไรเลย (ว่างเปล่า)
+let pendingScreenRestore = false;
+
 function openPhone() {
     $("#tinyfeed-overlay").addClass("tinyfeed-visible");
     clearUnread();          // เปิดดูแล้ว เคลียร์จุดแดง
-    restoreLastScreen();    // กลับไปหน้าจอล่าสุด (ไม่งั้นไปโฮม)
+    // สายกำลังเรียกเข้าอยู่ (ยังไม่รับ) — หน้าจอสายพร้อมโชว์อยู่แล้ว ห้ามเรียก restoreLastScreen()
+    // เพราะมันไปทาง goHome()/openApp() ที่เรียก closeOpenOverlays() ซึ่งจะวางสายทิ้งทันที (endCall ผูกกับ OVERLAYS)
+    if (activeCall && !activeCall.answered) {
+        pendingScreenRestore = true;
+    } else {
+        restoreLastScreen();
+    }
     console.log(`[${extensionName}] Phone opened`);
 }
 
@@ -186,6 +196,8 @@ const OVERLAYS = [
     { sel: "#tinyfeed-dest-picker", close: closeConnectDestPicker },
     { sel: "#tinyfeed-giftbag-modal", close: closeGiftFromBag },
     { sel: "#tinyfeed-share-menu", close: closeShareMenu },
+    { sel: "#tinyfeed-call-screen", close: endCall },
+    { sel: "#tinyfeed-call-detail-modal", close: closeCallDetail },
 ];
 
 function anyOverlayOpen() {
@@ -212,6 +224,7 @@ function goHome() {
     clearScreenTimers();
     closeOpenOverlays();
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
+    $("#tinyfeed-settings-screen").addClass("tinyfeed-hidden");
     $("#tinyfeed-home").removeClass("tinyfeed-hidden");
     $(".tinyfeed-title").text("TinyPhone");
     $("#tinyfeed-home-btn, #tinyfeed-back").addClass("tinyfeed-hidden");
@@ -233,6 +246,7 @@ function openApp(id) {
     closeOpenOverlays();   // กัน overlay ค้างข้ามแอป
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
+    $("#tinyfeed-settings-screen").addClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
     $("#tinyfeed-back").addClass("tinyfeed-hidden");
 
@@ -2221,7 +2235,19 @@ function getConnectData() {
     if (!data.connect.threadBg || typeof data.connect.threadBg !== "object") data.connect.threadBg = {};
     // watermark "อ่านถึงเวลาไหนแล้ว" ต่อห้อง (ไม่ใช่ flag ต่อข้อความ — รอดจากการลบข้อความ/แก้ index ได้)
     if (!data.connect.readUpTo || typeof data.connect.readUpTo !== "object") data.connect.readUpTo = {};
+    if (!Array.isArray(data.connect.calls)) data.connect.calls = [];   // ประวัติการโทร — ผูกแชท (ลบแชท = ควรหาย)
     return data.connect;
+}
+
+// ===== TinyConnect: ประวัติการโทร =====
+function getCalls() {
+    return getConnectData().calls;
+}
+function saveCalls() {
+    saveFeedDataDebounced();   // ประวัติการโทรผูกแชทเสมอ (ไม่มีห้องเพ็ทในระบบโทร ไม่ต้องผ่าน saveThread)
+}
+function findCall(id) {
+    return getCalls().find((c) => c.id === id) || null;
 }
 
 function getThread(key) {
@@ -2339,24 +2365,62 @@ function connectMsgText(m) {
     if (m.isSlip) return `[โอนเงิน ${formatMoney(m.amount)}${m.note ? " — " + m.note : ""}]`;
     if (m.isShare) { const s = m.share || {}; return `[แชร์: ${htmlToPlain(s.title || "")}${s.body ? " — " + htmlToPlain(s.body) : ""}]`; }
     if (m.isGift) { const g = m.gift || {}; return `[ส่งของขวัญ: ${htmlToPlain(g.name || "")}]`; }
+    if (m.isCall) return callMsgLine(m.call || {});
     return htmlToPlain(m.text);
+}
+
+// บรรทัด plain-text ของการ์ดโทร — ใช้ทั้งใน connectMsgText (AI มองเห็น) และ preview รายชื่อ
+function callMsgLine(call) {
+    const kindLabel = call.kind === "video" ? "วิดีโอคอล" : "โทรเสียง";
+    if (call.status === "missed") return `[สายที่ไม่ได้รับ — ${kindLabel}]`;
+    if (call.status === "declined") return `[ปฏิเสธสาย — ${kindLabel}]`;
+    return `[${kindLabel} ${formatCallDuration(call.durationSec)}]`;
+}
+
+// วินาที → "N นาที M วินาที" (ต่ำกว่า 1 นาที = "N วินาที") — ค่าติดลบ/ไม่ใช่ตัวเลข = 0 วินาที
+function formatCallDuration(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    if (m <= 0) return `${r} วินาที`;
+    return `${m} นาที ${r} วินาที`;
+}
+
+// นาฬิกาจับเวลาแบบ mm:ss บนหน้าจอสาย — ต่างจาก formatCallDuration (ประโยคยาว ใช้ในการ์ด/บันทึก)
+function formatCallClock(sec) {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
 function isConnectThreadOpen() {
     return !$("#tinyfeed-connect-thread").hasClass("tinyfeed-hidden");
 }
 
+// แท็บ "แชต" / "ประวัติการโทร" ในหน้ารายชื่อ TinyConnect — คงแท็บที่เลือกไว้ข้ามการนำทาง (ไม่บังคับกลับไปแชตทุกครั้ง)
+let connectTab = "chats";
+const CONNECT_TABS = ["chats", "calls"];
+function switchConnectTab(tab) {
+    connectTab = CONNECT_TABS.includes(tab) ? tab : "chats";
+    $(".tinyfeed-tab[data-ctab]").removeClass("tinyfeed-tab-active");
+    $(`.tinyfeed-tab[data-ctab="${connectTab}"]`).addClass("tinyfeed-tab-active");
+    $("#tinyfeed-connect-list").toggleClass("tinyfeed-hidden", connectTab !== "chats");
+    $("#tinyfeed-connect-calls").toggleClass("tinyfeed-hidden", connectTab !== "calls");
+    if (connectTab === "calls") renderCallHistory();
+    else renderConnectList();
+}
+
 function openConnectList() {
     activeThread = null;
     closeConnectPlusMenu();
     toggleGroupForm(false);
-    $("#tinyfeed-connect-tools").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-connect-tools, #tinyfeed-connect-tabs").removeClass("tinyfeed-hidden");
     $("#tinyfeed-connect-thread").addClass("tinyfeed-hidden");
-    $("#tinyfeed-connect-list").removeClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").removeClass("tinyfeed-hidden");
     $("#tinyfeed-back").addClass("tinyfeed-hidden");
     $(".tinyfeed-title").text("TinyConnect");
-    renderConnectList();
+    switchConnectTab(connectTab);
 }
 
 function renderConnectList() {
@@ -2406,7 +2470,7 @@ function renderConnectList() {
 function openThread(key, name) {
     activeThread = key;
     activeThreadName = name;
-    $("#tinyfeed-connect-list, #tinyfeed-connect-tools").addClass("tinyfeed-hidden");
+    $("#tinyfeed-connect-list, #tinyfeed-connect-calls, #tinyfeed-connect-tools, #tinyfeed-connect-tabs").addClass("tinyfeed-hidden");
     toggleGroupForm(false);
     $("#tinyfeed-connect-thread").removeClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
@@ -2483,7 +2547,7 @@ function renderThread() {
             if (prevTs === null || ts - prevTs >= gapMs) divider = timeDivider(ts);
             prevTs = ts;
         }
-        const content = m.isSlip ? slipCardHtml(m) : m.isShare ? shareCardHtml(m) : m.isGift ? giftCardHtml(m) : bubblesHtml(m.text);
+        const content = m.isSlip ? slipCardHtml(m) : m.isShare ? shareCardHtml(m) : m.isGift ? giftCardHtml(m) : m.isCall ? callCardHtml(m) : bubblesHtml(m.text);
         if (m.from === "user") {
             const readLabel = i === readIdx ? `<div class="tinyfeed-msg-read">อ่านแล้ว · ${escapeText(formatChatTime(readUpTo))}</div>` : "";
             return divider + `<div class="tinyfeed-msg tinyfeed-msg-user" data-idx="${i}">
@@ -2567,6 +2631,69 @@ function giftCardHtml(m) {
         </div>
     </div>`;
 }
+
+// การ์ดโทรในแชท — คลิกได้เมื่อมีบทสนทนาจริง (เปิดดูบทเต็ม, ดู openCallDetail() ที่เฟสประวัติการโทร)
+function callCardHtml(m) {
+    const c = m.call || {};
+    const kindIcon = c.kind === "video" ? "fa-video" : "fa-phone";
+    let statusLabel = "จบสาย", statusIcon = "fa-phone-flip";
+    if (c.status === "missed") { statusLabel = "ไม่ได้รับสาย"; statusIcon = "fa-phone-slash"; }
+    else if (c.status === "declined") { statusLabel = "ปฏิเสธสาย"; statusIcon = "fa-phone-slash"; }
+    const clickable = Array.isArray(c.turns) && c.turns.length > 0;
+    return `<div class="tinyfeed-call-card${clickable ? " tinyfeed-call-card-clickable" : ""}" ${c.id ? `data-call-id="${escapeAttr(c.id)}"` : ""}>
+        <div class="tinyfeed-call-card-icon"><i class="fa-solid ${kindIcon}"></i></div>
+        <div class="tinyfeed-call-card-body">
+            <div class="tinyfeed-call-card-status"><i class="fa-solid ${statusIcon}"></i> ${escapeText(statusLabel)}</div>
+            ${c.status === "ended" ? `<div class="tinyfeed-call-card-dur">${escapeText(formatCallDuration(c.durationSec))}</div>` : ""}
+        </div>
+    </div>`;
+}
+
+// รายการ "ประวัติการโทร" ในแท็บของ TinyConnect — ล่าสุดขึ้นก่อน
+function renderCallHistory() {
+    const box = $("#tinyfeed-connect-calls");
+    if (!box.length) return;
+    const calls = getCalls().slice().reverse();
+    if (!calls.length) {
+        box.html(emptyStateHtml("fa-clock-rotate-left", "ยังไม่มีประวัติการโทร", "โทรหาใครสักคนจากแท็บแชตได้เลย"));
+        return;
+    }
+    box.html(calls.map((c) => {
+        const kindIcon = c.kind === "video" ? "fa-video" : "fa-phone";
+        const dirIcon = c.dir === "out" ? "fa-arrow-up-right-from-square" : "fa-arrow-down-left";
+        let statusLabel = formatCallDuration(c.durationSec);
+        let missedCls = "";
+        if (c.status === "missed") { statusLabel = "ไม่ได้รับสาย"; missedCls = " tinyfeed-call-hist-missed"; }
+        else if (c.status === "declined") { statusLabel = "ปฏิเสธสาย"; missedCls = " tinyfeed-call-hist-missed"; }
+        return `<div class="tinyfeed-call-hist-item" data-call-id="${escapeAttr(c.id)}">
+            <div class="tinyfeed-call-hist-icon${missedCls}"><i class="fa-solid ${kindIcon}"></i></div>
+            <div class="tinyfeed-call-hist-body">
+                <div class="tinyfeed-call-hist-name">${escapeText(c.name)}</div>
+                <div class="tinyfeed-call-hist-meta${missedCls}"><i class="fa-solid ${dirIcon}"></i> ${escapeText(statusLabel)} · ${escapeText(formatChatTime(c.startTs))}</div>
+            </div>
+            <span class="tinyfeed-call-hist-callback" data-key="${escapeAttr(c.key)}" data-name="${escapeAttr(c.name)}" data-kind="${escapeAttr(c.kind)}" title="โทรกลับ"><i class="fa-solid fa-phone"></i></span>
+        </div>`;
+    }).join(""));
+}
+
+// เปิดดูบทสนทนาเต็มของสาย 1 สาย (จากการ์ดในเธรด หรือจากแท็บประวัติ)
+function openCallDetail(id) {
+    const call = findCall(id);
+    if (!call) return;
+    const you = getUserName();
+    const kindLabel = call.kind === "video" ? "วิดีโอคอล" : "โทรเสียง";
+    const dirLabel = call.dir === "out" ? "โทรออก" : "สายเข้า";
+    const statusText = call.status === "ended" ? formatCallDuration(call.durationSec)
+        : call.status === "missed" ? "ไม่ได้รับสาย" : "ปฏิเสธสาย";
+    $("#tinyfeed-call-detail-title").text(`${kindLabel}กับ ${call.name}`);
+    $("#tinyfeed-call-detail-meta").text(`${dirLabel} · ${formatChatTime(call.startTs)} · ${statusText}`);
+    const body = call.turns.length
+        ? call.turns.map((t) => `<div class="tinyfeed-call-transcript-line"><span class="tinyfeed-call-transcript-who">${escapeText(t.who === "user" ? you : call.name)}:</span> ${escapeText(t.text)}</div>`).join("")
+        : `<div class="tinyfeed-call-transcript-line">ไม่มีบทสนทนา</div>`;
+    $("#tinyfeed-call-detail-body").html(body);
+    $("#tinyfeed-call-detail-modal").removeClass("tinyfeed-hidden");
+}
+function closeCallDetail() { $("#tinyfeed-call-detail-modal").addClass("tinyfeed-hidden"); }
 
 // เปิด/ปิด modal โอนเงินในแชทที่เปิดอยู่
 function openSlipModal() {
@@ -2727,14 +2854,16 @@ function sendGiftFromBag(bagItemId) {
     maybeGiftThankYou(key);
 }
 
-// เมนู (+) ฟังก์ชันเสริมในแชท (สไตล์ไลน์)
+// เมนู (+) ฟังก์ชันเสริมในแชท (สไตล์ไลน์) — show() ไม่ใส่ = โชว์เสมอ, ใส่ = เช็คก่อนโชว์ (ซ่อนแถวที่ใช้ไม่ได้แทนปล่อยให้กดแล้วไม่ทำอะไร)
 const CONNECT_PLUS_ACTIONS = [
     { id: "slip", icon: "fa-money-bill-transfer", label: "โอนเงิน", run: () => openSlipModal() },
     { id: "gift", icon: "fa-gift", label: "ส่งของขวัญ", run: () => openGiftFromBag() },
     { id: "bg", icon: "fa-image", label: "พื้นหลังห้อง", run: () => openConnectBgModal() },
+    { id: "call-voice", icon: "fa-phone", label: "โทรออก", show: () => canCallThread(activeThread), run: () => openCall(activeThread, activeThreadName, "voice") },
+    { id: "call-video", icon: "fa-video", label: "วิดีโอคอล", show: () => canCallThread(activeThread), run: () => openCall(activeThread, activeThreadName, "video") },
 ];
 function renderConnectPlusMenu() {
-    $("#tinyfeed-connect-plusmenu").html(CONNECT_PLUS_ACTIONS.map((a) =>
+    $("#tinyfeed-connect-plusmenu").html(CONNECT_PLUS_ACTIONS.filter((a) => !a.show || a.show()).map((a) =>
         `<div class="tinyfeed-plusmenu-item" data-action="${escapeAttr(a.id)}"><i class="fa-solid ${a.icon}"></i> ${escapeText(a.label)}</div>`
     ).join(""));
 }
@@ -2746,6 +2875,409 @@ function toggleConnectPlusMenu(force) {
     menu.toggleClass("tinyfeed-hidden", !willShow);
 }
 function closeConnectPlusMenu() { $("#tinyfeed-connect-plusmenu").addClass("tinyfeed-hidden"); }
+
+// ===== TinyConnect: การโทร (เสียง/วิดีโอ) =====
+// เป็น overlay เต็มจอ (ทะเบียน OVERLAYS) ไม่ใช่แอปใหม่ — แนวเดียวกับ .tinyfeed-gallery-view
+let activeCall = null;      // { id, key, name, kind, dir, startTs, turns, answered } ระหว่างกำลังคุยสายอยู่ — จบสายแล้วเป็น null
+let callTimer = null;       // นาฬิกาจับเวลาสาย (tick ละ 1 วิ แตะแค่ตัวเลข ไม่ re-render ทั้งจอ)
+let callRingTimer = null;   // นับถอยหลังสายเรียกเข้า — หมดเวลาแล้วยังไม่รับ = ไม่ได้รับสาย
+let isCallReplying = false; // กำลังรอ AI ตอบระหว่างคุยสายอยู่ไหม
+
+// โทรได้เฉพาะแชต 1:1 — ไม่ใช่กลุ่ม (ไม่มีตัวรับสายชัดเจน) ไม่ใช่ห้องเพ็ท (เพ็ทไม่มีเส้นทาง AI คุยสาย)
+function canCallThread(key) {
+    if (!key || key === "pet") return false;
+    return !findGroup(key);
+}
+
+function isCallActive() {
+    return Boolean(activeCall);
+}
+
+// ตั้งรูปพื้นหลังเต็มจอผ่าน custom property (แนวเดียวกับ applyConnectBg) — ต้องผ่าน isSafeImgUrl เสมอ ห้ามเขียนตัวตรวจซ้ำ
+// ไม่มีรูป/ไม่ผ่านการตรวจ = ปล่อยว่าง ให้ไล่เฉดสีพื้นของ .tinyfeed-call-screen เองโชว์แทน (ไม่ต้อง toggle class เพิ่ม)
+function applyCallBg(url) {
+    const screen = document.getElementById("tinyfeed-call-screen");
+    if (!screen) return;
+    if (url && isSafeImgUrl(url)) {
+        screen.style.setProperty("--tf-call-bg-img", `url("${url.replace(/["\\]/g, encodeURIComponent)}")`);
+    } else {
+        screen.style.removeProperty("--tf-call-bg-img");
+    }
+}
+
+function startCallTimer() {
+    clearCallTimer();
+    callTimer = setInterval(() => {
+        if (!activeCall) { clearCallTimer(); return; }
+        $("#tinyfeed-call-timer").text(formatCallClock((Date.now() - activeCall.startTs) / 1000));
+    }, 1000);
+}
+function clearCallTimer() {
+    if (callTimer) { clearInterval(callTimer); callTimer = null; }
+}
+
+// ตัดจบการเจนคำตอบในแชทหลักที่ยังค้างอยู่ (ถ้ามี) ก่อนเปิดหน้าจอสาย — เหมือนผู้ใช้กดปุ่ม "หยุด" เอง
+// กันซีนซ้ำ: ถ้าปล่อยให้เจนต่อไปพร้อมกับคุยสาย จะได้ทั้งคุยจริงในโทรศัพท์ และคำบรรยายฉากโทรศัพท์อีกชุด
+// โผล่ในแชทหลักหลังวางสายไปแล้ว (เจนเสร็จช้ากว่าคุยสายในโทรศัพท์ที่มักไวกว่า) — ไม่มีอะไรค้างก็เงียบ ไม่มีผล
+function interruptMainChatGeneration(ctx) {
+    try {
+        if (typeof ctx.stopGeneration === "function") ctx.stopGeneration();
+    } catch (e) { /* เงียบไว้ — กันซีนซ้ำไม่ได้ก็ไม่ใช่เรื่องคอขาดบาดตาย */ }
+}
+
+// เปิดหน้าจอสาย (โทรออกเอง) — kind: "voice"|"video" · เชื่อมต่อทันทีเสมอ (ยังไม่ทำ "ฝั่งโน้นไม่รับสาย")
+function openCall(key, name, kind) {
+    if (!canCallThread(key) || activeCall) return;   // สายซ้อนสายไม่ได้
+    closeOpenOverlays();
+    closeConnectPlusMenu();
+    const voiceMode = kind !== "video";
+    const ctxNow = getContext();
+    interruptMainChatGeneration(ctxNow);
+    activeCall = {
+        id: "call" + Date.now(), key, name,
+        kind: voiceMode ? "voice" : "video", dir: "out",
+        startTs: Date.now(), turns: [], answered: true,
+        chatIdAtStart: typeof ctxNow.getCurrentChatId === "function" ? ctxNow.getCurrentChatId() : null,
+    };
+    const c = getConnectContacts().find((x) => x.key === key);
+    const url = contactAvatarUrlHiRes(c ? contactAvatarItem(c) : { author: name });
+    applyCallBg(url);
+    setImgSrcSafe($("#tinyfeed-call-portrait-img"), url);
+    $("#tinyfeed-call-name").text(name);
+    $("#tinyfeed-call-screen")
+        .removeClass("tinyfeed-hidden tinyfeed-call-video tinyfeed-call-voice tinyfeed-call-ringing")
+        .addClass(voiceMode ? "tinyfeed-call-voice" : "tinyfeed-call-video");
+    beginTalking();
+}
+
+// สายเข้า — ตัวละครโทรมาเอง (marker CALL: หรือทักเชิงรุก) รอผู้ใช้กดรับ/ปฏิเสธ หรือปล่อยจนหมดเวลา = ไม่ได้รับ
+// คืน true ถ้าเริ่มเรียกสายจริง (ใช้เป็นค่า handle() ของ CONNECT_MARKERS ว่า "ทำอะไรจริง" ไหม)
+function startIncomingCall(key, name, kind) {
+    if (!canCallThread(key) || activeCall) return false;   // สายซ้อนสายไม่ได้
+    const voiceMode = kind !== "video";
+    const ctxNow = getContext();
+    interruptMainChatGeneration(ctxNow);
+    activeCall = {
+        id: "call" + Date.now(), key, name,
+        kind: voiceMode ? "voice" : "video", dir: "in",
+        startTs: Date.now(), turns: [], answered: false,
+        chatIdAtStart: typeof ctxNow.getCurrentChatId === "function" ? ctxNow.getCurrentChatId() : null,
+    };
+    const c = getConnectContacts().find((x) => x.key === key);
+    const url = contactAvatarUrlHiRes(c ? contactAvatarItem(c) : { author: name });
+    applyCallBg(url);
+    setImgSrcSafe($("#tinyfeed-call-portrait-img"), url);
+    $("#tinyfeed-call-name").text(name);
+    $("#tinyfeed-call-status").text("สายเรียกเข้า…");
+    $("#tinyfeed-call-timer").text("");
+    $("#tinyfeed-call-screen")
+        .removeClass("tinyfeed-hidden tinyfeed-call-video tinyfeed-call-voice")
+        .addClass(voiceMode ? "tinyfeed-call-voice" : "tinyfeed-call-video")
+        .addClass("tinyfeed-call-ringing");
+    $("#tinyfeed-call-hangup, #tinyfeed-call-compose, #tinyfeed-call-expand").addClass("tinyfeed-hidden");
+    $("#tinyfeed-call-accept, #tinyfeed-call-decline").removeClass("tinyfeed-hidden");
+    startCallRingTimer();
+    showNotif(makeAvatar(c ? contactAvatarItem(c) : { author: name }), name, "สายเรียกเข้า…", "contact", "connect", key, name);
+    return true;
+}
+
+function startCallRingTimer() {
+    clearCallRingTimer();
+    const sec = Math.max(5, parseInt(getSetting("callRingSec"), 10) || 30);
+    callRingTimer = setTimeout(() => {
+        if (activeCall && !activeCall.answered) endCall("missed");
+    }, sec * 1000);
+}
+function clearCallRingTimer() {
+    if (callRingTimer) { clearTimeout(callRingTimer); callRingTimer = null; }
+}
+
+// กดรับสาย — เปลี่ยนจากหน้าเรียกเข้าเป็นหน้าคุยจริง
+function acceptCall() {
+    if (!activeCall || activeCall.answered) return;
+    activeCall.answered = true;
+    clearCallRingTimer();
+    $("#tinyfeed-call-screen").removeClass("tinyfeed-call-ringing");
+    beginTalking();
+}
+
+// กดปฏิเสธสาย — จบสายทันทีโดยไม่เคยรับ (ต่างจากไม่ได้รับตรงที่เป็นการกดปฏิเสธเอง)
+function declineCall() {
+    if (!activeCall || activeCall.answered) return;
+    endCall("declined");
+}
+
+// เริ่มพูดคุยจริง (ต่อสายสำเร็จ ไม่ว่าจะโทรออกเองหรือกดรับสายเข้า) — โชว์แถบพิมพ์ + เริ่มนาฬิกา + ให้อีกฝ่ายพูดก่อนเสมอ
+function beginTalking() {
+    if (!activeCall) return;
+    activeCall.startTs = Date.now();   // นับความยาวสายจากจุดที่ต่อติดจริง ไม่รวมเวลาที่เรียกอยู่
+    $("#tinyfeed-call-status").text(activeCall.kind === "video" ? "วิดีโอคอล" : "กำลังคุยสาย");
+    $("#tinyfeed-call-timer").text("00:00");
+    $("#tinyfeed-call-accept, #tinyfeed-call-decline").addClass("tinyfeed-hidden");
+    $("#tinyfeed-call-hangup, #tinyfeed-call-compose, #tinyfeed-call-expand").removeClass("tinyfeed-hidden");
+    $("#tinyfeed-call-transcript").addClass("tinyfeed-hidden").empty();
+    $("#tinyfeed-call-sub").addClass("tinyfeed-hidden").empty();
+    $("#tinyfeed-call-expand i").attr("class", "fa-solid fa-chevron-up");
+    $("#tinyfeed-call-input").val("");
+    updateCallSendBtn();
+    startCallTimer();
+    generateCallReply();
+}
+
+// เคลียร์ส่วนที่เป็น "ระหว่างคุย/กำลังเรียก" ของ UI — ใช้ร่วมกันทั้ง abort/end
+function resetCallScreenUI() {
+    $("#tinyfeed-call-screen").addClass("tinyfeed-hidden").removeClass("tinyfeed-call-voice tinyfeed-call-video tinyfeed-call-ringing");
+    // #tinyfeed-call-compose ห้าม .empty() — เมาท์ครั้งเดียวตอนบูตจาก mountComposeBars() ไม่ได้สร้างใหม่ทุกครั้งที่เปิดสาย
+    // (เคยพลาดมาแล้ว: .empty() ตรงนี้ลบ input/ปุ่มส่งทิ้งถาวร ทำให้สายถัดไปพิมพ์อะไรไม่ได้เลย)
+    $("#tinyfeed-call-compose, #tinyfeed-call-expand, #tinyfeed-call-accept, #tinyfeed-call-decline").addClass("tinyfeed-hidden");
+    $("#tinyfeed-call-transcript, #tinyfeed-call-sub").addClass("tinyfeed-hidden").empty();
+    $("#tinyfeed-call-input").val("");
+    // เปิดเครื่องมาตอนสายกำลังเรียกไว้เมื่อกี้ (openPhone ข้าม restoreLastScreen ไปตอนนั้นเพื่อไม่ให้ไปวางสายทิ้ง)
+    // ตอนนี้สายจบแล้ว มา restore แทนให้ ไม่งั้นจะเจอหน้าโฮมที่ยังไม่เคย render อะไรเลย (ว่างเปล่า) ต้องปิดเปิดเครื่องใหม่ถึงจะกลับมาถูก
+    if (pendingScreenRestore) {
+        pendingScreenRestore = false;
+        restoreLastScreen();
+    }
+}
+
+// ยกเลิกสายที่กำลังคุยโดย "ไม่บันทึก" — ใช้เฉพาะตอนแชท ST สลับระหว่างคุยสาย เพราะ CHAT_CHANGED ยิงหลังจาก
+// chat_metadata ถูกสลับไปเป็นแชทใหม่แล้ว เรียก endCall() ตรงนั้นจะเขียน record ลง metadata แชทใหม่ผิดที่
+// จึงแค่ทิ้งสถานะสายไปเงียบๆ (ไม่มีบันทึกดีกว่าบันทึกผิดแชท)
+function abortActiveCall() {
+    if (!activeCall) return;
+    clearCallTimer();
+    clearCallRingTimer();
+    activeCall = null;
+    isCallReplying = false;
+    resetCallScreenUI();
+}
+
+// วางสาย/ปิดหน้าจอสาย — บันทึก record + ดันการ์ดเข้าห้องแชต · ใช้เป็น OVERLAYS.close ด้วย จึงต้องเรียกได้แม้ activeCall เป็น null แล้ว (idempotent)
+// status ไม่ใส่ = อนุมานเอง (รับสายแล้วค่อยวาง = "ended" · ยังไม่ได้รับเลย = "missed") · ใส่เอง = "declined" ตอนกดปฏิเสธ
+function endCall(status) {
+    if (!activeCall) { resetCallScreenUI(); return; }
+    clearCallTimer();
+    clearCallRingTimer();
+    const call = activeCall;
+    activeCall = null;
+    isCallReplying = false;
+    const finalStatus = status || (call.answered ? "ended" : "missed");
+    const durationSec = call.answered ? Math.round((Date.now() - call.startTs) / 1000) : 0;
+    const record = {
+        id: call.id, key: call.key, name: call.name, kind: call.kind, dir: call.dir,
+        status: finalStatus, startTs: call.startTs, endTs: Date.now(), durationSec,
+        turns: call.turns, logged: false, chatIdAtStart: call.chatIdAtStart,
+    };
+    getCalls().push(record);
+    getThread(call.key).push({ from: call.dir === "out" ? "user" : "contact", isCall: true, ts: record.endTs, call: record });
+    saveThread(call.key);
+    saveCalls();
+    resetCallScreenUI();
+    if (currentApp === "connect" && activeThread === call.key) renderThread();
+    updateChatInjection();
+    logCallToMainChat(record);   // ไม่ await — แทรกลงแชทหลักของ ST แบบ fire-and-forget มี try/catch ในตัวเองแล้ว
+}
+
+// ===== TinyConnect: แทรกบันทึกการโทรลงประวัติแชทหลักของ SillyTavern =====
+
+// ข้อความล้วนของบันทึกการโทร — ส่วนที่ AI "อ่าน" (mes) ไม่มี HTML เลย ปลอดภัยเสมอไม่ว่า power_user.encode_tags จะเปิดไหม
+function callPlainTranscript(call) {
+    const kindLabel = call.kind === "video" ? "วิดีโอคอล" : "โทรเสียง";
+    const timeLabel = formatChatTime(call.startTs);
+    if (call.status === "missed") return `[บันทึกการโทร] สายเข้าจาก ${call.name} · ${timeLabel} · ไม่ได้รับสาย (${kindLabel})`;
+    if (call.status === "declined") return `[บันทึกการโทร] สายเข้าจาก ${call.name} · ${timeLabel} · ปฏิเสธสาย (${kindLabel})`;
+    const you = getUserName();
+    const lines = call.turns.map((t) => `${t.who === "user" ? you : call.name}: ${t.text}`);
+    const withWhom = call.dir === "out" ? `กับ ${call.name}` : `จาก ${call.name}`;
+    return `[บันทึกการโทร] ${kindLabel}${withWhom} · ${timeLabel} · คุยกัน ${formatCallDuration(call.durationSec)}\n${lines.join("\n")}\n[จบสาย]`;
+}
+
+// HTML ของบันทึกการโทรสำหรับ extra.display_text (สิ่งที่ตาเห็นในแชทหลัก — บล็อกพับได้) ต่างจาก mes ที่ AI อ่าน
+// ต้องใช้ style="" ล้วนเท่านั้น ห้ามใช้ class — DOMPurify ของ ST เขียนทับ class="foo" เป็น "custom-foo" ทำให้ CSS เราใช้ไม่ได้
+// ใช้สีกลาง (rgba เทา) เพราะแชทหลักมีธีมของ ST เอง ไม่ใช่ธีมโทรศัพท์ · ทุกช่องที่มาจากบทพูดจริงต้อง escape เสมอ
+function callLogHtml(call) {
+    const kindLabel = call.kind === "video" ? "วิดีโอคอล" : "โทรเสียง";
+    const timeLabel = formatChatTime(call.startTs);
+    if (call.status !== "ended") {
+        const statusLabel = call.status === "missed" ? "ไม่ได้รับสาย" : "ปฏิเสธสาย";
+        return `📞 <b>${escapeText(statusLabel)}</b> — ${escapeText(kindLabel)}จาก ${escapeText(call.name)} · ${escapeText(timeLabel)}`;
+    }
+    const you = getUserName();
+    const withWhom = call.dir === "out" ? `กับ` : `จาก`;   // โทรออกเอง = "กับ" · สายเข้า = "จาก" (ให้ตรงกับ callPlainTranscript)
+    const lines = call.turns.map((t) =>
+        `<div style="margin:4px 0;"><b>${escapeText(t.who === "user" ? you : call.name)}:</b> ${escapeText(t.text)}</div>`
+    ).join("");
+    return `<details style="border:1px solid rgba(128,128,128,.35); border-radius:10px; padding:8px 12px; margin:6px 0; background:rgba(128,128,128,.1);">` +
+        `<summary style="cursor:pointer; font-weight:600;">📞 ${escapeText(kindLabel)}${withWhom} ${escapeText(call.name)} · ${escapeText(timeLabel)} · ${escapeText(formatCallDuration(call.durationSec))}</summary>` +
+        `<div style="margin-top:8px; line-height:1.6;">${lines || "(ไม่มีบทสนทนา)"}</div>` +
+        `</details>`;
+}
+
+let isWritingCallLog = false;   // กันวนซ้ำ — ข้อความที่เรายิงเข้าแชทหลักเองไม่ใช่ RP จริง เช็คใน onChatMessage()
+
+// แทรกบันทึกการโทร 1 สายเข้าประวัติแชทหลักของ SillyTavern จริงๆ (ครั้งแรกที่ extension นี้เขียนลง ctx.chat)
+// is_system:false เพื่อให้ AI "อ่านเห็น" (is_system:true ถูกกรองออกจาก prompt ที่ Generate()) · ต่อท้ายเท่านั้น ห้าม splice
+// (แทรกกลางต้องผ่าน reloadCurrentChat ซึ่งรีเซ็ตตัวนับ auto-generate ของเราทั้งหมด + ทำ mesid เพี้ยนจาก index จริง)
+async function logCallToMainChat(call) {
+    if (call.logged || !getSetting("callLogToMainChat")) return;
+    if (!getCurrentCharacter()) return;   // ไม่มีตัวละครโหลดอยู่ — ไม่รู้จะแทรกลงแชทไหน
+    const ctx = getContext();
+    if (!Array.isArray(ctx.chat)) return;
+    // สลับแชท ST ไปแล้วระหว่างที่สายกำลังดำเนินอยู่ — เขียนตอนนี้จะลงผิดแชท ข้ามไปเลย (ประวัติยังอยู่ในโทรศัพท์ตามปกติ)
+    const chatIdNow = typeof ctx.getCurrentChatId === "function" ? ctx.getCurrentChatId() : null;
+    if (call.chatIdAtStart != null && chatIdNow !== call.chatIdAtStart) return;
+
+    const encodeTagsOn = Boolean(ctx.powerUserSettings && ctx.powerUserSettings.encode_tags);
+    const contact = getConnectContacts().find((c) => c.key === call.key);
+    const avatarUrl = contactAvatarUrl(contact || { author: call.name });
+    const message = {
+        name: `📞 ${call.name}`,
+        is_user: false,
+        is_system: false,
+        send_date: new Date().toISOString(),
+        mes: callPlainTranscript(call),
+        extra: {
+            type: "tinyfeed_call",
+            swipeable: false,   // กัน clearMessageData() ตอน swipe ลบ display_text ทิ้ง + กันมีลูกศร regenerate โผล่บนบันทึก
+            tinyfeed_call: { id: call.id, key: call.key, kind: call.kind, dir: call.dir, status: call.status, startTs: call.startTs, durationSec: call.durationSec },
+        },
+    };
+    if (avatarUrl && isSafeImgUrl(avatarUrl)) message.force_avatar = avatarUrl;
+    if (!encodeTagsOn) message.extra.display_text = callLogHtml(call);   // encode_tags เปิดอยู่ = HTML จะโดน escape เป็นตัวอักษรดิบ ข้ามไปโชว์ mes เฉยๆ ดีกว่า
+
+    try {
+        isWritingCallLog = true;
+        ctx.chat.push(message);
+        const idx = ctx.chat.length - 1;
+        if (ctx.chatMetadata) ctx.chatMetadata.tainted = true;
+        await ctx.eventSource.emit(ctx.eventTypes.MESSAGE_RECEIVED, idx, "extension");
+        ctx.addOneMessage(message);
+        await ctx.eventSource.emit(ctx.eventTypes.CHARACTER_MESSAGE_RENDERED, idx, "extension");
+        await ctx.saveChat();
+        call.logged = true;
+    } catch (e) {
+        console.error(`[${extensionName}] แทรกบันทึกการโทรลงแชทหลักไม่สำเร็จ:`, e);
+        toastr.error("แทรกบันทึกการโทรลงแชทหลักไม่สำเร็จ (ประวัติยังอยู่ในโทรศัพท์ตามปกติ)", "TinyConnect");
+    } finally {
+        isWritingCallLog = false;
+    }
+}
+
+// ===== TinyConnect: คุยกันระหว่างสาย =====
+
+// ปุ่มพูด: ปกติ = ส่ง · กำลังรอ AI ตอบ = สปินเนอร์ (ไม่มีสถานะ "ว่าง=คทา" แบบแชตข้อความ เพราะสายเป็นเรียลไทม์
+// ส่งแล้วยิงให้ตอบทันทีอยู่แล้ว — ไม่ต้องมีปุ่มแยกไว้กดขอคำตอบ)
+function updateCallSendBtn() {
+    const $btn = $("#tinyfeed-call-send");
+    if (!$btn.length) return;
+    const $icon = $btn.find("i");
+    if (isCallReplying) {
+        $icon.attr("class", "fa-solid fa-spinner fa-spin");
+        $btn.attr("title", "กำลังพูด…");
+    } else {
+        $icon.attr("class", "fa-solid fa-paper-plane");
+        $btn.attr("title", "พูด");
+    }
+}
+
+// อัปเดตซับไตเติล (1-2 บรรทัดล่าสุด) + บทเต็ม (ถ้ากางอยู่) — เรียกตอนมีเทิร์นใหม่เท่านั้น ไม่ใช่ทุก tick (ไม่ผิดกฎ low-motion)
+function renderCallTranscript() {
+    if (!activeCall) return;
+    const you = getUserName();
+    const who = (t) => (t.who === "user" ? you : activeCall.name);
+    const subHtml = activeCall.turns.slice(-2)
+        .map((t) => `<div>${escapeText(who(t))}: ${escapeText(t.text)}</div>`).join("");
+    const transcriptExpanded = !$("#tinyfeed-call-transcript").hasClass("tinyfeed-hidden");
+    $("#tinyfeed-call-sub").html(subHtml).toggleClass("tinyfeed-hidden", !subHtml || transcriptExpanded);
+    const fullHtml = activeCall.turns
+        .map((t) => `<div class="tinyfeed-call-transcript-line"><span class="tinyfeed-call-transcript-who">${escapeText(who(t))}:</span> ${escapeText(t.text)}</div>`)
+        .join("");
+    $("#tinyfeed-call-transcript").html(fullHtml || `<div class="tinyfeed-call-transcript-line">ยังไม่มีบทสนทนา</div>`);
+    const box = document.getElementById("tinyfeed-call-transcript");
+    if (box) box.scrollTop = box.scrollHeight;
+}
+
+// กดปุ่มขยาย/ยุบดูบทเต็มระหว่างคุยสาย — กางบทเต็มแล้วซ่อนซับไตเติล (กันซ้ำซ้อนกัน)
+function toggleCallTranscript() {
+    const $t = $("#tinyfeed-call-transcript");
+    const willShow = $t.hasClass("tinyfeed-hidden");
+    $t.toggleClass("tinyfeed-hidden", !willShow);
+    $("#tinyfeed-call-sub").toggleClass("tinyfeed-hidden", willShow);
+    $("#tinyfeed-call-expand i").attr("class", willShow ? "fa-solid fa-chevron-down" : "fa-solid fa-chevron-up");
+}
+
+// ส่งข้อความช่วงคุยสาย — ต่างจากแชตปกติตรงที่ส่งแล้วยิงให้ตอบทันที (สายคือเรียลไทม์ ไม่ต้องรอกดคทา)
+function sendCallMessage(text) {
+    const clean = String(text || "").trim();
+    if (!clean || !activeCall || isCallReplying) return;
+    activeCall.turns.push({ who: "user", text: clean, ts: Date.now() });
+    $("#tinyfeed-call-input").val("");
+    renderCallTranscript();
+    generateCallReply();
+}
+
+// เทิร์นของ AI ระหว่างคุยสาย — ไม่ใช้ CONNECT_MARKERS (สลิป/ของขวัญ/ดูแลเพ็ทกลางสายไม่สมเหตุผล + กัน CALL: วนซ้ำ)
+// จำ callId ไว้เทียบก่อนเขียนผล กันเคสวางสาย+โทรใหม่ระหว่างรอ AI ตอบ แล้วผลเก่าเผลอไปเติมใส่สายใหม่
+async function generateCallReply() {
+    if (!activeCall || isCallReplying) return;
+    const callId = activeCall.id;
+    const you = getUserName();
+    const name = activeCall.name;
+    const kindLabel = activeCall.kind === "video" ? "วิดีโอคอล" : "คุยโทรศัพท์";
+    const dirLabel = activeCall.dir === "out" ? `${you} เป็นฝ่ายโทรหา ${name}` : `${name} เป็นฝ่ายโทรหา ${you}`;
+    const recentRaw = getThread(activeCall.key).slice(-6)
+        .map((m) => `${m.from === "user" ? you : (m.author || name)}: ${connectMsgText(m)}`).join("\n");
+    const transcript = activeCall.turns.slice(-14)
+        .map((t) => `${t.who === "user" ? you : name}: ${t.text}`).join("\n");
+    const extra = String(getSetting("callExtraPrompt") || "").trim();
+    const hangupEnabled = getSetting("callAiHangupEnabled");
+    const hangupLine = hangupEnabled
+        ? `ถ้า ${name} อยากจบสายตอนนี้ (คุยจบเรื่องแล้ว/มีธุระต้องไป — นานๆ ครั้งเท่านั้น ไม่ใช่ทุกเทิร์น) ` +
+          `ให้ขึ้นต้นคำพูดประโยคสุดท้ายด้วย HANGUP: แล้วตามด้วยคำพูดปิดท้ายสั้นๆ ก่อนวางสาย เช่น HANGUP: แล้วเจอกันนะ บาย~\n`
+        : "";
+    const q = buildPrompt("callReply", {
+        you, name, kind: kindLabel, dir: dirLabel,
+        extra: extra ? `คำสั่งเพิ่มเติม: ${extra}.\n` : "",
+        hangup: hangupLine,
+        context: crossAppContext("connect"),
+        recent: recentRaw || "(ยังไม่เคยคุยกันมาก่อน)",
+        transcript: transcript || "(ยังไม่มีใครพูดอะไร)",
+    });
+    isCallReplying = true;
+    updateCallSendBtn();
+    try {
+        const raw = await tinyGenerate(q, Math.max(1, parseInt(getSetting("callTokens"), 10) || 160), "connect");
+        let reply = stripReasoning(raw).trim();
+        reply = stripWrapBrackets(reply);
+        const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        reply = reply.replace(new RegExp(`^${esc}\\s*[:：]\\s*`, "i"), "").trim();
+        // มาร์คเกอร์ HANGUP: — ตัดแค่คำนำหน้าออก (ข้อความตามหลังยังเป็นคำพูดจริงที่ต้องโชว์) ไม่ใช่ตัดทั้งบรรทัดแบบ marker อื่น
+        const hangupRe = /HANGUP:\s*/i;
+        const willHangup = hangupEnabled && hangupRe.test(reply);
+        if (willHangup) reply = reply.replace(hangupRe, "").trim();
+        if (activeCall && activeCall.id === callId) {
+            if (reply) {
+                activeCall.turns.push({ who: "contact", text: reply, ts: Date.now() });
+                renderCallTranscript();
+            } else {
+                toastr.warning("ฝั่งโน้นเงียบไป ลองพูดอะไรอีกทีนะ", "TinyConnect");
+            }
+            // วางไว้หลัง turns.push ให้ผู้ใช้เห็นคำพูดปิดท้ายก่อน แล้วค่อยวางสายให้เอง (หน่วงสั้นๆ ให้อ่านทัน)
+            if (willHangup) {
+                $("#tinyfeed-call-status").text("กำลังจะวางสาย…");
+                setTimeout(() => { if (activeCall && activeCall.id === callId) endCall(); }, 1800);
+            }
+        }
+    } catch (e) {
+        console.error(`[${extensionName}] call reply failed:`, e);
+        toastr.error("คุยสายไม่สำเร็จ ลองใหม่นะ", "TinyConnect");
+    } finally {
+        if (activeCall && activeCall.id === callId) {
+            isCallReplying = false;
+            updateCallSendBtn();
+        }
+    }
+}
 
 // ผู้ใช้โอนเงินออก → หักบัญชี + ดันสลิปในแชท
 function sendUserSlip() {
@@ -2784,6 +3316,14 @@ function handleAiReadOnly(raw, ctx) {
     getConnectData().readUpTo[activeThread] = Date.now();
     saveThread(activeThread);
     return true;
+}
+
+// คู่แชท (1:1) อยากโทรมาเอง: CALL: voice|video | เหตุผล — คืน true ถ้าเริ่มเรียกสายจริง (ยังไม่รวมสายในกลุ่ม/ห้องเพ็ท)
+function handleAiCall(raw, ctx) {
+    if (!activeThread || !canCallThread(activeThread) || isCallActive()) return false;   // สายซ้อนสายไม่ได้
+    const m = /CALL:\s*(voice|video)\b/i.exec(stripReasoning(raw));
+    if (!m) return false;
+    return startIncomingCall(activeThread, ctx.name, m[1].toLowerCase());
 }
 
 // ===== TinyConnect: ทะเบียนกลางของ "บรรทัดคำสั่งพิเศษ" ที่ AI ใส่ท้ายคำตอบแชต 1:1 (นอกเหนือจากคำตอบปกติ) =====
@@ -2825,6 +3365,12 @@ const CONNECT_MARKERS = [
         line: (ctx) => `[ระบบอ่านข้อความ] ถ้า ${ctx.name} แค่อ่านข้อความล่าสุดแต่ยังไม่อยากตอบตอนนี้ (เข้ากับเนื้อเรื่อง เช่นกำลังยุ่งอยู่) ให้ตอบแค่คำเดียวว่า: READ: อ่านแล้ว (ห้ามมีข้อความอื่นปนเลย)\n`,
         re: /^READ:.*$/gim,
         handle: (raw, ctx) => handleAiReadOnly(raw, ctx),
+    },
+    {
+        id: "call", setting: "callAiCallEnabled",
+        line: (ctx) => `[ระบบโทรศัพท์] ถ้า ${ctx.name} อยากโทรหา ${ctx.you} ตอนนี้เลย (นานๆ ครั้งเท่านั้น เฉพาะตอนที่เข้ากับเนื้อเรื่องจริงๆ ไม่ใช่ทุกครั้ง) ให้ใส่บรรทัดแยกท้ายข้อความ: CALL: <voice หรือ video> | <เหตุผลสั้นๆ>\n`,
+        re: /^CALL:.*$/gim,
+        handle: (raw, ctx) => handleAiCall(raw, ctx),
     },
 ];
 
@@ -2953,6 +3499,7 @@ function closePhone() {
     clearStreamTimer();   // ปิดเครื่อง = หยุด timer สตรีม
     clearHomeClock();     // หยุดนาฬิกาหน้าโฮม
     clearPetLiveTick();   // หยุด live tick เพ็ท (พื้นหลัง petTimer ยังเดินเพื่อ decay/แจ้งเตือน)
+    if (isCallActive()) endCall();   // ปิดเครื่องระหว่างคุยสาย = วางสายไปเลย (ยังไม่มีฟีเจอร์ย่อสายค้างพื้นหลัง)
     flushAllSaves();       // flush ทันที (settings + chat metadata) — กันเซฟที่ debounce ค้างอยู่หายไปตอนปิดเครื่อง
     console.log(`[${extensionName}] Phone closed`);
 }
@@ -3212,6 +3759,7 @@ function tinyTokenCount(text) {
 const APP_META = Object.fromEntries([
     ...APPS.map((a) => [a.id, { label: a.label || a.name, icon: a.icon, color: a.a }]),
     ["news", { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b" }],
+    ["call", { label: "โทรศัพท์ (TinyConnect)", icon: "fa-phone", color: "#22c55e" }],   // "call" ไม่ใช่แอปจริงใน APPS (เป็นฟีเจอร์ย่อยของ connect) เหมือน "news" ข้างบน
 ]);
 
 // ── สถิติโทเคน "จริง" ณ จุดส่ง (อัปเดตตอน inject/generate เกิดขึ้นจริง) ──
@@ -5350,19 +5898,48 @@ function makeAnonAvatar(name) {
     return `<div class="tinyfeed-avatar tinyfeed-avatar-anon" style="background:${bg}">${letter}</div>`;
 }
 
-function makeAvatar(item) {
-    let src = item.avatar;
-    // resolve รูปแบบ live เพื่อให้ override จาก config มีผลทันที
-    if (!src && item.isMain) {
-        src = getCharacterAvatar();
-    } else if (!src && item.isUser) {
-        src = getUserAvatar();
-    } else if (!src) {
-        // ชื่อที่ตรงกับ username/alias ของเรา/ตัวละครหลัก → แทนที่ด้วยรูปโปรไฟล์นั้น
-        if (nameMatchesUser(item.author)) src = getUserAvatar();
-        else if (nameMatchesChar(item.author)) src = getCharacterAvatar();
-        else src = getNpcAvatar(item.author);   // NPC ที่อยู่ในรายชื่อประจำ + มีลิงก์รูป
+// หา URL รูปของ item เปล่าๆ (ไม่ห่อ <img>) — makeAvatar() และหน้าจอโทร (พื้นหลังเต็มจอ) ใช้ร่วมกัน
+// ห้ามก๊อปโซ่นี้ไปเขียนซ้ำที่อื่น (กฎเหล็กข้อ 1) — resolve แบบ live เพื่อให้ override จาก config มีผลทันที
+function contactAvatarUrl(item) {
+    if (item.avatar) return item.avatar;
+    if (item.isMain) return getCharacterAvatar();
+    if (item.isUser) return getUserAvatar();
+    // ชื่อที่ตรงกับ username/alias ของเรา/ตัวละครหลัก → แทนที่ด้วยรูปโปรไฟล์นั้น
+    if (nameMatchesUser(item.author)) return getUserAvatar();
+    if (nameMatchesChar(item.author)) return getCharacterAvatar();
+    return getNpcAvatar(item.author);   // NPC ที่อยู่ในรายชื่อประจำ + มีลิงก์รูป
+}
+
+// เหมือน contactAvatarUrl() แต่คืนรูปความละเอียดเต็ม ไม่ใช่ thumbnail — ใช้เฉพาะจุดที่รูปถูกขยายใหญ่มาก
+// (พื้นหลัง/วงกลมโปรไฟล์เต็มจอของหน้าโทร) thumbnail ของ ST ตั้งต้นแค่ 96×144px ขยายเต็มจอแล้วแตกให้เห็นชัด
+// ไม่รวมเข้ากับ contactAvatarUrl() เพราะ endpoint ที่ใช้เปลี่ยนไปคนละตัว ไม่ใช่แค่พารามิเตอร์ต่าง
+function contactAvatarUrlHiRes(item) {
+    if (item.avatar) return item.avatar;   // ลิงก์ภายนอก/override อยู่แล้ว = ความละเอียดเต็มอยู่แล้ว ไม่ผ่าน thumbnail
+    if (item.isMain) {
+        const override = getCharProfile().avatarUrl;
+        if (override) return override;
+        const char = getCurrentCharacter();
+        // ต้องมี "/" นำหน้าเสมอ (root-relative) — ใช้เป็น CSS background-image ด้วย ซึ่ง resolve เทียบตำแหน่งไฟล์ style.css
+        // เอง ไม่ใช่เทียบหน้าเว็บแบบ <img src> เพราะงั้น path แบบไม่มี "/" นำหน้าจะ 404 (พลาดมาแล้วรอบแรก)
+        return char && char.file && char.file !== "none" ? `/characters/${encodeURIComponent(char.file)}` : "";
     }
+    if (item.isUser) {
+        const override = getUserProfile().avatarUrl;
+        if (override) return override;
+        try {
+            const ctx = getContext();
+            const file = ctx.user_avatar || (stScriptModule && stScriptModule.user_avatar);
+            if (file && file !== "none") return `/User Avatars/${encodeURIComponent(file)}`;
+        } catch (e) { /* เงียบไว้ แล้ว fallback ข้างล่าง */ }
+        return "";
+    }
+    if (nameMatchesUser(item.author)) return contactAvatarUrlHiRes({ isUser: true });
+    if (nameMatchesChar(item.author)) return contactAvatarUrlHiRes({ isMain: true });
+    return getNpcAvatar(item.author);   // NPC ใช้ลิงก์ที่ผู้ใช้ตั้งเอง ไม่ผ่าน thumbnail อยู่แล้ว
+}
+
+function makeAvatar(item) {
+    const src = contactAvatarUrl(item);
     if (src) {
         const safeAuthor = String(item.author || "?").replace(/"/g, "");
         return `<img class="tinyfeed-avatar" src="${src}" data-author="${safeAuthor}"
@@ -6032,6 +6609,18 @@ const PROMPT_DEFS = {
             `บทแชตล่าสุด:\n{{transcript}}\n` +
             `ตอบเฉพาะข้อความของ {{name}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า`,
     },
+    callReply: {
+        label: "คุยสาย (TinyConnect)", marker: "", tokens: ["you", "name", "kind", "dir", "extra", "hangup", "context", "recent", "transcript"],
+        default:
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] {{you}} กำลัง{{kind}}อยู่กับ {{name}} — {{dir}}. ` +
+            `พูดในบทบาทของ {{name}} แบบเป็นธรรมชาติเหมือนกำลังคุยโทรศัพท์จริง ให้น้ำเสียงสอดคล้องกับว่าใครเป็นฝ่ายโทร ` +
+            `(เช่นถ้า {{name}} เป็นฝ่ายโทรมาเอง ควรมีเหตุผลที่โทรมา ถ้า {{you}} เป็นฝ่ายโทรไป {{name}} ควรรับสายแบบทักทายธรรมดา) สั้นกระชับ 1-2 ประโยค ` +
+            `ห้ามใช้สติกเกอร์หรือคำบรรยายท่าทางยาวๆ (คุยสาย ไม่ใช่แชตข้อความ) ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดหรือกระทำแทน {{you}}.\n` +
+            `{{extra}}{{hangup}}{{context}}` +
+            `ก่อนหน้านี้คุยอะไรกันไว้ในแชต:\n{{recent}}\n` +
+            `บทสนทนาในสายนี้ล่าสุด:\n{{transcript}}\n` +
+            `ตอบเฉพาะคำพูดของ {{name}} เท่านั้น ไม่ต้องใส่ชื่อนำหน้า ไม่ต้องมีเครื่องหมายคำพูด`,
+    },
 };
 
 function getPromptTemplate(id) {
@@ -6086,6 +6675,7 @@ const KEYWORD_DEFS = [
     { app: "forum", label: "TinyForum (กระทู้)", setting: "forumKeywords" },
     { app: "ask", label: "TinyAsk (คำถามนิรนาม)", setting: "askKeywords" },
     { app: "bank", label: "TinyBank (สแกนเงินจากบท RP)", setting: "bankKeywords" },
+    { app: "call", label: "TinyConnect (โทรหาเราเอง)", setting: "callKeywords" },
 ];
 function renderKeywordEditors() {
     const html = KEYWORD_DEFS.map((d) => {
@@ -7320,6 +7910,7 @@ let autoForumCount = 0;  // ตัวนับข้อความสำหร�
 let autoConnectCount = 0; // ตัวนับข้อความสำหรับ TinyConnect (คู่แชททักเอง)
 let autoAskCount = 0;     // ตัวนับข้อความสำหรับ TinyAsk (คำถามนิรนามเข้ามาเอง)
 let autoBankScanCount = 0; // ตัวนับข้อความสำหรับสแกนเงินจากบท RP (TinyBank)
+let autoCallCount = 0;   // ตัวนับข้อความสำหรับโทรมาเอง (แยกจาก autoConnectCount ที่ทักข้อความ)
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
 // ถาม AI แบบเงียบว่าควรมีโพสต์ใหม่ตอนนี้ไหม (โหมด ai)
@@ -7346,8 +7937,8 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 // ── ทริกเกอร์ด้วยคีย์เวิร์ด ──
-const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", ask: "askKeywords", bank: "bankKeywords" };
-const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, ask: 0, bank: 0 };
+const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", ask: "askKeywords", bank: "bankKeywords", call: "callKeywords" };
+const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, ask: 0, bank: 0, call: 0 };
 
 function keywordListFor(app) {
     return String(getSetting(KEYWORD_SETTING[app]) || "")
@@ -7381,13 +7972,14 @@ function recentRpLines(n) {
     }
 }
 // คืน true = เจอคีย์เวิร์ด (ในฝั่งที่เลือกจับ) + พ้น cooldown แล้ว (แล้วจับเวลา cooldown ใหม่)
-function keywordShouldTrigger(app) {
+// forceScope: ข้ามการตั้งค่า keywordScope กลาง บังคับขอบเขตของแอปนี้แอปเดียว (ใช้กับ "call" — ดูเหตุผลที่ onChatMessage)
+function keywordShouldTrigger(app, forceScope) {
     const list = keywordListFor(app);
     if (!list.length) return false;
     const msg = lastRpMsg();
     if (!msg) return false;
     // ขอบเขตฝั่งที่จับ: char = เฉพาะข้อความตัวละคร, user = เฉพาะผู้ใช้, both = ทั้งคู่
-    const scope = getSetting("keywordScope") || "both";
+    const scope = forceScope || getSetting("keywordScope") || "both";
     if (scope === "char" && msg.isUser) return false;
     if (scope === "user" && !msg.isUser) return false;
     const text = String(msg.text || "").toLowerCase();
@@ -7413,6 +8005,24 @@ async function aiDecidesConnect() {
         return false;
     } catch (e) {
         console.error(`[${extensionName}] aiDecidesConnect failed:`, e);
+        return false;
+    }
+}
+
+// ตัดสินใจว่าควรมีคนโทรหาเราตอนนี้เลยไหม (โหมด "ai" ของทริกเกอร์โทรมาเองโดยเฉพาะ — ต่างจาก aiDecidesConnect ที่ถามแค่ "ทักข้อความ")
+async function aiDecidesCall() {
+    try {
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `พิจารณาสถานการณ์ล่าสุด: มีเหตุผลที่ตัวละครหรือคนรู้จักคนใดคนหนึ่งน่าจะ "โทรศัพท์" หาผู้ใช้ตอนนี้เลย (ไม่ใช่แค่ทักข้อความ เช่นมีเรื่องด่วน/อยากได้ยินเสียง) ไหม ` +
+            `ถ้ามีตอบ YES ถ้ายังไม่มีตอบ NO ตอบคำเดียว: YES หรือ NO`;
+        const res = await tinyGenerate(q, 120, "connect");
+        const s = stripReasoning(res).toLowerCase();
+        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
+        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("ควร")) return true;
+        return false;
+    } catch (e) {
+        console.error(`[${extensionName}] aiDecidesCall failed:`, e);
         return false;
     }
 }
@@ -7452,7 +8062,12 @@ async function aiDecidesBank() {
     }
 }
 
-async function onChatMessage() {
+// isCharTurn: true = มาจาก MESSAGE_RECEIVED (ข้อความของตัวละครเพิ่งลงแชทแล้ว) · false = มาจาก MESSAGE_SENT (ข้อความของเราเอง)
+// แอปที่ตั้ง charOnly:true (ดูรายการ apps ข้างล่าง) จะยิงได้เฉพาะตอน isCharTurn — กันแข่งกับการเจนคำตอบปกติของ
+// เทิร์นนั้นที่ยังค้างอยู่พอดี (ยิงตอนเทิร์นผู้ใช้เอง = ต้องยกเลิกคำตอบที่กำลังเจนทิ้ง เสียโควตา input ไปฟรีๆ)
+async function onChatMessage(isCharTurn) {
+    // ข้อความที่เรายิงเข้าแชทหลักเอง (บันทึกการโทร) ไม่ใช่ RP จริง — กันวนกลับเข้า auto-generate/pet-mention ของตัวเอง
+    if (isWritingCallLog) return;
     lastRpMsgTs = Date.now();   // มี RP activity → รีเซ็ตตัวจับเวลา idle
     petOnRpMessage();           // เอ่ยถึงเพ็ทในบท → ความผูกพันขึ้น (global, ไม่ขึ้นกับ auto)
     if (isAutoBusy || isGenerating || isGeneratingNews) return;
@@ -7465,7 +8080,14 @@ async function onChatMessage() {
             decide: aiDecidesToPost, run: () => generateFeedPost({ notify: true, silent: true }) },
         { on: "connectAutoGenerate", mode: "connectAutoMode", interval: "connectAutoInterval", defInt: 12, kw: "connect",
             bump: () => ++autoConnectCount, get: () => autoConnectCount, reset: () => { autoConnectCount = 0; },
-            decide: aiDecidesConnect, run: () => proactiveDM() },
+            // ถึงจังหวะทักแล้ว — สุ่มก่อนว่าจะ "โทรมา" แทนหรือเปล่า (มีสายอยู่แล้ว/ไม่เข้าเงื่อนไข = ทักข้อความตามปกติ)
+            // การ "ทักข้อความ" ธรรมดายังยิงได้ทุกเทิร์นเหมือนเดิม — ที่ต้องกันเฉพาะฝั่งโทร (ส่ง isCharTurn เข้าไปเช็ค)
+            decide: aiDecidesConnect, run: () => { if (!maybeCallInsteadOfDM(isCharTurn)) return proactiveDM(); } },
+        // ทริกเกอร์โทรมาเองโดยเฉพาะ (แยกจากแถวข้างบนที่ทักข้อความเป็นหลัก) — คีย์เวิร์ด/AI ตัดสินใจ/ทุกกี่ข้อความ ของตัวเอง
+        // charOnly:true — ยิงได้เฉพาะตอนเป็นเทิร์นตัวละคร (ดูคำอธิบาย isCharTurn ด้านบนฟังก์ชัน)
+        { on: "callAutoGenerate", mode: "callAutoMode", interval: "callAutoInterval", defInt: 20, kw: "call",
+            bump: () => ++autoCallCount, get: () => autoCallCount, reset: () => { autoCallCount = 0; },
+            decide: aiDecidesCall, run: () => { triggerAutoCall(); }, charOnly: true },
         { on: "memoAutoGenerate", mode: "memoAutoMode", interval: "memoAutoInterval", defInt: 15, kw: "memo",
             bump: () => ++autoMemoCount, get: () => autoMemoCount, reset: () => { autoMemoCount = 0; },
             decide: aiDecidesMemo, run: () => scanMemo({ notify: true, silent: true }) },
@@ -7492,9 +8114,12 @@ async function onChatMessage() {
 
     for (const a of apps) {
         if (!getSetting(a.on)) continue;
+        // charOnly (การโทรอัตโนมัติ) — ข้ามเทิร์นนี้ไปก่อนถ้ายังไม่ใช่เทิร์นตัวละคร ตัวนับ/threshold ยังไม่รีเซ็ต
+        // (bump ไปแล้วด้านบน) รอบถัดไปที่เป็นเทิร์นตัวละครจะยิงทันทีถ้ายังถึงเกณฑ์อยู่
+        if (a.charOnly && !isCharTurn) continue;
         const mode = getSetting(a.mode) || "interval";
         if (mode === "keyword") {
-            if (!keywordShouldTrigger(a.kw)) continue;
+            if (!keywordShouldTrigger(a.kw, a.charOnly ? "char" : null)) continue;
             isAutoBusy = true;
             try { await a.run(); } finally { isAutoBusy = false; }
             return;
@@ -7672,6 +8297,9 @@ function dismissNotif() {
 function routeFromNotif(e) {
     dismissNotif();
     openPhone();
+    // สายกำลังเรียกเข้าอยู่ — หน้าจอสายคลุมทุกอย่างอยู่แล้ว ห้าม openApp() ต่อ เพราะมันเรียก closeOpenOverlays()
+    // ซึ่งจะไปวางสายทิ้งทันที (ทะเบียน OVERLAYS ผูก #tinyfeed-call-screen ไว้กับ endCall)
+    if (activeCall && !activeCall.answered) return;
     if (e.app === "memo") {
         openApp("memo");
         switchMemoTab(e.tab === "notes" ? "notes" : "agenda");
@@ -7739,7 +8367,7 @@ let lastRpMsgTs = Date.now();   // เวลาข้อความ RP ล่�
 
 // มีการ generate อื่นค้างอยู่ไหม (กันชนกับ RP/แอปอื่น)
 function proactiveBusy() {
-    return isAutoBusy || isGenerating || isGeneratingNews || isConnectReplying || isGeneratingStream || isMemoBusy || isForumBusy || isBankScanBusy;
+    return isAutoBusy || isGenerating || isGeneratingNews || isConnectReplying || isGeneratingStream || isMemoBusy || isForumBusy || isBankScanBusy || isCallActive();
 }
 
 // อยู่ในช่วงเวลาเงียบไหม (รองรับข้ามเที่ยงคืน)
@@ -7759,6 +8387,36 @@ function stopProactiveTimer() {
     if (proactiveTimer) { clearInterval(proactiveTimer); proactiveTimer = null; }
 }
 
+// สุ่มว่ารอบนี้จะ "โทรมา" แทนการทักข้อความปกติไหม — ใช้ร่วมกันทั้งทักเชิงรุก (proactiveTick) และทักตามจังหวะ RP
+// (connectAutoGenerate ใน onChatMessage) ห้ามแยกก๊อปสองที่ (กฎเหล็กข้อ 1) · คืน true = จบแล้ว ไม่ต้องเรียก proactiveDM ต่อ
+// (ทั้งกรณีเริ่มเรียกสายจริง และกรณีมีสายอยู่แล้ว — อย่างหลังกันข้อความทักซ้อนเข้าไปตอนสายกำลังเรียก/กำลังคุยอยู่)
+// สุ่มคู่แชท 1:1 ที่โทรได้จริง 1 คน (ไม่ใช่กลุ่ม/ห้องเพ็ท) แล้วเริ่มเรียกสายเข้า — คืนผลจาก startIncomingCall() ตรงๆ
+// ใช้ร่วมกันทั้ง maybeCallInsteadOfDM (สุ่มแทน DM) และ triggerAutoCall (ทริกเกอร์โทรมาเองโดยเฉพาะ) ห้ามแยกก๊อปสองที่
+function callRandomContact() {
+    const callableContacts = getConnectContacts().filter((c) => canCallThread(c.key));
+    if (!callableContacts.length) return false;
+    const c = callableContacts[Math.floor(Math.random() * callableContacts.length)];
+    return startIncomingCall(c.key, c.name, Math.random() < 0.5 ? "video" : "voice");
+}
+
+// isCharTurn: ส่งมาจาก onChatMessage เท่านั้น (undefined จาก proactiveTick = ไม่เกี่ยว ปล่อยผ่าน — ทริกเกอร์พื้นหลัง
+// ไม่ได้แข่งกับการเจนคำตอบของเทิร์นไหนโดยเฉพาะ) · false ตรงๆ (มาจากเทิร์นผู้ใช้เอง) เท่านั้นที่ห้าม — กันแข่งกับ
+// การเจนคำตอบปกติของเทิร์นนั้นที่ยังค้างอยู่พอดี เสียโควตา input ไปฟรีๆ
+function maybeCallInsteadOfDM(isCharTurn) {
+    if (isCallActive()) return true;
+    if (isCharTurn === false) return false;
+    if (!getSetting("callAiCallEnabled")) return false;
+    const chance = Math.max(0, Math.min(100, parseInt(getSetting("callProactiveChance"), 10) || 0));
+    if (chance <= 0 || Math.random() * 100 >= chance) return false;
+    return callRandomContact();
+}
+
+// ทริกเกอร์โทรมาเองโดยเฉพาะ (คีย์เวิร์ด/AI ตัดสินใจ/ทุกกี่ข้อความ ของตัวเอง) — คนละอันกับ maybeCallInsteadOfDM ที่สุ่มแทน DM ทักปกติ
+function triggerAutoCall() {
+    if (!getSetting("callAiCallEnabled") || isCallActive()) return;
+    callRandomContact();
+}
+
 async function proactiveTick() {
     if (!getSetting("proactiveEnabled")) return;
     if (proactiveBusy() || !getCurrentCharacter() || inQuietHours()) return;
@@ -7770,7 +8428,7 @@ async function proactiveTick() {
     lastProactiveTs = Date.now();   // นับเวลาใหม่ทุกครั้งที่ถึงรอบ (แม้พลาดโอกาส)
     const chance = Math.max(0, Math.min(100, parseInt(getSetting("proactiveChance"), 10) || 50));
     if (Math.random() * 100 >= chance) return;
-    // เลือก action จากสไตล์ที่เปิด: กลุ่มคุยกันเอง / โพสต์ฟีด / DM ทัก
+    // เลือก action จากสไตล์ที่เปิด: กลุ่มคุยกันเอง / โพสต์ฟีด / โทรมา / DM ทัก
     const groups = getSetting("groupAutoChat")
         ? getConnectGroups().filter((g) => (getThread("group:" + g.id) || []).length)
         : [];
@@ -7778,7 +8436,7 @@ async function proactiveTick() {
         await groupSelfChat("group:" + groups[Math.floor(Math.random() * groups.length)].id, { notify: true, silent: true });
     } else if (getSetting("proactiveViaFeed") && Math.random() < 0.5) {
         await generateFeedPost({ notify: true, silent: true });   // ทักผ่านฟีดแทน DM
-    } else {
+    } else if (!maybeCallInsteadOfDM()) {
         await proactiveDM();
     }
 }
@@ -7992,7 +8650,7 @@ const SETTINGS_LAYOUT = [
             { id: "feedAuto", name: "สร้างโพสต์อัตโนมัติ", icon: "fa-robot", desc: "โพสต์เองทุกกี่ข้อความ" },
             { id: "comments", name: "คอมเมนต์", icon: "fa-comment", desc: "NPC มาคอมเมนต์ · ตอบกลับ" },
             { id: "news", name: "ข่าวสาร", icon: "fa-newspaper", desc: "ข่าวในโลกของเรื่อง" },
-            { id: "connect", name: "TinyConnect", icon: "fa-comment-dots", desc: "แชต · สลิปโอนเงิน · ทักเอง" },
+            { id: "connect", name: "TinyConnect", icon: "fa-comment-dots", desc: "แชต · สลิปโอนเงิน · ทักเอง · โทรเสียง/วิดีโอ" },
             { id: "stream", name: "TinyStream", icon: "fa-video", desc: "ไลฟ์ · คอมเมนต์สด · พื้นหลังเวที" },
             { id: "memo", name: "TinyMemo", icon: "fa-calendar-check", desc: "กำหนดการ + โน้ต" },
             { id: "forum", name: "TinyForum", icon: "fa-comments", desc: "กระทู้ · ห้อง · คอมเมนต์" },
@@ -8155,6 +8813,17 @@ function populateSettings() {
     $("#tinyfeed-connect-read-chance-val").text(`${parseInt(getSetting("connectReadOnlyChance"), 10) || 0}%`);
     populateConnectBubbleColorCfg();
     $("#tinyfeed-cfg-connect-timegap").val(getSetting("connectTimeGapMin") || 30);
+    $("#tinyfeed-cfg-call-ai").prop("checked", Boolean(getSetting("callAiCallEnabled")));
+    $("#tinyfeed-cfg-call-auto").prop("checked", Boolean(getSetting("callAutoGenerate")));
+    $("#tinyfeed-cfg-call-mode").val(getSetting("callAutoMode") || "interval");
+    $("#tinyfeed-cfg-call-interval").val(getSetting("callAutoInterval") || 20);
+    $("#tinyfeed-cfg-call-chance").val(getSetting("callProactiveChance") || 0);
+    $("#tinyfeed-call-chance-val").text(`${parseInt(getSetting("callProactiveChance"), 10) || 0}%`);
+    $("#tinyfeed-cfg-call-ring").val(getSetting("callRingSec") || 30);
+    $("#tinyfeed-cfg-call-tokens").val(getSetting("callTokens"));
+    $("#tinyfeed-cfg-call-extra").val(getSetting("callExtraPrompt"));
+    $("#tinyfeed-cfg-call-ai-hangup").prop("checked", Boolean(getSetting("callAiHangupEnabled")));
+    $("#tinyfeed-cfg-call-log").prop("checked", Boolean(getSetting("callLogToMainChat")));
 
     populateApiProfiles();
     $("#tinyfeed-cfg-api-context").val(getSetting("apiContextMessages"));
@@ -8295,6 +8964,11 @@ function mountComposeBars() {
         sticker: { id: "tinyfeed-forum-sticker" },
         send: { id: "tinyfeed-forum-comment-send" },
     }));
+    // คุยสาย — ข้อความล้วน ไม่มีสติกเกอร์/เมนูเสริม (คุยโทรศัพท์ ไม่ใช่แชตข้อความ)
+    $("#tinyfeed-call-compose").html(composeBarHtml({
+        field: { id: "tinyfeed-call-input", placeholder: "พิมพ์สิ่งที่จะพูด..." },
+        send: { id: "tinyfeed-call-send", title: "พูด" },
+    }));
 }
 
 // แถบเขียนคอมเมนต์ใต้โพสต์ — ใช้ร่วมกันหลายแอป (ต่างกันแค่ชื่อ data + คลาสปุ่ม)
@@ -8383,6 +9057,8 @@ jQuery(async () => {
         // โหลดฟีดใหม่เมื่อสลับแชท
         const context = getContext();
         context.eventSource.on(context.eventTypes.CHAT_CHANGED, () => {
+            // สลับแชท ST ระหว่างคุยสาย = อีเวนต์นี้ยิงหลังสลับไปแล้ว เขียน record ตอนนี้จะผิดแชท ทิ้งสถานะสายไปเงียบๆ
+            if (isCallActive()) abortActiveCall();
             autoMsgCount = 0;   // เริ่มนับใหม่ตามแชทที่เปิด
             autoNewsCount = 0;
             autoMemoCount = 0;
@@ -8390,6 +9066,7 @@ jQuery(async () => {
             autoConnectCount = 0;
             autoAskCount = 0;
             autoBankScanCount = 0;
+            autoCallCount = 0;
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
@@ -8408,8 +9085,19 @@ jQuery(async () => {
         });
 
         // Stage 7: นับข้อความในแชทเพื่อ auto-generate
-        context.eventSource.on(context.eventTypes.MESSAGE_SENT, onChatMessage);
-        context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, onChatMessage);
+        context.eventSource.on(context.eventTypes.MESSAGE_SENT, () => onChatMessage(false));
+        context.eventSource.on(context.eventTypes.MESSAGE_RECEIVED, () => onChatMessage(true));
+        // สายเข้า/สายที่โทรออกเองอาจแข่งกับการเจนคำตอบในแชทหลักที่พึ่งเริ่ม (คนละจังหวะกับตอนเรียก
+        // interruptMainChatGeneration ใน openCall/startIncomingCall เอง — จุดนั้นกันกรณีมีเจนค้างอยู่ก่อนแล้ว
+        // ส่วนตัวนี้กันกรณีเจนเพิ่งเริ่มหลังจากนั้น) ไม่งั้นจะได้ทั้งคุยสายจริงในโทรศัพท์ และคำบรรยายฉากโทรศัพท์
+        // อีกชุดโผล่ในแชทหลักหลังวางสายไปแล้ว
+        context.eventSource.on(context.eventTypes.GENERATION_STARTED, () => {
+            if (!isCallActive()) return;
+            interruptMainChatGeneration(getContext());
+            // GENERATION_STARTED ยิงตอนเริ่มฟังก์ชัน Generate() ก่อน abortController/streamingProcessor ตัวจริงของ
+            // รอบนี้จะถูกสร้าง (สร้างอีกไม่กี่บรรทัดถัดไปในนั้น) เรียกซ้ำอีกทีถัดจากนี้ 1 tick ให้ชัวร์ว่าจับตัวจริงทัน
+            setTimeout(() => { if (isCallActive()) interruptMainChatGeneration(getContext()); }, 0);
+        });
 
         // ผูก event
         menuButton.on("click", openPhone);
@@ -8897,6 +9585,43 @@ jQuery(async () => {
         $(document).on("click", "#tinyfeed-gallery-view-close", closeGalleryView);
         $(document).on("click", "#tinyfeed-gallery-view", function (e) {
             if (e.target === this) closeGalleryView();
+        });
+        // ===== TinyConnect: การโทร ===== (เปิดสายมาจาก CONNECT_PLUS_ACTIONS.run() — จัดการปิดเมนู (+) ในตัวอยู่แล้ว)
+        // ผูกตรงไม่ได้ — endCall(status) รับ arg แล้ว, click handler ของ jQuery จะยัด event object เข้าไปเป็น status ทันที
+        $(document).on("click", "#tinyfeed-call-hangup", function () { endCall(); });
+        $(document).on("click", "#tinyfeed-call-accept", acceptCall);
+        $(document).on("click", "#tinyfeed-call-decline", declineCall);
+        $(document).on("click", "#tinyfeed-call-expand", toggleCallTranscript);
+        $(document).on("click", "#tinyfeed-call-send", function () {
+            sendCallMessage($("#tinyfeed-call-input").val());
+        });
+        $(document).on("keydown", "#tinyfeed-call-input", function (e) {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                sendCallMessage($(this).val());
+            }
+        });
+        // แท็บแชต/ประวัติการโทร — จำกัดด้วย [data-ctab] เสมอ (กันชน .tinyfeed-tab ของแอปอื่น)
+        $(document).on("click", ".tinyfeed-tab[data-ctab]", function () {
+            switchConnectTab($(this).data("ctab"));
+        });
+        // แถวประวัติการโทร: แตะแถว = ดูบทเต็ม · ปุ่มโทรกลับ = โทรกลับตรงๆ (ต้อง stopPropagation กันเด้งเข้ารายละเอียดด้วย)
+        $(document).on("click", ".tinyfeed-call-hist-item", function () {
+            openCallDetail($(this).data("call-id"));
+        });
+        $(document).on("click", ".tinyfeed-call-hist-callback", function (e) {
+            e.stopPropagation();
+            const key = $(this).data("key"), name = $(this).data("name"), kind = $(this).data("kind");
+            if (!canCallThread(key)) { toastr.info("โทรหาคนนี้ไม่ได้แล้ว (อาจถูกลบ/เป็นกลุ่ม)", "TinyConnect"); return; }
+            openCall(key, name, kind);
+        });
+        // การ์ดโทรในเธรด: แตะแล้วดูบทเต็มได้เฉพาะสายที่มีบทสนทนาจริง (callCardHtml ใส่คลาสนี้ให้เฉพาะตอนมี turns)
+        $(document).on("click", ".tinyfeed-call-card-clickable", function () {
+            openCallDetail($(this).data("call-id"));
+        });
+        $(document).on("click", "#tinyfeed-call-detail-close", closeCallDetail);
+        $(document).on("click", "#tinyfeed-call-detail-modal", function (e) {
+            if (e.target === this) closeCallDetail();
         });
         // แท็บ "ไฟล์ทั้งหมด" — ใช้ lightbox #tinyfeed-gallery-view ตัวเดียวกัน แต่คนละ handler (scope เฉพาะในกริดนี้
         // กัน handler .tinyfeed-gallery-item .tinyfeed-gallery-thumb ด้านบนชนกัน — ตัวนั้นยิงด้วยแต่ no-op เพราะไม่มี data-kind/id)
@@ -9488,6 +10213,43 @@ jQuery(async () => {
             const v = parseInt($(this).val(), 10);
             setSetting("connectTimeGapMin", Number.isFinite(v) && v > 0 ? v : 30);
             if (currentApp === "connect" && isConnectThreadOpen()) renderThread();
+        });
+        // ===== TinyConnect: การโทร =====
+        $(document).on("change", "#tinyfeed-cfg-call-ai", function () {
+            setSetting("callAiCallEnabled", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-call-auto", function () {
+            setSetting("callAutoGenerate", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-call-mode", function () {
+            setSetting("callAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-call-interval", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("callAutoInterval", Number.isFinite(v) && v > 0 ? v : 20);
+        });
+        $(document).on("input", "#tinyfeed-cfg-call-chance", function () {
+            const v = parseInt($(this).val(), 10);
+            const clamped = Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0));
+            setSetting("callProactiveChance", clamped);
+            $("#tinyfeed-call-chance-val").text(`${clamped}%`);
+        });
+        $(document).on("input", "#tinyfeed-cfg-call-ring", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("callRingSec", Number.isFinite(v) && v >= 5 ? v : 30);
+        });
+        $(document).on("input", "#tinyfeed-cfg-call-tokens", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("callTokens", Number.isFinite(v) && v > 0 ? v : 160);
+        });
+        $(document).on("input", "#tinyfeed-cfg-call-extra", function () {
+            setSetting("callExtraPrompt", $(this).val());
+        });
+        $(document).on("change", "#tinyfeed-cfg-call-ai-hangup", function () {
+            setSetting("callAiHangupEnabled", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-call-log", function () {
+            setSetting("callLogToMainChat", $(this).prop("checked"));
         });
 
         // Phase 2: token + คำสั่งเสริม

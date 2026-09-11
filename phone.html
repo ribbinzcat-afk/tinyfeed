@@ -354,6 +354,55 @@
                         <span class="tinyfeed-field-label">เว้นระยะกี่นาทีถึงขึ้นเส้นคั่นเวลา</span>
                         <input id="tinyfeed-cfg-connect-timegap" type="number" min="1" />
                     </label>
+                    <div class="tinyfeed-settings-title">การโทร (เสียง/วิดีโอ)</div>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชทโทรหาเราเองได้ (AI สั่งกลางแชต)</span>
+                        <input id="tinyfeed-cfg-call-ai" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>โทรมาเองตามจังหวะ RP โดยเฉพาะ</span>
+                        <input id="tinyfeed-cfg-call-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-call-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โทรทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-call-interval" type="number" min="1" />
+                    </label>
+                    <small class="tinyfeed-field-hint">แยกจาก "ให้คู่แชททักหาเราเองอัตโนมัติ" ด้านบน (ซึ่งทักข้อความเป็นหลัก) — ตัวนี้โทรมาเองตรงๆ ตามจังหวะ RP/คีย์เวิร์ดของตัวเอง (คีย์เวิร์ดตั้งในกลุ่ม "ทริกเกอร์ด้วยคีย์เวิร์ด") ต้องเปิดสวิตช์บนสุดของหมวดนี้ด้วยเสมอถึงจะมีผล</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โอกาสที่จะโทรมาแทนทักข้อความ (ตอนถึงจังหวะทักเอง): <b id="tinyfeed-call-chance-val">0%</b></span>
+                        <input id="tinyfeed-cfg-call-chance" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <small class="tinyfeed-field-hint">มีผลทั้งสองทางที่คู่แชททักเราเอง — "ทักเชิงรุก" ในหน้าทั่วไป (ตามเวลาจริง) และ "ให้คู่แชททักหาเราเองอัตโนมัติ" ด้านบนในหน้านี้ (ตามจังหวะ RP/คีย์เวิร์ด) · 0% = ไม่โทรมาเองทั้งสองทาง (ยังโทรผ่านบรรทัด CALL: กลางแชตและ "โทรมาเองตามจังหวะ RP โดยเฉพาะ" ด้านบนได้ตามปกติถ้าเปิดไว้)</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">เรียกกี่วินาทีก่อนถือว่าไม่ได้รับสาย</span>
+                        <input id="tinyfeed-cfg-call-ring" type="number" min="5" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ความยาวคำพูดต่อเทิร์นสูงสุด (token)</span>
+                        <input id="tinyfeed-cfg-call-tokens" type="number" min="1" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมบทพูดตอนคุยสาย (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-call-extra" rows="2" placeholder="เช่น: พูดสั้นๆ ห้วนๆ, ใช้ภาษาปาก..."></textarea>
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้ตัวละครวางสายเองได้ (คุยจบเรื่อง/มีธุระ)</span>
+                        <input id="tinyfeed-cfg-call-ai-hangup" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">เปิดแล้วตัวละครจะจบบทสนทนาแล้ววางสายเองเป็นบางครั้งตามความเหมาะสม (ไม่ใช่ทุกเทิร์น) · ปิดไว้ = เราต้องกดวางสายเองเสมอ</small>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกบันทึกการโทรลงประวัติแชทหลักของ SillyTavern</span>
+                        <input id="tinyfeed-cfg-call-log" type="checkbox" />
+                    </label>
+                    <small class="tinyfeed-field-hint">คุยจริงจบสาย = แทรกเป็นบล็อกพับได้ระหว่างบับเบิลแชทหลัก (กดกางอ่านบทได้ ตัวละครอ้างอิงได้ด้วย) · สายไม่ได้รับ/ปฏิเสธ = แทรกแค่บรรทัดเดียว · ปิดตัวเลือกนี้ = ประวัติการโทรยังอยู่ในโทรศัพท์ตามปกติ แค่ไม่แทรกเข้าแชทหลัก</small>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="api">
@@ -1010,6 +1059,10 @@
                     <i class="fa-solid fa-users"></i> <span>สร้างกลุ่ม</span>
                 </button>
             </div>
+            <div id="tinyfeed-connect-tabs" class="tinyfeed-tabs">
+                <div class="tinyfeed-tab tinyfeed-tab-active" data-ctab="chats">แชต</div>
+                <div class="tinyfeed-tab" data-ctab="calls">ประวัติการโทร</div>
+            </div>
             <div id="tinyfeed-connect-groupform" class="tinyfeed-connect-groupform tinyfeed-hidden">
                 <input id="tinyfeed-group-name" type="text" placeholder="ชื่อกลุ่ม..." />
                 <div class="tinyfeed-uploadrow">
@@ -1027,6 +1080,7 @@
                 </div>
             </div>
             <div id="tinyfeed-connect-list" class="tinyfeed-connect-list"></div>
+            <div id="tinyfeed-connect-calls" class="tinyfeed-connect-calls tinyfeed-screen tinyfeed-hidden"></div>
             <div id="tinyfeed-connect-thread" class="tinyfeed-connect-thread tinyfeed-hidden">
                 <div id="tinyfeed-connect-messages" class="tinyfeed-connect-messages"></div>
                 <!-- แถบพิมพ์สร้างจาก composeBarHtml() ตอน init — ดู mountComposeBars()
@@ -1605,6 +1659,42 @@
                 <img id="tinyfeed-gallery-view-img" class="tinyfeed-gallery-view-img" src="" alt="" onerror="this.classList.add('tinyfeed-img-broken')" />
                 <div id="tinyfeed-gallery-view-name" class="tinyfeed-gallery-view-name"></div>
                 <div id="tinyfeed-gallery-view-cap" class="tinyfeed-gallery-view-cap tinyfeed-hidden"></div>
+            </div>
+        </div>
+
+        <!-- หน้าจอโทร (เสียง/วิดีโอ) — overlay เต็มจอคลุมทั้งเครื่องรวม topbar แบบเดียวกับ .tinyfeed-gallery-view
+             ไม่ใช่แอปใหม่ จึงไม่มี .tinyfeed-app · ปิดผ่าน OVERLAYS (endCall) เท่านั้น -->
+        <div id="tinyfeed-call-screen" class="tinyfeed-call-screen tinyfeed-hidden">
+            <div class="tinyfeed-call-bg"></div>
+            <div class="tinyfeed-call-inner">
+                <div class="tinyfeed-call-head">
+                    <div id="tinyfeed-call-name" class="tinyfeed-call-name"></div>
+                    <div id="tinyfeed-call-status" class="tinyfeed-call-status"></div>
+                    <div id="tinyfeed-call-timer" class="tinyfeed-call-timer">00:00</div>
+                </div>
+                <div class="tinyfeed-call-portrait">
+                    <img id="tinyfeed-call-portrait-img" class="tinyfeed-call-portrait-img" src="" alt="" onerror="this.classList.add('tinyfeed-img-broken')" />
+                </div>
+                <div id="tinyfeed-call-transcript" class="tinyfeed-call-transcript tinyfeed-hidden"></div>
+                <div id="tinyfeed-call-sub" class="tinyfeed-call-sub tinyfeed-hidden"></div>
+                <div id="tinyfeed-call-compose" class="tinyfeed-call-compose tinyfeed-hidden"></div>
+                <div class="tinyfeed-call-actions">
+                    <span id="tinyfeed-call-expand" class="tinyfeed-call-actionbtn tinyfeed-hidden" title="ดูบทสนทนาทั้งหมด"><i class="fa-solid fa-chevron-up"></i></span>
+                    <span id="tinyfeed-call-accept" class="tinyfeed-call-actionbtn tinyfeed-call-accept tinyfeed-hidden" title="รับสาย"><i class="fa-solid fa-phone"></i></span>
+                    <span id="tinyfeed-call-decline" class="tinyfeed-call-actionbtn tinyfeed-call-decline tinyfeed-hidden" title="ปฏิเสธ"><i class="fa-solid fa-phone-slash"></i></span>
+                    <span id="tinyfeed-call-hangup" class="tinyfeed-call-actionbtn tinyfeed-call-hangup" title="วางสาย"><i class="fa-solid fa-phone-slash"></i></span>
+                </div>
+            </div>
+        </div>
+
+        <div id="tinyfeed-call-detail-modal" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span id="tinyfeed-call-detail-title">รายละเอียดการโทร</span>
+                    <span id="tinyfeed-call-detail-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <small id="tinyfeed-call-detail-meta" class="tinyfeed-field-hint"></small>
+                <div id="tinyfeed-call-detail-body" class="tinyfeed-call-detail-body"></div>
             </div>
         </div>
 
