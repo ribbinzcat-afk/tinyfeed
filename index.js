@@ -3717,6 +3717,7 @@ function tinyTokenCount(text) {
 const APP_META = Object.fromEntries([
     ...APPS.map((a) => [a.id, { label: a.label || a.name, icon: a.icon, color: a.a }]),
     ["news", { label: "ข่าวสาร", icon: "fa-newspaper", color: "#f59e0b" }],
+    ["call", { label: "โทรศัพท์ (TinyConnect)", icon: "fa-phone", color: "#22c55e" }],   // "call" ไม่ใช่แอปจริงใน APPS (เป็นฟีเจอร์ย่อยของ connect) เหมือน "news" ข้างบน
 ]);
 
 // ── สถิติโทเคน "จริง" ณ จุดส่ง (อัปเดตตอน inject/generate เกิดขึ้นจริง) ──
@@ -6631,6 +6632,7 @@ const KEYWORD_DEFS = [
     { app: "forum", label: "TinyForum (กระทู้)", setting: "forumKeywords" },
     { app: "ask", label: "TinyAsk (คำถามนิรนาม)", setting: "askKeywords" },
     { app: "bank", label: "TinyBank (สแกนเงินจากบท RP)", setting: "bankKeywords" },
+    { app: "call", label: "TinyConnect (โทรหาเราเอง)", setting: "callKeywords" },
 ];
 function renderKeywordEditors() {
     const html = KEYWORD_DEFS.map((d) => {
@@ -7865,6 +7867,7 @@ let autoForumCount = 0;  // ตัวนับข้อความสำหร�
 let autoConnectCount = 0; // ตัวนับข้อความสำหรับ TinyConnect (คู่แชททักเอง)
 let autoAskCount = 0;     // ตัวนับข้อความสำหรับ TinyAsk (คำถามนิรนามเข้ามาเอง)
 let autoBankScanCount = 0; // ตัวนับข้อความสำหรับสแกนเงินจากบท RP (TinyBank)
+let autoCallCount = 0;   // ตัวนับข้อความสำหรับโทรมาเอง (แยกจาก autoConnectCount ที่ทักข้อความ)
 let isAutoBusy = false;  // กันลำดับ auto ซ้อนกัน
 
 // ถาม AI แบบเงียบว่าควรมีโพสต์ใหม่ตอนนี้ไหม (โหมด ai)
@@ -7891,8 +7894,8 @@ async function aiDecidesToPost() {
 
 // เรียกทุกครั้งที่มีข้อความใหม่ในแชท (ผู้ใช้ส่ง/AI ตอบ)
 // ── ทริกเกอร์ด้วยคีย์เวิร์ด ──
-const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", ask: "askKeywords", bank: "bankKeywords" };
-const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, ask: 0, bank: 0 };
+const KEYWORD_SETTING = { feed: "feedKeywords", news: "newsKeywords", memo: "memoKeywords", forum: "forumKeywords", connect: "connectKeywords", ask: "askKeywords", bank: "bankKeywords", call: "callKeywords" };
+const kwCooldownAt = { feed: 0, news: 0, memo: 0, forum: 0, connect: 0, ask: 0, bank: 0, call: 0 };
 
 function keywordListFor(app) {
     return String(getSetting(KEYWORD_SETTING[app]) || "")
@@ -7962,6 +7965,24 @@ async function aiDecidesConnect() {
     }
 }
 
+// ตัดสินใจว่าควรมีคนโทรหาเราตอนนี้เลยไหม (โหมด "ai" ของทริกเกอร์โทรมาเองโดยเฉพาะ — ต่างจาก aiDecidesConnect ที่ถามแค่ "ทักข้อความ")
+async function aiDecidesCall() {
+    try {
+        const q =
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง ไม่ต้องสวมบทบาท] ` +
+            `พิจารณาสถานการณ์ล่าสุด: มีเหตุผลที่ตัวละครหรือคนรู้จักคนใดคนหนึ่งน่าจะ "โทรศัพท์" หาผู้ใช้ตอนนี้เลย (ไม่ใช่แค่ทักข้อความ เช่นมีเรื่องด่วน/อยากได้ยินเสียง) ไหม ` +
+            `ถ้ามีตอบ YES ถ้ายังไม่มีตอบ NO ตอบคำเดียว: YES หรือ NO`;
+        const res = await tinyGenerate(q, 120, "connect");
+        const s = stripReasoning(res).toLowerCase();
+        if (/\bno\b/.test(s) || s.includes("ไม่")) return false;
+        if (/\byes\b/.test(s) || s.includes("ใช่") || s.includes("ควร")) return true;
+        return false;
+    } catch (e) {
+        console.error(`[${extensionName}] aiDecidesCall failed:`, e);
+        return false;
+    }
+}
+
 // ตัดสินใจว่าควรมีคำถามนิรนามส่งเข้ากล่องคำถาม TinyAsk ตอนนี้ไหม (โหมด "ai")
 async function aiDecidesAsk() {
     try {
@@ -8012,7 +8033,12 @@ async function onChatMessage() {
             decide: aiDecidesToPost, run: () => generateFeedPost({ notify: true, silent: true }) },
         { on: "connectAutoGenerate", mode: "connectAutoMode", interval: "connectAutoInterval", defInt: 12, kw: "connect",
             bump: () => ++autoConnectCount, get: () => autoConnectCount, reset: () => { autoConnectCount = 0; },
-            decide: aiDecidesConnect, run: () => proactiveDM() },
+            // ถึงจังหวะทักแล้ว — สุ่มก่อนว่าจะ "โทรมา" แทนหรือเปล่า (มีสายอยู่แล้ว/ไม่เข้าเงื่อนไข = ทักข้อความตามปกติ)
+            decide: aiDecidesConnect, run: () => { if (!maybeCallInsteadOfDM()) return proactiveDM(); } },
+        // ทริกเกอร์โทรมาเองโดยเฉพาะ (แยกจากแถวข้างบนที่ทักข้อความเป็นหลัก) — คีย์เวิร์ด/AI ตัดสินใจ/ทุกกี่ข้อความ ของตัวเอง
+        { on: "callAutoGenerate", mode: "callAutoMode", interval: "callAutoInterval", defInt: 20, kw: "call",
+            bump: () => ++autoCallCount, get: () => autoCallCount, reset: () => { autoCallCount = 0; },
+            decide: aiDecidesCall, run: () => { triggerAutoCall(); } },
         { on: "memoAutoGenerate", mode: "memoAutoMode", interval: "memoAutoInterval", defInt: 15, kw: "memo",
             bump: () => ++autoMemoCount, get: () => autoMemoCount, reset: () => { autoMemoCount = 0; },
             decide: aiDecidesMemo, run: () => scanMemo({ notify: true, silent: true }) },
@@ -8309,6 +8335,32 @@ function stopProactiveTimer() {
     if (proactiveTimer) { clearInterval(proactiveTimer); proactiveTimer = null; }
 }
 
+// สุ่มว่ารอบนี้จะ "โทรมา" แทนการทักข้อความปกติไหม — ใช้ร่วมกันทั้งทักเชิงรุก (proactiveTick) และทักตามจังหวะ RP
+// (connectAutoGenerate ใน onChatMessage) ห้ามแยกก๊อปสองที่ (กฎเหล็กข้อ 1) · คืน true = จบแล้ว ไม่ต้องเรียก proactiveDM ต่อ
+// (ทั้งกรณีเริ่มเรียกสายจริง และกรณีมีสายอยู่แล้ว — อย่างหลังกันข้อความทักซ้อนเข้าไปตอนสายกำลังเรียก/กำลังคุยอยู่)
+// สุ่มคู่แชท 1:1 ที่โทรได้จริง 1 คน (ไม่ใช่กลุ่ม/ห้องเพ็ท) แล้วเริ่มเรียกสายเข้า — คืนผลจาก startIncomingCall() ตรงๆ
+// ใช้ร่วมกันทั้ง maybeCallInsteadOfDM (สุ่มแทน DM) และ triggerAutoCall (ทริกเกอร์โทรมาเองโดยเฉพาะ) ห้ามแยกก๊อปสองที่
+function callRandomContact() {
+    const callableContacts = getConnectContacts().filter((c) => canCallThread(c.key));
+    if (!callableContacts.length) return false;
+    const c = callableContacts[Math.floor(Math.random() * callableContacts.length)];
+    return startIncomingCall(c.key, c.name, Math.random() < 0.5 ? "video" : "voice");
+}
+
+function maybeCallInsteadOfDM() {
+    if (isCallActive()) return true;
+    if (!getSetting("callAiCallEnabled")) return false;
+    const chance = Math.max(0, Math.min(100, parseInt(getSetting("callProactiveChance"), 10) || 0));
+    if (chance <= 0 || Math.random() * 100 >= chance) return false;
+    return callRandomContact();
+}
+
+// ทริกเกอร์โทรมาเองโดยเฉพาะ (คีย์เวิร์ด/AI ตัดสินใจ/ทุกกี่ข้อความ ของตัวเอง) — คนละอันกับ maybeCallInsteadOfDM ที่สุ่มแทน DM ทักปกติ
+function triggerAutoCall() {
+    if (!getSetting("callAiCallEnabled") || isCallActive()) return;
+    callRandomContact();
+}
+
 async function proactiveTick() {
     if (!getSetting("proactiveEnabled")) return;
     if (proactiveBusy() || !getCurrentCharacter() || inQuietHours()) return;
@@ -8324,17 +8376,11 @@ async function proactiveTick() {
     const groups = getSetting("groupAutoChat")
         ? getConnectGroups().filter((g) => (getThread("group:" + g.id) || []).length)
         : [];
-    // คู่แชท 1:1 ที่โทรได้จริง (ไม่ใช่กลุ่ม/ห้องเพ็ท) — ใช้ตัดสินใจว่าจะสุ่ม "โทรมา" แทน DM ทักปกติได้ไหม
-    const callableContacts = getConnectContacts().filter((c) => canCallThread(c.key));
-    const callChance = Math.max(0, Math.min(100, parseInt(getSetting("callProactiveChance"), 10) || 0));
     if (groups.length && Math.random() < 0.4) {
         await groupSelfChat("group:" + groups[Math.floor(Math.random() * groups.length)].id, { notify: true, silent: true });
     } else if (getSetting("proactiveViaFeed") && Math.random() < 0.5) {
         await generateFeedPost({ notify: true, silent: true });   // ทักผ่านฟีดแทน DM
-    } else if (getSetting("callAiCallEnabled") && callableContacts.length && callChance > 0 && Math.random() * 100 < callChance) {
-        const c = callableContacts[Math.floor(Math.random() * callableContacts.length)];
-        startIncomingCall(c.key, c.name, Math.random() < 0.5 ? "video" : "voice");   // ไม่ await — เป็น sync (แค่เปิดหน้าเรียกสาย รอผู้ใช้กดรับ)
-    } else {
+    } else if (!maybeCallInsteadOfDM()) {
         await proactiveDM();
     }
 }
@@ -8712,6 +8758,9 @@ function populateSettings() {
     populateConnectBubbleColorCfg();
     $("#tinyfeed-cfg-connect-timegap").val(getSetting("connectTimeGapMin") || 30);
     $("#tinyfeed-cfg-call-ai").prop("checked", Boolean(getSetting("callAiCallEnabled")));
+    $("#tinyfeed-cfg-call-auto").prop("checked", Boolean(getSetting("callAutoGenerate")));
+    $("#tinyfeed-cfg-call-mode").val(getSetting("callAutoMode") || "interval");
+    $("#tinyfeed-cfg-call-interval").val(getSetting("callAutoInterval") || 20);
     $("#tinyfeed-cfg-call-chance").val(getSetting("callProactiveChance") || 0);
     $("#tinyfeed-call-chance-val").text(`${parseInt(getSetting("callProactiveChance"), 10) || 0}%`);
     $("#tinyfeed-cfg-call-ring").val(getSetting("callRingSec") || 30);
@@ -8960,6 +9009,7 @@ jQuery(async () => {
             autoConnectCount = 0;
             autoAskCount = 0;
             autoBankScanCount = 0;
+            autoCallCount = 0;
             renderFeed();
             renderNews();
             if (isSettingsOpen()) populateSettings();   // อัปเดตชื่อ/ลิงก์รูปตัวละครตามแชทใหม่
@@ -10099,6 +10149,16 @@ jQuery(async () => {
         // ===== TinyConnect: การโทร =====
         $(document).on("change", "#tinyfeed-cfg-call-ai", function () {
             setSetting("callAiCallEnabled", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-call-auto", function () {
+            setSetting("callAutoGenerate", $(this).prop("checked"));
+        });
+        $(document).on("change", "#tinyfeed-cfg-call-mode", function () {
+            setSetting("callAutoMode", $(this).val());
+        });
+        $(document).on("input", "#tinyfeed-cfg-call-interval", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("callAutoInterval", Number.isFinite(v) && v > 0 ? v : 20);
         });
         $(document).on("input", "#tinyfeed-cfg-call-chance", function () {
             const v = parseInt($(this).val(), 10);

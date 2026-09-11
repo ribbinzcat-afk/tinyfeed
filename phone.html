@@ -359,11 +359,28 @@
                         <span>ให้คู่แชทโทรหาเราเองได้ (AI สั่งกลางแชต)</span>
                         <input id="tinyfeed-cfg-call-ai" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>โทรมาเองตามจังหวะ RP โดยเฉพาะ</span>
+                        <input id="tinyfeed-cfg-call-auto" type="checkbox" />
+                    </label>
                     <label class="tinyfeed-field">
-                        <span class="tinyfeed-field-label">โอกาสที่ "ทักเชิงรุก" จะโทรมาแทนทักข้อความ: <b id="tinyfeed-call-chance-val">0%</b></span>
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-call-mode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โทรทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-call-interval" type="number" min="1" />
+                    </label>
+                    <small class="tinyfeed-field-hint">แยกจาก "ให้คู่แชททักหาเราเองอัตโนมัติ" ด้านบน (ซึ่งทักข้อความเป็นหลัก) — ตัวนี้โทรมาเองตรงๆ ตามจังหวะ RP/คีย์เวิร์ดของตัวเอง (คีย์เวิร์ดตั้งในกลุ่ม "ทริกเกอร์ด้วยคีย์เวิร์ด") ต้องเปิดสวิตช์บนสุดของหมวดนี้ด้วยเสมอถึงจะมีผล</small>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โอกาสที่จะโทรมาแทนทักข้อความ (ตอนถึงจังหวะทักเอง): <b id="tinyfeed-call-chance-val">0%</b></span>
                         <input id="tinyfeed-cfg-call-chance" type="range" min="0" max="100" step="5" />
                     </label>
-                    <small class="tinyfeed-field-hint">0% = ไม่โทรมาเองผ่านทักเชิงรุก (ยังโทรผ่านบรรทัด CALL: กลางแชตได้ตามปกติถ้าเปิดตัวเลือกด้านบน) · ต้องเปิด "ทักเชิงรุก" ในหน้าทั่วไปด้วยถึงจะมีผล</small>
+                    <small class="tinyfeed-field-hint">มีผลทั้งสองทางที่คู่แชททักเราเอง — "ทักเชิงรุก" ในหน้าทั่วไป (ตามเวลาจริง) และ "ให้คู่แชททักหาเราเองอัตโนมัติ" ด้านบนในหน้านี้ (ตามจังหวะ RP/คีย์เวิร์ด) · 0% = ไม่โทรมาเองทั้งสองทาง (ยังโทรผ่านบรรทัด CALL: กลางแชตและ "โทรมาเองตามจังหวะ RP โดยเฉพาะ" ด้านบนได้ตามปกติถ้าเปิดไว้)</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">เรียกกี่วินาทีก่อนถือว่าไม่ได้รับสาย</span>
                         <input id="tinyfeed-cfg-call-ring" type="number" min="5" />

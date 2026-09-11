@@ -91,6 +91,10 @@ export const defaultSettings = {
     callExtraPrompt: "",          // คำสั่งเสริมของบทพูดตอนคุยสาย
     callLogToMainChat: true,      // แทรกบันทึกการโทรลงประวัติแชทหลักของ SillyTavern (บล็อกพับได้ + ให้ AI อ่านได้)
     callHistoryMax: 30,           // เก็บประวัติการโทรสูงสุดกี่รายการต่อแชท (เก่ากว่านั้นตัดทิ้ง)
+    callAutoGenerate: false,      // ให้ระบบโทรมาเองตามจังหวะ RP โดยเฉพาะ (แยกจาก marker CALL: ตอนตอบแชต 1:1) — ต้องเปิด callAiCallEnabled ด้วย
+    callAutoMode: "interval",     // "interval" | "ai" | "keyword"
+    callAutoInterval: 20,         // โทรมาทุกๆ กี่ข้อความ (โหมด interval)
+    callKeywords: "โทรหา, โทรมา, โทรศัพท์, วิดีโอคอล, โทรสาย, call me, calling, phone call",
     // TinyStream
     streamStreamer: "char",       // "char" | "user" | "npc"
     streamStreamerNpc: "",        // ชื่อ NPC ที่เป็นสตรีมเมอร์ (เมื่อ streamStreamer = "npc")
