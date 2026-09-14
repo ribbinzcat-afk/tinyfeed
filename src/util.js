@@ -42,6 +42,21 @@ export function findGalleryImage(name) {
     return getGallery().images.find((s) => String(s.name || "").trim().toLowerCase() === k) || null;
 }
 
+// ===== มาโคร @user =====
+// เนื้อหาที่ผู้ใช้เขียนเอง (ไบโอ / สตอรี่ / โน้ต / โพสต์ในโปรไฟล์) เก็บตัวอักษร "@user" ไว้ตรงๆ เสมอ
+// เพื่อไม่ให้ชื่อ persona ของเจ้าของเครื่องติดไปกับข้อมูลที่ส่งออก (การ์ดตัวละคร) แล้วค่อยแทนเป็นชื่อจริงตอน render
+// index.js เป็นคนฉีด resolver เข้ามา — ไฟล์นี้ import จาก index.js ไม่ได้ (CLAUDE.md กฎเหล็กข้อ 4)
+let mentionUserResolver = null;
+export function setMentionUserResolver(fn) { mentionUserResolver = fn; }
+function currentUserDisplayName() {
+    try {
+        return (mentionUserResolver && mentionUserResolver()) || "";
+    } catch (e) {
+        console.error("[tinyfeed] mentionUserResolver ล้มเหลว:", e);   // fallback = แสดง "@user" ตามเดิม
+        return "";
+    }
+}
+
 export function htmlToPlain(html) {
     const d = document.createElement("div");
     d.innerHTML = String(html || "").replace(/<br\s*\/?>/gi, "\n");
@@ -119,6 +134,9 @@ export function renderRich(html) {
     s = s.replace(/\*([^*<\n]+)\*/g, "<em>$1</em>");
     s = s.replace(/~~([^~<]+)~~/g, "<del>$1</del>");
     s = s.replace(/(^|[\s(])#([^\s#@<&]+)/g, '$1<span class="tinyfeed-tag">#$2</span>');
+    // @user → ชื่อ persona ปัจจุบัน · ต้องอยู่ "ก่อน" กฎ @mention ทั่วไป
+    // ผลลัพธ์ขึ้นต้นด้วย "<" ซึ่งไม่เข้าเงื่อนไข (^|[\s(]) ของกฎถัดไป จึงไม่ถูกแทนซ้ำ
+    s = s.replace(/(^|[\s(])@user\b/gi, (m, pre) => `${pre}<span class="tinyfeed-mention">@${escapeText(currentUserDisplayName() || "user")}</span>`);
     s = s.replace(/(^|[\s(])@([^\s#@<&]+)/g, '$1<span class="tinyfeed-mention">@$2</span>');
     return s;
 }

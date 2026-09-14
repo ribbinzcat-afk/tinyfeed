@@ -51,6 +51,10 @@ export const defaultSettings = {
     userProfiles: {},           // { <personaKey>: { avatarUrl, username, alias, primary } }
     charProfiles: {},           // { <charFile>: { avatarUrl, username, alias, primary } }
     npcsByChar: {},             // { <charFile>: [{ name, avatar }] } — NPC ผูกกับตัวละคร
+    personaThemes: {},          // { <personaKey>: { enabled, theme, accentColor, wallpaperUrl, ... } } — ธีมเฉพาะ persona (ว่าง/enabled:false = ใช้ธีมกลาง)
+    // ── ฝากโปรไฟล์ไว้กับการ์ดตัวละคร ──
+    cardSyncByChar: {},         // { <charFile>: { exportedAt, seenAt, importedAt, pending } } — สถานะซิงก์ต่อการ์ด
+    cardAutoImport: false,      // เปิดการ์ดที่มีโปรไฟล์ติดมา + เครื่องนี้ยังไม่มีโปรไฟล์ → นำเข้าให้อัตโนมัติ (ปิดไว้ก่อน ให้ผู้ใช้กดเอง)
     // Stage 6: ช่วงยอดไลค์เริ่มต้นแบบสุ่มของโพสต์ AI
     likesMin: 0,
     likesMax: 48,
@@ -65,6 +69,21 @@ export const defaultSettings = {
     initialCommentMode: "none",  // "none" | "ai" (AI เลือกจำนวน) | "fixed" (กำหนดจำนวน)
     initialCommentCount: 2,
     commentTokens: 300,          // ความยาวคอมเมนต์สูงสุด (token) — ใช้ทั้งตอบคอมเมนต์เดี่ยวและคอมเมนต์ติดโพสต์ใหม่
+    // ── สตอรี่ 24 ชม. + โน้ตบนแถบสตอรี่ (TinyFeed) ──
+    storyEnabled: true,
+    storyTtlHours: 24,            // อยู่บนแถบสตอรี่กี่ชั่วโมง (พ้นแล้วตกไป "คลังสตอรี่" ไม่ได้ถูกลบ)
+    storyArchiveMax: 60,          // เก็บสตอรี่ย้อนหลังสูงสุดกี่ชิ้นต่อแชท (เกินกว่านี้ตัดตัวเก่าสุดทิ้ง)
+    storyTokens: 200,
+    storyExtraPrompt: "",
+    storyAutoGenerate: false,
+    storyAutoMode: "interval",    // "interval" | "ai" | "keyword"
+    storyAutoInterval: 14,
+    storyAiComment: true,         // AI มาตอบสตอรี่ที่เราลงเอง
+    storyAiCommentCount: 2,
+    storyReplyToDm: true,         // ตอบสตอรี่ของ AI แล้วส่งการ์ดอ้างอิงเข้าห้องแชต TinyConnect ด้วย
+    noteEnabled: true,            // ฟองโน้ตใต้รูปโปรไฟล์บนแถบสตอรี่ (เลียนแบบ Instagram Notes)
+    noteTtlHours: 24,
+    noteMaxLen: 60,
     // Stage 9: ข่าวสาร
     newsAutoGenerate: false,
     newsAutoMode: "interval",    // "interval" | "ai"
@@ -76,6 +95,10 @@ export const defaultSettings = {
     connectTokens: 200,
     connectExtraPrompt: "",
     connectSplitBubbles: true,    // แยกข้อความหลายบรรทัดเป็นหลายบับเบิล
+    connectRevealSequential: false,  // ขึ้นบับเบิลทีละอันเหมือนกำลังพิมพ์ต่อเนื่อง (เฉพาะข้อความ 1:1 ที่เพิ่งมาถึง)
+    connectRevealDelayMs: 900,        // หน่วงกี่มิลลิวินาทีต่อบับเบิล
+    connectScheduleEnabled: false,   // AI ตั้งเวลาส่งข้อความล่วงหน้าได้ (marker SCHEDULE:)
+    connectScheduleMaxHours: 48,     // ตั้งล่วงหน้าได้ไกลสุดกี่ชั่วโมง (กันเผลอตั้งไกลเกินจริง)
     connectBubbleColor: "",       // "" = เขียวเดิม · "accent" = ตามสีเน้น · หรือ hex ที่เลือกเอง
     connectTimeGapMin: 30,        // เว้นระยะกี่นาทีถึงขึ้นเส้นคั่นเวลาในแชท
     connectBgUrl: "",             // พื้นหลังแชทกลาง (ใช้เป็นค่าเริ่มต้นของห้องที่ยังไม่ได้ตั้งเอง)
@@ -87,10 +110,13 @@ export const defaultSettings = {
     callAiCallEnabled: false,     // ให้ตัวละครโทรหาเราเองได้ (ผ่าน marker CALL: ตอนตอบแชต)
     callProactiveChance: 0,       // % โอกาสที่จะโทรมาแทน DM ทักปกติ ตอนถึงรอบทักเชิงรุก (0 = ปิด)
     callRingSec: 30,              // สายเข้าเรียกกี่วินาทีก่อนถือว่าไม่ได้รับ
+    callOutRingSec: 8,            // โทรออกเอง — รอกี่วินาทีก่อนสรุปว่ารับ/ไม่รับ
+    callAnswerChance: 85,         // % โอกาสที่ฝั่งโน้นจะรับสายที่เราโทรออกไป (ลดลงอัตโนมัติในช่วงเงียบ/quiet hours)
     callTokens: 160,              // token ต่อคำตอบ 1 เทิร์นระหว่างคุยสาย
     callExtraPrompt: "",          // คำสั่งเสริมของบทพูดตอนคุยสาย
     callLogToMainChat: true,      // แทรกบันทึกการโทรลงประวัติแชทหลักของ SillyTavern (บล็อกพับได้ + ให้ AI อ่านได้)
     callHistoryMax: 30,           // เก็บประวัติการโทรสูงสุดกี่รายการต่อแชท (เก่ากว่านั้นตัดทิ้ง)
+    callDeleteAlsoMainChat: true, // ลบประวัติการโทร → ลบข้อความบันทึกสายในแชทหลักของ ST ด้วย (ถ้าเคยแทรกไว้)
     callAutoGenerate: false,      // ให้ระบบโทรมาเองตามจังหวะ RP โดยเฉพาะ (แยกจาก marker CALL: ตอนตอบแชต 1:1) — ต้องเปิด callAiCallEnabled ด้วย
     callAutoMode: "interval",     // "interval" | "ai" | "keyword"
     callAutoInterval: 20,         // โทรมาทุกๆ กี่ข้อความ (โหมด interval)
@@ -146,6 +172,7 @@ export const defaultSettings = {
     injectBag: false,             // แทรกของในกระเป๋า TinyBag เข้า RP
     injectPet: false,             // แทรกสถานะสัตว์เลี้ยง เข้า RP
     injectAsk: false,             // แทรกคำถาม-คำตอบล่าสุดใน TinyAsk เข้า RP
+    injectStory: false,           // แทรกสตอรี่ 24 ชม. + โน้ตบนแถบสตอรี่ เข้า RP
     // TinyBank (ธนาคาร/การเงิน — ยอดเงินผูกกับแชท)
     bankCurrency: "฿",            // (fallback เท่านั้น) สกุลเงินจริงผูกกับตัวละคร — ดู getCharCurrency() ใน index.js · ใช้ตอนไม่มีตัวละครในแชท
     bankCurrencyAfter: false,     // (fallback) ตำแหน่งสัญลักษณ์เมื่อไม่มีตัวละคร — ค่าจริงต่อตัวละครอยู่ที่ charCurrency
@@ -198,6 +225,7 @@ export const defaultSettings = {
     crossAppBag: false,           // ของในกระเป๋า TinyBag
     crossAppPet: false,           // สถานะสัตว์เลี้ยง TinyPet
     crossAppAsk: false,           // คำถาม-คำตอบ TinyAsk
+    crossAppStory: false,         // สตอรี่ + โน้ต (TinyFeed)
     // ── ทริกเกอร์ด้วยคีย์เวิร์ด: เมื่อโหมด auto ของแอปตั้งเป็น "keyword" ──
     // เจอคำเหล่านี้ในข้อความ RP ล่าสุด → สั่งแอปนั้นสร้างเนื้อหา (มี cooldown กันถี่)
     // ฟรี ทำงานฝั่งเบราว์เซอร์ ไม่มีดีเลย์/ไม่ต้องโหลดโมเดล (embedding เป็นแผนอนาคต)
@@ -207,6 +235,7 @@ export const defaultSettings = {
     forumKeywords: "กระทู้, เว็บบอร์ด, พันทิป, ตั้งกระทู้, ในบอร์ด, ชาวเน็ต, forum, pantip",
     connectKeywords: "แชต, ทักไลน์, ส่งไลน์, ทักมา, ส่งข้อความ, ไลน์มา, chat, line, dm, ทักหา",
     askKeywords: "ถาม, สงสัย, กล่องคำถาม, มีคนถามว่า, ask, ngl",
+    storyKeywords: "ลงสตอรี่, สตอรี่, อัปสตอรี่, ถ่ายสตอรี่, ลงสตอรี, story, ig story",
     bankKeywords: "ได้เงิน, ค่าจ้าง, ได้รับเงิน, จ่ายเงิน, เสียเงิน, โดนขโมยเงิน, รางวัล, เงินเดือน, money, paid, reward",
     keywordCooldownSec: 45,       // เว้นระยะขั้นต่ำต่อแอป (วินาที) กันทริกเกอร์ถี่เกิน
     keywordScope: "both",         // ทริกเกอร์คีย์เวิร์ดจับข้อความฝั่งไหน: "both" | "char" | "user"

@@ -64,6 +64,8 @@
 
         <div class="tinyfeed-screen">
             <div id="tinyfeed-panel-feed" class="tinyfeed-panel">
+                <!-- แถบสตอรี่ 24 ชม. — โปรไฟล์ persona อยู่หัวแถวเสมอ (renderStoryBar) -->
+                <div id="tinyfeed-story-bar" class="tinyfeed-story-bar"></div>
                 <div id="tinyfeed-compose" class="tinyfeed-compose">
                     <div id="tinyfeed-quote-chip" class="tinyfeed-quote-chip tinyfeed-hidden">
                         <i class="fa-solid fa-quote-left"></i>
@@ -110,6 +112,111 @@
         </div>
         </div>
 
+        <!-- หน้าดูสตอรี่: เต็มจอคลุม topbar (ทรงเดียวกับหน้าจอโทร) -->
+        <div id="tinyfeed-story-viewer" class="tinyfeed-story-viewer tinyfeed-hidden">
+            <div id="tinyfeed-story-viewer-bars" class="tinyfeed-story-viewer-bars"></div>
+            <div id="tinyfeed-story-viewer-head" class="tinyfeed-story-viewer-head"></div>
+            <div id="tinyfeed-story-viewer-canvas" class="tinyfeed-story-viewer-canvas"></div>
+            <div id="tinyfeed-story-viewer-foot" class="tinyfeed-story-viewer-foot"></div>
+        </div>
+
+        <!-- เขียนสตอรี่: เลือกรูปจากคลัง + แปะข้อความลากวางบนรูป -->
+        <div id="tinyfeed-story-compose" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>ลงสตอรี่</span>
+                    <span id="tinyfeed-story-compose-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div class="tinyfeed-story-compose-body">
+                    <div id="tinyfeed-story-compose-canvas" class="tinyfeed-story-canvas"></div>
+                    <div class="tinyfeed-story-compose-tools">
+                        <button id="tinyfeed-story-pickimg" class="tinyfeed-btn-ghost"><i class="fa-solid fa-image"></i> เลือกรูป</button>
+                        <button id="tinyfeed-story-addtext" class="tinyfeed-btn-ghost"><i class="fa-solid fa-font"></i> เพิ่มข้อความ</button>
+                    </div>
+                    <input id="tinyfeed-story-compose-caption" type="text" placeholder="คำบรรยาย (ไม่บังคับ) — พิมพ์ @user แทนชื่อคุณได้" />
+                </div>
+                <div class="tinyfeed-profile-edit-foot">
+                    <button id="tinyfeed-story-compose-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                    <button id="tinyfeed-story-compose-save" class="tinyfeed-btn-primary" disabled>ลงสตอรี่</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- แก้ข้อความที่แปะบนสตอรี่ -->
+        <div id="tinyfeed-story-text-edit" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>ข้อความบนสตอรี่</span>
+                    <span id="tinyfeed-story-text-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <input id="tinyfeed-story-text-input" type="text" placeholder="พิมพ์ข้อความ" />
+                <div class="tinyfeed-story-text-opts">
+                    <select id="tinyfeed-story-text-size">
+                        <option value="sm">เล็ก</option>
+                        <option value="md">กลาง</option>
+                        <option value="lg">ใหญ่</option>
+                    </select>
+                    <select id="tinyfeed-story-text-color">
+                        <option value="white">ขาว</option>
+                        <option value="accent">สีธีม</option>
+                        <option value="danger">แดง</option>
+                        <option value="warn">เหลือง</option>
+                        <option value="success">เขียว</option>
+                    </select>
+                    <input id="tinyfeed-story-text-rot" type="range" min="-30" max="30" step="1" value="0" title="เอียง" />
+                </div>
+                <div class="tinyfeed-profile-edit-foot">
+                    <button id="tinyfeed-story-text-del" class="tinyfeed-btn-ghost">ลบข้อความ</button>
+                    <button id="tinyfeed-story-text-save" class="tinyfeed-btn-primary">ตกลง</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- โน้ตของเรา (เขียน/แก้/ลบ) -->
+        <div id="tinyfeed-storynote-edit" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>โน้ตของคุณ</span>
+                    <span id="tinyfeed-storynote-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <input id="tinyfeed-storynote-input" type="text" placeholder="กำลังคิดอะไรอยู่…" />
+                <small class="tinyfeed-field-hint">โน้ตจะหายเองตามเวลาที่ตั้งไว้ · ตัวละครในแชตมองเห็นโน้ตนี้</small>
+                <div class="tinyfeed-profile-edit-foot">
+                    <button id="tinyfeed-storynote-del" class="tinyfeed-btn-ghost">ลบโน้ต</button>
+                    <button id="tinyfeed-storynote-save" class="tinyfeed-btn-primary">บันทึก</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ดูโน้ตของตัวละคร + ปุ่มตอบที่พาเข้าห้องแชตตรงๆ -->
+        <div id="tinyfeed-storynote-view" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>โน้ต</span>
+                    <span id="tinyfeed-storynote-view-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-storynote-view-body"></div>
+            </div>
+        </div>
+
+        <!-- หน้าโปรไฟล์: เป็นพี่น้องของแอป (เปิดได้จากทุกแอป) ปิดผ่าน OVERLAYS/ปุ่มย้อนกลับ -->
+        <div id="tinyfeed-profile-screen" class="tinyfeed-profile-screen tinyfeed-hidden">
+            <div class="tinyfeed-screen">
+                <div id="tinyfeed-profile-top" class="tinyfeed-profile-top"></div>
+                <div id="tinyfeed-profile-npcs" class="tinyfeed-profile-npcs tinyfeed-hidden"></div>
+                <div id="tinyfeed-profile-highlights" class="tinyfeed-profile-highlights tinyfeed-hidden"></div>
+                <div class="tinyfeed-tabs">
+                    <div class="tinyfeed-tab tinyfeed-tab-active" data-ptab="grid">
+                        <span class="fa-solid fa-table-cells"></span> ตาราง
+                    </div>
+                    <div class="tinyfeed-tab" data-ptab="timeline">
+                        <span class="fa-solid fa-list"></span> ไทม์ไลน์
+                    </div>
+                </div>
+                <div id="tinyfeed-profile-body" class="tinyfeed-profile-body"></div>
+            </div>
+        </div>
+
         <!-- หน้าตั้งค่า: เป็นพี่น้องของแอป ไม่ซ้อนอยู่ใน #tinyfeed-app-feed อีกแล้ว (CONVENTIONS.md บทที่ 3) -->
         <div id="tinyfeed-settings-screen" class="tinyfeed-settings-screen tinyfeed-hidden">
             <!-- ระดับ 1: รายการหัวข้อ (สร้างด้วย renderSettingsList) -->
@@ -117,6 +224,18 @@
             <!-- ระดับ 2: เนื้อหาของหัวข้อที่เลือก — กลุ่มทั้งหมดซ่อนไว้ โชว์ทีละกลุ่ม -->
             <div id="tinyfeed-settings-detail" class="tinyfeed-screen tinyfeed-hidden">
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="appearance">
+                    <!-- ธีมผูกกับ persona: เปิดแล้วทุกช่องในกลุ่มนี้ + วอลเปเปอร์ + โหมดมืด/สว่าง (ปุ่มบน topbar) จะแยกเก็บต่อ persona -->
+                    <div class="tinyfeed-persona-theme-box">
+                        <label class="tinyfeed-field-row">
+                            <span id="tinyfeed-cfg-persona-theme-label">ใช้ธีมเฉพาะของ persona นี้</span>
+                            <input id="tinyfeed-cfg-persona-theme" type="checkbox" />
+                        </label>
+                        <small class="tinyfeed-field-hint">ปิดไว้ = ทุกคนใช้ธีมกลางร่วมกัน · เปิด = สี/วอลเปเปอร์/โหมดมืด-สว่างของ persona นี้แยกจากคนอื่น</small>
+                        <div id="tinyfeed-persona-theme-tools" class="tinyfeed-persona-theme-tools tinyfeed-hidden">
+                            <button id="tinyfeed-persona-theme-copy" class="tinyfeed-btn-ghost">คัดลอกธีมกลางมาเป็นจุดตั้งต้น</button>
+                            <button id="tinyfeed-persona-theme-clear" class="tinyfeed-btn-ghost">ล้างธีมของ persona นี้</button>
+                        </div>
+                    </div>
                     <div class="tinyfeed-settings-title">ปรับแต่งหน้าตา</div>
                     <div class="tinyfeed-field">
                         <span class="tinyfeed-field-label">สีธีม (accent)</span>
@@ -320,6 +439,23 @@
                         <input id="tinyfeed-cfg-connect-split" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field-row">
+                        <span>ขึ้นทีละบับเบิล (เหมือนกำลังพิมพ์ต่อเนื่อง)</span>
+                        <input id="tinyfeed-cfg-connect-reveal" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">หน่วงกี่มิลลิวินาทีต่อบับเบิล</span>
+                        <input id="tinyfeed-cfg-connect-reveal-delay" type="number" min="300" max="5000" step="100" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้คู่แชทตั้งเวลาส่งข้อความล่วงหน้าได้ (AI ตั้ง)</span>
+                        <input id="tinyfeed-cfg-connect-schedule" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">ตั้งล่วงหน้าได้ไกลสุดกี่ชั่วโมง</span>
+                        <input id="tinyfeed-cfg-connect-schedule-max" type="number" min="1" max="720" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ดู/ยกเลิกรายการที่ตั้งไว้ได้จากปุ่ม + ในห้องแชท → ข้อความตั้งเวลา</small>
+                    <label class="tinyfeed-field-row">
                         <span>ให้คู่แชทโอนเงินเข้าบัญชีเราได้ (AI ส่งสลิป)</span>
                         <input id="tinyfeed-cfg-connect-slip" type="checkbox" />
                     </label>
@@ -386,6 +522,15 @@
                         <input id="tinyfeed-cfg-call-ring" type="number" min="5" />
                     </label>
                     <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โทรออกเอง — รอกี่วินาทีก่อนรู้ว่ารับ/ไม่รับ</span>
+                        <input id="tinyfeed-cfg-call-outring" type="number" min="2" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โอกาสที่ฝั่งโน้นจะรับสายที่เราโทรไป: <b id="tinyfeed-call-answer-val">0%</b></span>
+                        <input id="tinyfeed-cfg-call-answer" type="range" min="0" max="100" step="5" />
+                    </label>
+                    <small class="tinyfeed-field-hint">ลดลงอัตโนมัติในช่วงเงียบ (quiet hours) ที่ตั้งไว้ด้านบน</small>
+                    <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ความยาวคำพูดต่อเทิร์นสูงสุด (token)</span>
                         <input id="tinyfeed-cfg-call-tokens" type="number" min="1" />
                     </label>
@@ -403,6 +548,10 @@
                         <input id="tinyfeed-cfg-call-log" type="checkbox" />
                     </label>
                     <small class="tinyfeed-field-hint">คุยจริงจบสาย = แทรกเป็นบล็อกพับได้ระหว่างบับเบิลแชทหลัก (กดกางอ่านบทได้ ตัวละครอ้างอิงได้ด้วย) · สายไม่ได้รับ/ปฏิเสธ = แทรกแค่บรรทัดเดียว · ปิดตัวเลือกนี้ = ประวัติการโทรยังอยู่ในโทรศัพท์ตามปกติ แค่ไม่แทรกเข้าแชทหลัก</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ลบประวัติการโทร → ลบข้อความบันทึกสายในแชทหลักด้วย</span>
+                        <input id="tinyfeed-cfg-call-delmain" type="checkbox" />
+                    </label>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="api">
@@ -427,6 +576,7 @@
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="wallpaper">
                     <div class="tinyfeed-settings-title">วอลเปเปอร์</div>
+                    <small class="tinyfeed-field-hint">เปิด "ใช้ธีมเฉพาะของ persona นี้" ได้ที่หมวด ปรับแต่งหน้าตา — วอลเปเปอร์จะแยกเก็บตาม persona ไปด้วย</small>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">ลิงก์รูปวอลเปเปอร์หน้าโฮม</span>
                         <div class="tinyfeed-uploadrow">
@@ -544,6 +694,29 @@
                     <small class="tinyfeed-field-hint">กำหนดตัวละครประจำโลกของแชทนี้ · AI จะเลือกโพสต์จากรายชื่อนี้ · ใส่ลิงก์รูปให้ NPC มีรูปเฉพาะตัว (เว้นว่าง = วงกลมสีอักษรแรก)</small>
                 </div>
 
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="cardSync">
+                    <div class="tinyfeed-settings-title">ฝากไว้กับการ์ด</div>
+                    <small class="tinyfeed-field-hint">ฝังไบโอ · โพสต์ในโปรไฟล์ · ไฮไลต์ ของ "ตัวละครหลัก + NPC ประจำ" ลงไฟล์การ์ดตัวละคร — เอาการ์ดไปเปิดเครื่องอื่นแล้วดึงกลับมาได้ (ไม่รวมโปรไฟล์ของคุณเอง กันชื่อ persona หลุดไปกับการ์ด)</small>
+                    <div id="tinyfeed-card-status" class="tinyfeed-card-status">เปิดแชทที่มีตัวละครก่อนนะ</div>
+                    <button id="tinyfeed-card-export" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-file-export"></i> <span>ฝากโปรไฟล์ไว้กับการ์ดนี้</span>
+                    </button>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">นำเข้าจากการ์ด</span>
+                        <select id="tinyfeed-card-import-mode">
+                            <option value="fill">เติมเฉพาะช่องที่ยังว่าง</option>
+                            <option value="replace">ทับของเดิมทั้งหมด</option>
+                        </select>
+                    </label>
+                    <button id="tinyfeed-card-import" class="tinyfeed-btn-ghost">
+                        <i class="fa-solid fa-file-import"></i> <span>นำเข้าจากการ์ดนี้</span>
+                    </button>
+                    <label class="tinyfeed-field-row">
+                        <span>เจอการ์ดที่มีโปรไฟล์ติดมา + เครื่องนี้ยังว่าง → นำเข้าให้อัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-card-autoimport" type="checkbox" />
+                    </label>
+                </div>
+
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="feedAuto">
                     <div class="tinyfeed-settings-title">สร้างโพสต์อัตโนมัติ</div>
                     <label class="tinyfeed-field-row">
@@ -563,6 +736,82 @@
                         <input id="tinyfeed-cfg-interval" type="number" min="1" />
                     </label>
                     <small class="tinyfeed-field-hint">โหมด "ทุกๆ จำนวนข้อความ" = ครบตามจำนวนแล้วสร้างเลย · "ให้ AI ตัดสินใจเอง" = ครบแล้ว AI เช็คก่อนว่าควรโพสต์ไหม · นับจากตอนเปิดแชท</small>
+                </div>
+
+                <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="story">
+                    <div class="tinyfeed-settings-title">สตอรี่ 24 ชม. (TinyFeed)</div>
+                    <small class="tinyfeed-field-hint">สตอรี่กับโน้ตเก็บอยู่กับ "แชทนี้" — ลบแชทแล้วหายไปด้วย เหมือนโพสต์ในฟีด</small>
+                    <label class="tinyfeed-field-row">
+                        <span>เปิดแถบสตอรี่บนหัวไทม์ไลน์</span>
+                        <input id="tinyfeed-cfg-story-enabled" type="checkbox" />
+                    </label>
+                    <div class="tinyfeed-field-2col">
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">อยู่บนแถบกี่ชั่วโมง</span>
+                            <input id="tinyfeed-cfg-story-ttl" type="number" min="1" max="720" />
+                        </label>
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">เก็บย้อนหลังสูงสุด</span>
+                            <input id="tinyfeed-cfg-story-max" type="number" min="10" max="300" />
+                        </label>
+                    </div>
+                    <small class="tinyfeed-field-hint">พ้นเวลาแล้วสตอรี่ไม่ได้ถูกลบ — ตกไปอยู่ใน "คลังสตอรี่" (ชิปท้ายแถบ) กดดูย้อนหลังได้</small>
+                    <label class="tinyfeed-field-row">
+                        <span>ให้ NPC มาตอบสตอรี่ที่เราลง</span>
+                        <input id="tinyfeed-cfg-story-aicomment" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">จำนวนคนที่มาตอบ</span>
+                        <input id="tinyfeed-cfg-story-aicount" type="number" min="1" max="6" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>ตอบสตอรี่ของตัวละคร → ส่งเข้าห้องแชตด้วย</span>
+                        <input id="tinyfeed-cfg-story-dm" type="checkbox" />
+                    </label>
+                    <div class="tinyfeed-settings-title">สร้างสตอรี่อัตโนมัติ</div>
+                    <label class="tinyfeed-field-row">
+                        <span>เปิดสร้างสตอรี่อัตโนมัติ</span>
+                        <input id="tinyfeed-cfg-story-auto" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โหมด</span>
+                        <select id="tinyfeed-cfg-story-automode">
+                            <option value="interval">ทุกๆ จำนวนข้อความ</option>
+                            <option value="ai">ให้ AI ตัดสินใจเอง</option>
+                            <option value="keyword">เมื่อเจอคีย์เวิร์ด</option>
+                        </select>
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">สร้างทุกๆ กี่ข้อความ</span>
+                        <input id="tinyfeed-cfg-story-interval" type="number" min="1" />
+                    </label>
+                    <div class="tinyfeed-field-2col">
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">ความยาวสูงสุด (token)</span>
+                            <input id="tinyfeed-cfg-story-tokens" type="number" min="50" max="1000" />
+                        </label>
+                        <label class="tinyfeed-field">
+                            <span class="tinyfeed-field-label">ความยาวโน้ตสูงสุด</span>
+                            <input id="tinyfeed-cfg-note-maxlen" type="number" min="10" max="200" />
+                        </label>
+                    </div>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">คำสั่งเสริมสำหรับสตอรี่/โน้ต (ไม่บังคับ)</span>
+                        <textarea id="tinyfeed-cfg-story-extra" rows="2" placeholder="เช่น: ให้สตอรี่ออกแนวเล่าชีวิตประจำวัน"></textarea>
+                    </label>
+                    <div class="tinyfeed-settings-title">โน้ตบนแถบสตอรี่</div>
+                    <small class="tinyfeed-field-hint">ฟองข้อความเหนือรูปโปรไฟล์ในแถบสตอรี่ (เลียนแบบโน้ตของ Instagram) — กดโน้ตของตัวละครแล้วเข้าห้องแชตได้ทันที</small>
+                    <label class="tinyfeed-field-row">
+                        <span>เปิดฟองโน้ต</span>
+                        <input id="tinyfeed-cfg-note-enabled" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">โน้ตอยู่ได้กี่ชั่วโมง</span>
+                        <input id="tinyfeed-cfg-note-ttl" type="number" min="1" max="720" />
+                    </label>
+                    <button id="tinyfeed-story-gennote" class="tinyfeed-btn-generate">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ตัวละครเขียนโน้ตใหม่</span>
+                    </button>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="news">
@@ -651,6 +900,10 @@
                         <span>แทรกคำถาม-คำตอบ TinyAsk ด้วย</span>
                         <input id="tinyfeed-cfg-inject-ask" type="checkbox" />
                     </label>
+                    <label class="tinyfeed-field-row">
+                        <span>แทรกสตอรี่ + โน้ตบนแถบสตอรี่ ด้วย</span>
+                        <input id="tinyfeed-cfg-inject-story" type="checkbox" />
+                    </label>
                     <div class="tinyfeed-field-2col">
                         <label class="tinyfeed-field">
                             <span class="tinyfeed-field-label">จำนวนล่าสุดที่แทรก</span>
@@ -713,6 +966,10 @@
                     <label class="tinyfeed-field-row">
                         <span>· คำถาม-คำตอบ (TinyAsk)</span>
                         <input id="tinyfeed-cfg-crossapp-ask" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field-row">
+                        <span>· สตอรี่ + โน้ต (TinyFeed)</span>
+                        <input id="tinyfeed-cfg-crossapp-story" type="checkbox" />
                     </label>
                     <label class="tinyfeed-field">
                         <span class="tinyfeed-field-label">จำนวนที่แนบข้ามแอป</span>
@@ -1083,6 +1340,12 @@
             <div id="tinyfeed-connect-calls" class="tinyfeed-connect-calls tinyfeed-screen tinyfeed-hidden"></div>
             <div id="tinyfeed-connect-thread" class="tinyfeed-connect-thread tinyfeed-hidden">
                 <div id="tinyfeed-connect-messages" class="tinyfeed-connect-messages"></div>
+                <!-- ชิปอ้างโน้ต: มาจากการกด "ตอบในแชต" บนโน้ตในแถบสตอรี่ (คู่ขนานกับ #tinyfeed-quote-chip ของฟีด) -->
+                <div id="tinyfeed-connect-quote-chip" class="tinyfeed-quote-chip tinyfeed-hidden">
+                    <i class="fa-solid fa-quote-left"></i>
+                    <span>ตอบโน้ตของ <b id="tinyfeed-connect-quote-name"></b>: <span id="tinyfeed-connect-quote-text"></span></span>
+                    <span id="tinyfeed-connect-quote-close" title="ยกเลิก"><i class="fa-solid fa-xmark"></i></span>
+                </div>
                 <!-- แถบพิมพ์สร้างจาก composeBarHtml() ตอน init — ดู mountComposeBars()
                      ปุ่มส่งมอร์ฟเป็นคทา (ให้ตอบกลับ/ให้กลุ่มคุยต่อ) เวลาช่องว่าง — ดู updateConnectSendBtn() -->
                 <div id="tinyfeed-connect-compose" class="tinyfeed-connect-compose"></div>
@@ -1181,6 +1444,7 @@
                         <button id="tinyfeed-forum-generate" class="tinyfeed-btn-generate">
                             <i class="fa-solid fa-wand-magic-sparkles"></i> <span>ให้ชาวเน็ตตั้งกระทู้</span>
                         </button>
+                        <input id="tinyfeed-forum-guidance" class="tinyfeed-gen-guidance" type="text" placeholder="แนวทางกระทู้นี้ (ครั้งเดียว, ไม่บังคับ)" />
                     </div>
                     <div id="tinyfeed-forum-newform" class="tinyfeed-forum-newform tinyfeed-hidden">
                         <select id="tinyfeed-forum-room"></select>
@@ -1449,13 +1713,29 @@
             </div>
         </div>
 
-        <div id="tinyfeed-char-profile" class="tinyfeed-modal tinyfeed-hidden">
-            <div class="tinyfeed-modal-card tinyfeed-vprofile-card">
+        <!-- ดูโพสต์ static / ไฮไลต์ 1 ชิ้นจากหน้าโปรไฟล์ -->
+        <div id="tinyfeed-profile-post" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
                 <div class="tinyfeed-modal-head">
-                    <span>โปรไฟล์ตัวละคร</span>
-                    <span id="tinyfeed-char-profile-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                    <span>โพสต์</span>
+                    <span id="tinyfeed-profile-post-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
                 </div>
-                <div id="tinyfeed-char-profile-body" class="tinyfeed-vprofile-body"></div>
+                <div id="tinyfeed-profile-post-body" class="tinyfeed-profile-post-body"></div>
+            </div>
+        </div>
+
+        <!-- แก้ไขโปรไฟล์: ไบโอ · โพสต์ static · ไฮไลต์ -->
+        <div id="tinyfeed-profile-edit" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>แก้ไขโปรไฟล์</span>
+                    <span id="tinyfeed-profile-edit-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-profile-edit-body" class="tinyfeed-profile-edit-body"></div>
+                <div class="tinyfeed-profile-edit-foot">
+                    <button id="tinyfeed-profile-edit-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
+                    <button id="tinyfeed-profile-edit-save" class="tinyfeed-btn-primary">บันทึก</button>
+                </div>
             </div>
         </div>
 
@@ -1687,6 +1967,17 @@
             </div>
         </div>
 
+        <div id="tinyfeed-connect-sched" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>ข้อความตั้งเวลา</span>
+                    <span id="tinyfeed-connect-sched-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <small class="tinyfeed-field-hint">รายการที่ตัวละครตั้งไว้จะส่งในห้องนี้ตอนถึงเวลา — ปิดเซิร์ฟเวอร์อยู่ก็ยังตั้งเวลาไว้ได้ พอเปิดใหม่จะโผล่พร้อมเวลาจริงที่ตั้งไว้</small>
+                <div id="tinyfeed-connect-sched-body"></div>
+            </div>
+        </div>
+
         <div id="tinyfeed-call-detail-modal" class="tinyfeed-modal tinyfeed-hidden">
             <div class="tinyfeed-modal-card">
                 <div class="tinyfeed-modal-head">
@@ -1695,6 +1986,7 @@
                 </div>
                 <small id="tinyfeed-call-detail-meta" class="tinyfeed-field-hint"></small>
                 <div id="tinyfeed-call-detail-body" class="tinyfeed-call-detail-body"></div>
+                <button id="tinyfeed-call-detail-del" class="tinyfeed-btn-ghost"><i class="fa-solid fa-trash"></i> ลบประวัติสายนี้</button>
             </div>
         </div>
 

@@ -27,7 +27,7 @@
 
 ### กฎ
 
-> **ห้ามใส่สีดิบ (hex) ใน `style.css` ยกเว้น 4 กรณีข้างล่าง**
+> **ห้ามใส่สีดิบ (hex) ใน `style.css` ยกเว้น 5 กรณีข้างล่าง**
 > ถ้าขนาด/ระยะที่ต้องการไม่มีใน token → เลือกตัวที่ใกล้ที่สุด **อย่าเพิ่ม token ใหม่เพราะต่างกัน 1px**
 
 **สีดิบที่ยังใช้ได้ (ไม่ต้องแปลง):**
@@ -35,9 +35,10 @@
 2. **`#fff` / `#000`** สำหรับตัวอักษรบนพื้นสี หรือใช้ผสมใน `color-mix(… , #000)` — ไม่ขึ้นกับธีม
 3. **fallback ใน `var()`** เช่น `var(--donate-color, #1d9bf0)` — ต้องเป็นค่าจริง
 4. **`.tinyfeed-notif*` (แบนเนอร์แจ้งเตือน)** — อยู่**นอก** `#tinyfeed-phone` จึงเข้าถึง `--tf-*` ไม่ได้ ดู `--nf-*` ข้างล่าง
+5. **พื้นหลังของ overlay ดูสื่อเต็มจอ** (เช่น `.tinyfeed-story-viewer`/`.tinyfeed-story-canvas`) — ตั้งใจให้เป็น `#000`/`#fff` เสมอไม่ว่าธีมไหน เหมือนแอปกล้อง/แกลเลอรี่จริง (`--tf-bg` จะเปลี่ยนตามธีมมืด/สว่าง ไม่ใช่สิ่งที่ต้องการที่นี่)
 
 **สถานะ (เฟส 7):** แปลงแล้ว **56 จุด** — `#f4212e`+`#ef4444` → `--tf-danger` (36) · `#10b981` → `--tf-app-bank` (8) · `#a855f7` → `--tf-app-stream` (6) · `#22c55e` → `--tf-app-connect`/`--tf-success` (6)
-เหลือ hex 102 ตัว ซึ่ง **70 ตัวเป็น 4 กรณีข้างบน** ที่เหลือ ~30 เป็นสีเฉพาะจุด (`#ffca28` ทอง · `#f91880` ชมพู ฯลฯ) — เติม token ได้ถ้าเริ่มใช้ซ้ำ
+เหลือ hex 102+ ตัว (ไม่รวมของใหม่จากสตอรี่) ซึ่งส่วนใหญ่เป็น **5 กรณีข้างบน** ที่เหลือเป็นสีเฉพาะจุด (`#ffca28` ทอง · `#f91880` ชมพู ฯลฯ) — เติม token ได้ถ้าเริ่มใช้ซ้ำ
 
 *(ตอนเริ่มโปรเจกต์นี้: `font-size` 25 ค่า, `border-radius` 17 ค่า, hex ดิบ 141 ตัว — เกิดจากเลือกค่า "ที่ดูดี" ทีละครั้งโดยไม่มีบันไดให้ยึด)*
 
@@ -89,6 +90,10 @@
 | `--tf-overlay-alpha` | `applyAppearance()` | `overlayOpacity` |
 | `--tf-widget-alpha` | `applyAppearance()` | `widgetOpacity` |
 | `--tf-home-hue` | `applyAppearance()` | สุ่ม/ตั้งเอง |
+| `--tf-accent` | `applyAppearance()` | `accentColor` |
+| `--tf-connect-bubble` | `applyAppearance()` | `connectBubbleColor` |
+
+⚠️ **ธีมผูกกับ persona (เพิ่ม 2026-09):** ทุก setting ในตารางนี้ (รวม `theme`/`wallpaperUrl`/`wallpaperOverlay`/`customCss`) **ห้ามอ่านผ่าน `getSetting()` ตรงๆ อีกต่อไป** — ต้องผ่าน `themeValue(key)`/`setThemeValue(key, val)` (`index.js`) เสมอ ซึ่งจะคืนค่าเฉพาะของ persona ปัจจุบันถ้าเปิด "ธีมเฉพาะ persona" ไว้ ไม่งั้น fallback ไปที่ค่ากลางเหมือนเดิม — ทะเบียนคีย์ที่ผูกกับ persona ได้อยู่ที่ `PERSONA_THEME_KEYS`
 
 ### สีแบรนด์ต่อแอป
 
@@ -424,16 +429,23 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 | forum | `chat` | `.forum` | `getForum()` |
 | bank | `chat` | `.bank` | `getBankData()` |
 | shop (แคตตาล็อก + ที่ซื้อแล้ว) | `chat` | `.shop` `.shopOwned` | `getShop()` / `saveShop()` · `getShopOwned()` |
+| **สตอรี่ (TinyFeed)** *(ใหม่)* | `chat` | `.stories` | `getStories()` / `saveStories()` — prune เหลือ `storyArchiveMax` ล่าสุดในตัว getter เอง |
+| **โน้ตบนแถบสตอรี่** *(ใหม่)* | `chat` | `.noteBubbles` | `getNoteBubbles()` — คีย์ห้ามชนกับ `.notes` ของ TinyMemo (ดูหมายเหตุท้ายตาราง) |
+| **ข้อความตั้งเวลา (TinyConnect)** *(ใหม่)* | `chat` | `.connect.scheduled` | ฝังอยู่ใน object เดียวกับ `.connect` (ผ่าน `getConnectData()`) ไม่ใช่คีย์แยก |
 | UI state | `chat` | `.ui` | `saveLastScreen()` |
 | gallery | `global` | `.gallery` | `getGallery()` / `saveGallery()` |
 | หมวดสินค้า (`shopCategories`) | `global` | setting | `getShopCategories()` — เหมือน `forumRooms` ของ TinyForum: ตั้งชื่อหมวดครั้งเดียวใช้ข้ามเรื่อง แต่สินค้าจริงแยกตามแชท |
 | pet + ร้านเพ็ท | `global` | `.pet` `.petShop` | `getPet()` / `savePet()` |
-| NPC | `global` (ผูกการ์ด) | `.npcsByChar` | `getNpcsStore()` / `saveNpcs()` |
-| โปรไฟล์ | `global` (ผูก persona/การ์ด) | `.userProfiles` `.charProfiles` | `getProfileStore()` |
+| NPC (+ โปรไฟล์ NPC) | `global` (ผูกการ์ด) | `.npcsByChar` | `getNpcsStore()` / `saveNpcs()` — แต่ละ NPC มี `.profile` ย่อย (`bio`/`followers`/`following`/`posts`/`highlights`) ผ่าน `getNpcProfileRecord()` *(เพิ่ม 2026-09)* |
+| โปรไฟล์ | `global` (ผูก persona/การ์ด) | `.userProfiles` `.charProfiles` | `getProfileStore()` / **`getProfileRecord(kind)`** *(ใหม่ — คืน object จริงให้ mutate array ได้ ต่างจาก `getUserProfile()`/`getCharProfile()` ที่คืน copy)* — ตอนนี้มี `bio`/`followers`/`following`/`posts`/`highlights` เพิ่มจากเดิมที่มีแค่ `avatarUrl`/`username`/`alias`/`primary` |
 | สกุลเงิน (`bankCurrency`) | `global` (ผูกการ์ด) | `.charCurrency` | `getCharCurrency()` / `setCharCurrency()` |
+| **ธีมต่อ persona** *(ใหม่)* | `global` (ผูก persona) | `.personaThemes` | `themeValue(key)` / `setThemeValue(key, val)` — ดูบทที่ 1 § Runtime tokens |
+| **สถานะฝากไว้กับการ์ด** *(ใหม่)* | `global` (ผูกการ์ด) | `.cardSyncByChar` | `cardSyncState()` / `setCardSyncState()` — เก็บแค่ timestamp ซิงก์ ไม่ใช่ตัวข้อมูลโปรไฟล์ (ตัวข้อมูลจริงอยู่ใน `.charProfiles`/`.npcsByChar` ข้างบน แล้วค่อย `writeExtensionField()` ไปที่การ์ด) |
 
 ⚠️ **`shop` เดิมเคยเป็น `global`** (ย้ายมา `chat` 2026-08) — `getShop()` ยังมี migration ครั้งเดียวต่อแชทที่สำเนาแคตตาล็อก global เก่ามาเป็นจุดเริ่มต้น (กันของหายตอนเปลี่ยน scope) ดูคอมเมนต์ในฟังก์ชัน
 **ค่า global เก่า (`shop`/`bankCurrency`/`bankCurrencyAfter`) ถูกล้างทิ้งแล้ว** (`cleanupLegacyGlobalScope()` ใน `loadSettings()`, ครั้งเดียว ตามคำขอผู้ใช้ 2026-08) — แชทที่ยังไม่เคยเปิดหลังจากนี้จะไม่ได้รับการ seed แคตตาล็อกอีกต่อไป (เริ่มว่างเปล่า) และตัวละครที่ไม่มี `charCurrency` ของตัวเองจะ fallback ไปที่ค่า default ในโค้ด (`"฿"`) ไม่ใช่ค่าที่ผู้ใช้เคยตั้งไว้แบบ global เดิม
+
+⚠️ **`.noteBubbles` (โน้ตบนแถบสตอรี่) กับ `.notes` (บันทึก/ความจำของ TinyMemo) เป็นคนละคีย์กันโดยตั้งใจ** — ชื่อคล้ายกันมาก เผลอพิมพ์ผิดคีย์เดียวจะเขียนทับข้อมูลของอีกแอปแบบเงียบๆ (`getNoteBubbles()` ของสตอรี่ vs `getNotes()` ของ memo) เช่นเดียวกับคลาส CSS: โน้ตบนแถบสตอรี่ใช้ `.tinyfeed-storynote-*` เท่านั้น ห้ามใช้ `.tinyfeed-note-*` (เป็นของ TinyMemo อยู่แล้ว)
 
 ### กฎการเซฟ
 
@@ -470,6 +482,7 @@ $(`.tinyfeed-tab[data-mtab="${memoTab}"]`).addClass("tinyfeed-tab-active");
 |---|---|---|---|
 | feed · news · connect · stream · memo · forum | ✅ | ✅ | ✅ |
 | **bank · shop · pet** | ✅ | ✅ | shop/pet ✅ · bank ไม่เจน |
+| **story** *(เพิ่ม 2026-09)* | ✅ | ✅ | ✅ |
 | gallery | — ใช้ทางของตัวเอง (`galleryPromptBlock`) | — | — |
 
 ### ⚠️ Known inconsistency — TinyBank ↔ TinyPet
@@ -495,25 +508,28 @@ isXBusy = true;
 try { … } finally { isXBusy = false; }
 ```
 
-ปัจจุบันมี **12 ตัว** — รวมโดย `proactiveBusy()` เพื่อกันงานเบื้องหลังชนงานที่ผู้ใช้สั่ง
+ปัจจุบันมี **15 ตัว** *(นับใหม่ 2026-09 — ของเดิมเอกสารนี้บอก 12)* — รวมโดย `proactiveBusy()` เพื่อกันงานเบื้องหลังชนงานที่ผู้ใช้สั่ง
 
 ⚠️ **ตั้งชื่อไม่ตรงกัน 4 แบบ** → มาตรฐานคือ **`isXBusy`**
 
 | รูปแบบ | จำนวน | ตัวแปร |
 |---|---|---|
-| `isXBusy` ✅ | 6 | `isShopBusy` `isPetShopBusy` `isGenCommentsBusy` `isMemoBusy` `isForumBusy` `isAutoBusy` |
+| `isXBusy` ✅ | 9 | `isShopBusy` `isPetShopBusy` `isGenCommentsBusy` `isMemoBusy` `isForumBusy` `isAutoBusy` `isBankScanBusy` `isGalleryFilesBusy` `isAskBusy` |
+| `isXBusy` ✅ *(เพิ่ม 2026-09)* | 1 | `isStoryBusy` (TinyFeed สตอรี่) |
 | `isGeneratingX` | 2 | `isGeneratingStream` `isGeneratingNews` |
-| อื่นๆ | 2 | `isGenerating` (ของ feed) `isConnectReplying` |
+| `isXReplying` | 2 | `isConnectReplying` `isCallReplying` |
+| อื่นๆ | 1 | `isGenerating` (ของ feed) |
 
-*(`isReplying` ที่ `index.js:5774` ไม่ใช่ busy flag — เก็บ postId ที่ AI กำลังตอบอยู่ ไม่ต้องเปลี่ยนชื่อ)*
+*(`isReplying` ที่ `index.js:8613` ไม่ใช่ busy flag — เก็บ postId ที่ AI กำลังตอบอยู่ ไม่ต้องเปลี่ยนชื่อ)*
+⚠️ ตารางนี้แก้ให้ตรงกับตัวแปรที่มีจริง แต่ยังไม่ได้ไล่ตรวจ `finally` ใหม่ทุกตัว (ดูหัวข้อถัดไปสำหรับตัวเลขเดิมที่ยังไม่ verify ซ้ำ)
 
-⚠️ มี `} finally {` **25 บล็อก** แต่มีการปลด flag **28 จุด** = **มี 3 จุดที่ปลดนอก `finally`** ถ้า throw ก่อนถึงบรรทัดนั้น flag จะค้าง แอปนั้นจะกดไม่ได้จนกว่าจะรีโหลด
+⚠️ มี `} finally {` **25 บล็อก** แต่มีการปลด flag **28 จุด** = **มี 3 จุดที่ปลดนอก `finally`** ถ้า throw ก่อนถึงบรรทัดนั้น flag จะค้าง แอปนั้นจะกดไม่ได้จนกว่าจะรีโหลด *(ตัวเลขเดิมก่อน 2026-09 — โค้ดใหม่ (`isStoryBusy` ฯลฯ) ปลด flag ใน `finally` ครบทุกจุด แต่ยังไม่ได้นับรวมใหม่)*
 
 ### Error
 
 > **ห้าม catch เปล่า**
 
-⚠️ ปัจจุบันมี **19 catch block ที่ว่างหรือมีแต่คอมเมนต์** (`catch (e) {}` / `catch (e) { /* ข้าม */ }`) ครอบคลุม path สำคัญอย่างการอ่าน `getFeedData()`, ดึง World Info, นับ token, อ่าน persona, กู้หน้าจอล่าสุด → **เวลาพัง จะเงียบสนิท ตามหาไม่เจอ**
+⚠️ *(ตัวเลขเดิมก่อน 2026-09 ยังไม่ได้นับใหม่)* มี **19 catch block ที่ว่างหรือมีแต่คอมเมนต์** (`catch (e) {}` / `catch (e) { /* ข้าม */ }`) ครอบคลุม path สำคัญอย่างการอ่าน `getFeedData()`, ดึง World Info, นับ token, อ่าน persona, กู้หน้าจอล่าสุด → **เวลาพัง จะเงียบสนิท ตามหาไม่เจอ**
 
 กฎ:
 - catch ที่ตั้งใจให้เงียบ (มี fallback ชัดเจน) → `catch (e) { /* fallback: <อธิบาย> */ }` **ต้องบอกว่า fallback คืออะไร**
@@ -522,12 +538,12 @@ try { … } finally { isXBusy = false; }
 
 ### Toast
 
-| ระดับ | ใช้เมื่อ | ปัจจุบัน |
+| ระดับ | ใช้เมื่อ | ปัจจุบัน *(นับใหม่ 2026-09)* |
 |---|---|---|
-| `toastr.success` | ทำสำเร็จและผู้ใช้ควรรู้ | 21 |
-| `toastr.info` | บอกสถานะ ไม่ใช่ปัญหา | 67 |
-| `toastr.warning` | ทำต่อได้แต่ผลไม่ครบ | 14 |
-| `toastr.error` | ล้มเหลว | 31 |
+| `toastr.success` | ทำสำเร็จและผู้ใช้ควรรู้ | 45 |
+| `toastr.info` | บอกสถานะ ไม่ใช่ปัญหา | 81 |
+| `toastr.warning` | ทำต่อได้แต่ผลไม่ครบ | 27 |
+| `toastr.error` | ล้มเหลว | 49 |
 
 title ใช้ชื่อแอปเสมอ (`"TinyPhone"`, `"TinyPet"`, …)
 
@@ -550,7 +566,7 @@ if (typeof ctx.generateQuietPrompt !== "function") {
 
 ### สถานะ
 
-`index.js` = **8,982 บรรทัด, 485 top-level function, ~60 mutable global** ในไฟล์เดียว มีเพียงคอมเมนต์ `// ===== หัวข้อ =====` 47 อันคั่น
+`index.js` = **~12,700 บรรทัด, ~690 top-level function, ~100 mutable global** ในไฟล์เดียว มีคอมเมนต์ `// ===== หัวข้อ =====` **77 อัน** คั่น (ตัวเลข ณ 2026-09 หลังเพิ่มสตอรี่/โปรไฟล์/ธีมต่อ persona/ฝากไว้กับการ์ด/ปรับ TinyConnect — ตัวเลขเดิม 8,982/485/~60/47 เป็นของก่อนหน้านี้)
 
 ### แยกไฟล์ได้ไหม — **ได้**
 
@@ -562,17 +578,18 @@ ST โหลด manifest `js` ด้วย `<script type="module">` จริง
 
 ```
 tinyfeed/
-├── index.js           8,715 บรรทัด — แอปทั้ง 11 + shell + bootstrap
+├── index.js           ~12,700 บรรทัด — แอปทั้ง 11 + shell + bootstrap
 └── src/
-    ├── store.js         263 — getSetting/setSetting · getFeedData/saveFeedData
+    ├── store.js         365 — getSetting/setSetting · getFeedData/saveFeedData
     │                          getGallery/saveGallery · defaultSettings · ค่าคงที่
-    │                          deps: 0 (leaf แท้) · ถูกเรียกจาก 137 ฟังก์ชัน
-    ├── util.js          136 — escape* · renderRich + token [img:]/[sticker:]
-    │                          timeAgo/displayTime · stripReasoning
-    │                          deps: getGallery จาก store · ถูกเรียกจาก 112 ฟังก์ชัน
-    └── components.js     28 — emptyStateHtml · emptyInlineHtml · skeletonCardHtml
-                               deps: 0 · ถูกเรียกจาก 17 ฟังก์ชัน
+    │                          deps: 0 (leaf แท้)
+    ├── util.js          276 — escape* · renderRich + token [img:]/[sticker:]
+    │                          timeAgo/displayTime · stripReasoning · มาโคร @user (resolver ฉีดจาก index.js)
+    │                          deps: getGallery จาก store
+    └── components.js     70 — emptyStateHtml · emptyInlineHtml · skeletonCardHtml
+                               deps: 0
 ```
+*("ถูกเรียกจาก N ฟังก์ชัน" ในเวอร์ชันก่อนหน้านี้เป็นตัวเลขจากตอนแยก leaf ครั้งแรก (เฟส 8) ยังไม่เคยนับใหม่หลังจากนั้น — เอาออกกันความเข้าใจผิดว่าเป็นตัวเลขปัจจุบัน)*
 
 **ทิศทางพึ่งพาทางเดียว:** `components` (0) · `store` (0) ← `util` ← `index.js`
 **ห้าม import ย้อนกลับ** — `src/*` ห้าม import อะไรจาก `index.js` เด็ดขาด (จะเกิด circular)
@@ -580,6 +597,8 @@ tinyfeed/
 path จาก `src/` ไปหา core ของ ST ลึกกว่า `index.js` หนึ่งชั้น: `../../../../extensions.js` และ `../../../../../script.js`
 
 ### ⚠️ ทำไมไม่แยกตามแอป (วัดแล้ว ไม่ใช่ความรู้สึก)
+
+*(ตัวเลขด้านล่างวัดครั้งเดียวตอนตัดสินใจเรื่องนี้ ~2026-08 ยังไม่เคยวัดใหม่หลังจากนั้น — ไฟล์โตขึ้นอีกเยอะตั้งแต่ตอนนั้น (สตอรี่/โปรไฟล์/ธีมต่อ persona/TinyConnect เพิ่ม) ตัวเลขจริงตอนนี้สูงกว่านี้แน่นอน แต่**ข้อสรุปไม่เปลี่ยน** — endpoint ใหม่ทุกตัวยังพึ่งพา global ร่วม (`activeThread`/`currentApp`/`getConnectContacts()` ฯลฯ) เหมือนเดิม)*
 
 | ตัวชี้วัด | ค่า |
 |---|---|

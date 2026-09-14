@@ -1530,12 +1530,18 @@
     padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--tf-sp-1);   /* ระยะห่างเริ่มต้น "ในกลุ่ม" เดียวกัน — ระหว่างกลุ่มเพิ่มด้วย .tinyfeed-msg-gstart */
     background-image: var(--tf-connect-bg-img, none);
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
 }
+/* จัดกลุ่มบับเบิลติดกัน (renderThread คำนวณให้) — ผู้ใช้ส่งหลายข้อความติดกันกับ AI ตอบยาวแตกหลายบับเบิล
+ * ต้องได้ระยะห่างเท่ากัน: ในกลุ่ม 4px (ตาม gap ข้างบน) ระหว่างกลุ่มรวมเป็น ~10px เท่าของเดิม */
+.tinyfeed-msg-gstart { margin-top: var(--tf-sp-2); }
+.tinyfeed-msg:first-child.tinyfeed-msg-gstart { margin-top: 0; }
+.tinyfeed-msg-gcont .tinyfeed-avatar { visibility: hidden; }
+.tinyfeed-msg-gcont .tinyfeed-msg-author { display: none; }
 /* มีพื้นหลังห้อง: ผสมฝ้าจางเข้าเป็น layer เดียวกับรูปใน background-image เลย (ไม่ใช้ ::before แยก)
  * เหตุผล: กล่องนี้เป็นทั้งกล่องสกรอลล์ (overflow-y:auto) และ containing block ของลูก ::before แบบ
  * position:absolute;inset:0 จึงสูงแค่ "หนึ่งหน้าจอ" (เทียบกับกรอบที่มองเห็น ไม่ใช่ scrollHeight) แล้ว
@@ -1588,6 +1594,18 @@
 .tinyfeed-msg-media .tinyfeed-sticker-img {
     margin: 0;
 }
+/* รูป/สติกเกอร์ในบับเบิลแชท — ของเดิมสติกเกอร์ไม่มีมุมมนเลย รูปมนแค่ 12px ไม่ตรงกับบับเบิล 16px */
+.tinyfeed-msg-media .tinyfeed-sticker-img,
+.tinyfeed-msg-media .tinyfeed-content-img {
+    border-radius: var(--tf-r-lg);
+}
+/* หางแหลมของรูป/สติกเกอร์ — เฉพาะชิ้นสุดท้ายของกลุ่ม เหมือนบับเบิลข้อความ */
+.tinyfeed-msg-user.tinyfeed-msg-gend .tinyfeed-msg-media:last-child :is(.tinyfeed-sticker-img, .tinyfeed-content-img) {
+    border-bottom-right-radius: var(--tf-r-sm);
+}
+.tinyfeed-msg-contact.tinyfeed-msg-gend .tinyfeed-msg-media:last-child :is(.tinyfeed-sticker-img, .tinyfeed-content-img) {
+    border-bottom-left-radius: var(--tf-r-sm);
+}
 
 /* กองบับเบิล (หลายบรรทัด → หลายบับเบิลซ้อน) */
 .tinyfeed-msg-stack {
@@ -1606,15 +1624,16 @@
     background: linear-gradient(135deg, var(--tf-connect-bubble, var(--tf-app-connect)),
         color-mix(in srgb, var(--tf-connect-bubble, var(--tf-app-connect)) 70%, black));
     color: #fff;
-    border-bottom-right-radius: 5px;
 }
 
 .tinyfeed-msg-contact .tinyfeed-msg-bubble {
     background: var(--tf-topbar);
     border: 1px solid var(--tf-border);
     color: var(--tf-text);
-    border-bottom-left-radius: 5px;
 }
+/* หางแหลม (มุมชี้) — เฉพาะบับเบิลสุดท้ายของกลุ่มข้อความติดกัน ไม่ใช่ทุกบับเบิลเหมือนเดิม */
+.tinyfeed-msg-user.tinyfeed-msg-gend .tinyfeed-msg-stack > .tinyfeed-msg-bubble:last-child { border-bottom-right-radius: 5px; }
+.tinyfeed-msg-contact.tinyfeed-msg-gend .tinyfeed-msg-stack > .tinyfeed-msg-bubble:last-child { border-bottom-left-radius: 5px; }
 
 .tinyfeed-msg-typing {
     opacity: 0.7;
@@ -2545,10 +2564,13 @@
 
 .tinyfeed-forum-tools {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-end;
     margin-bottom: 12px;
 }
+/* ช่องแนวทางกระทู้/คอมเมนต์: ลงบรรทัดของตัวเองเต็มความกว้าง ไม่ไปเบียดปุ่ม */
+.tinyfeed-forum-tools .tinyfeed-gen-guidance { flex-basis: 100%; }
 
 /* ฟอร์มตั้งกระทู้ */
 .tinyfeed-forum-newform {
@@ -4690,21 +4712,13 @@
 .tinyfeed-whack-hint { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; }
 
 /* หน้าโปรไฟล์ (ใช้ร่วม feed) */
-.tinyfeed-vprofile-body { max-height: 70vh; overflow-y: auto; }
-.tinyfeed-vprofile-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 6px 4px 12px; }
-.tinyfeed-vprofile-ava .tinyfeed-avatar { width: 84px; height: 84px; font-size: 2em; }
-.tinyfeed-vprofile-name { font-size: 1.1em; font-weight: 700; color: var(--tf-text-strong); }
-.tinyfeed-vprofile-role { font-size: 0.62em; font-weight: 600; color: var(--tf-text-muted); background: color-mix(in srgb, var(--tf-accent) 16%, var(--tf-topbar)); padding: 2px 7px; border-radius: 10px; vertical-align: middle; }
-.tinyfeed-vprofile-bio { font-size: 0.83em; color: var(--tf-text); line-height: 1.5; white-space: pre-wrap; max-width: 92%; }
-.tinyfeed-vprofile-section { border-top: 1px solid var(--tf-border); padding: 12px 4px; }
-.tinyfeed-vprofile-sectitle { font-size: 0.78em; color: var(--tf-text-muted); margin-bottom: 8px; }
-.tinyfeed-vprofile-npcs { display: flex; flex-wrap: wrap; gap: 12px; }
-.tinyfeed-vprofile-npc { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 62px; }
-.tinyfeed-vprofile-npc .tinyfeed-avatar { width: 46px; height: 46px; }
-.tinyfeed-vprofile-npc span { font-size: 0.72em; color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
-/* แตะชื่อผู้โพสต์ในฟีดได้ (เปิดโปรไฟล์) */
-.tinyfeed-post-author { cursor: pointer; }
-.tinyfeed-post-author:hover { text-decoration: underline; }
+/* แตะชื่อ/รูปโปรไฟล์แล้วเปิดหน้าโปรไฟล์ได้ — ขยายพื้นที่แตะให้กดติดง่ายบนมือถือ */
+.tinyfeed-profile-open { cursor: pointer; }
+.tinyfeed-post-author.tinyfeed-profile-open { padding: var(--tf-sp-1) 0; }
+.tinyfeed-post-author.tinyfeed-profile-open:hover,
+.tinyfeed-comment-author.tinyfeed-profile-open:hover { text-decoration: underline; }
+img.tinyfeed-profile-open:active,
+div.tinyfeed-profile-open:active { opacity: 0.75; }
 /* ลิงก์ "เติมเหรียญ" ในหัวร้าน */
 .tinyfeed-pet-topup-link {
     background: none;
@@ -5113,6 +5127,14 @@
     color: var(--tf-accent);
     cursor: pointer;
 }
+.tinyfeed-call-hist-del {
+    flex-shrink: 0;
+    padding: var(--tf-sp-2);
+    color: var(--tf-text-muted);
+    cursor: pointer;
+}
+.tinyfeed-call-hist-del:hover { color: var(--tf-danger); }
+.tinyfeed-call-clearall { width: 100%; margin-bottom: var(--tf-sp-3); color: var(--tf-danger); border-color: var(--tf-danger); }
 
 /* หน้าต่างรายละเอียดสาย (บทเต็ม) — ใช้โครง .tinyfeed-modal มาตรฐาน แต่ตัวบท (.tinyfeed-call-transcript-line/-who)
  * เป็นคลาสเดียวกับซับไตเติลตอนคุยสายจริง (ขาวบนรูปเบลอ) ต้อง override สีให้เข้ากับพื้นการ์ดตั้งค่าปกติที่นี่ */
@@ -5125,3 +5147,475 @@
 }
 .tinyfeed-call-detail-body .tinyfeed-call-transcript-line:last-child { border-bottom: none; }
 .tinyfeed-call-detail-body .tinyfeed-call-transcript-who { color: var(--tf-text-strong); }
+
+/* ===== หน้าโปรไฟล์ (เต็มจอ): persona · ตัวละคร · NPC ===== */
+/* เป็นพี่น้องของแอป จึงต้องเป็น flex column เองเหมือน .tinyfeed-app */
+.tinyfeed-profile-screen:not(.tinyfeed-hidden) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+.tinyfeed-profile-top { display: flex; flex-direction: column; gap: var(--tf-sp-3); }
+.tinyfeed-profile-idrow { display: flex; align-items: center; gap: var(--tf-sp-5); }
+.tinyfeed-profile-ava .tinyfeed-avatar { width: 76px; height: 76px; font-size: 2em; }
+.tinyfeed-profile-stats { display: flex; flex: 1; min-width: 0; justify-content: space-around; }
+.tinyfeed-profile-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tinyfeed-profile-stat b { font-size: var(--tf-fs-lg); color: var(--tf-text-strong); font-variant-numeric: tabular-nums; }
+.tinyfeed-profile-stat span { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); }
+.tinyfeed-profile-name { font-size: var(--tf-fs-md); font-weight: 700; color: var(--tf-text-strong); }
+.tinyfeed-profile-role {
+    font-size: var(--tf-fs-xs);
+    font-weight: 600;
+    color: var(--tf-text-muted);
+    background: color-mix(in srgb, var(--tf-accent) 16%, var(--tf-topbar));
+    padding: 2px 7px;
+    border-radius: var(--tf-r-pill);
+    vertical-align: middle;
+}
+.tinyfeed-profile-handle { font-size: var(--tf-fs-sm); color: var(--tf-text-muted); margin-top: -4px; }
+.tinyfeed-profile-bio { font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.5; white-space: pre-wrap; }
+.tinyfeed-profile-actions { display: flex; gap: var(--tf-sp-3); flex-wrap: wrap; }
+.tinyfeed-profile-actions button { flex: 1; min-width: 120px; }
+
+/* แถวไฮไลต์ */
+.tinyfeed-profile-highlights {
+    display: flex;
+    gap: var(--tf-sp-4);
+    overflow-x: auto;
+    padding: var(--tf-sp-4) 0 var(--tf-sp-2);
+    margin-top: var(--tf-sp-4);
+    border-top: 1px solid var(--tf-border-soft);
+}
+.tinyfeed-profile-hl { flex-shrink: 0; width: 64px; display: flex; flex-direction: column; align-items: center; gap: var(--tf-sp-1); cursor: pointer; }
+.tinyfeed-profile-hl-cover {
+    width: 58px;
+    height: 58px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid var(--tf-border);
+    background: var(--tf-topbar);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--tf-text-muted);
+}
+.tinyfeed-profile-hl-cover img { width: 100%; height: 100%; object-fit: cover; }
+.tinyfeed-profile-hl span { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
+
+/* แท็บติดบนสุดเวลาเลื่อน (หัวโปรไฟล์เลื่อนหายไปได้เหมือน IG) */
+.tinyfeed-profile-screen .tinyfeed-tabs {
+    position: sticky;
+    top: calc(var(--tf-sp-5) * -1);
+    z-index: 2;
+    background: var(--tf-bg);
+    margin: var(--tf-sp-4) 0 var(--tf-sp-3);
+}
+.tinyfeed-profile-body { display: flex; flex-direction: column; gap: var(--tf-sp-5); }
+
+/* แท็บกริด 9 ช่อง */
+.tinyfeed-profile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--tf-sp-1); }
+.tinyfeed-profile-cell { aspect-ratio: 1; overflow: hidden; background: var(--tf-topbar); cursor: pointer; }
+.tinyfeed-profile-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* แท็บไทม์ไลน์ */
+.tinyfeed-profile-tl {
+    flex-shrink: 0;
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    overflow: hidden;
+    background: var(--tf-topbar);
+    cursor: pointer;
+}
+.tinyfeed-profile-tl-head { display: flex; align-items: center; gap: var(--tf-sp-3); padding: var(--tf-sp-3) var(--tf-sp-4); }
+.tinyfeed-profile-tl-head .tinyfeed-avatar { width: 30px; height: 30px; font-size: 0.9em; }
+.tinyfeed-profile-tl-name { font-size: var(--tf-fs-sm); font-weight: 600; color: var(--tf-text-strong); }
+.tinyfeed-profile-tl-img { width: 100%; display: block; }
+.tinyfeed-profile-tl-meta { padding: var(--tf-sp-3) var(--tf-sp-4) 0; font-size: var(--tf-fs-sm); color: var(--tf-text-muted); }
+.tinyfeed-profile-tl-cap { padding: var(--tf-sp-2) var(--tf-sp-4) var(--tf-sp-4); font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.5; }
+
+/* modal: ดูโพสต์ static / ไฮไลต์ */
+.tinyfeed-profile-post-body { max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--tf-sp-3); }
+.tinyfeed-profile-post-head { display: flex; align-items: center; gap: var(--tf-sp-3); }
+.tinyfeed-profile-post-head .tinyfeed-avatar { width: 34px; height: 34px; font-size: 0.9em; }
+.tinyfeed-profile-post-name { font-size: var(--tf-fs-sm); font-weight: 600; color: var(--tf-text-strong); }
+.tinyfeed-profile-post-img { width: 100%; border-radius: var(--tf-r-md); display: block; }
+.tinyfeed-profile-post-meta { font-size: var(--tf-fs-sm); color: var(--tf-text-muted); }
+.tinyfeed-profile-post-cap { font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.5; white-space: pre-wrap; }
+.tinyfeed-profile-post-comments { display: flex; flex-direction: column; gap: var(--tf-sp-2); border-top: 1px solid var(--tf-border-soft); padding-top: var(--tf-sp-3); }
+
+/* modal: แก้ไขโปรไฟล์ — อยู่นอก #tinyfeed-settings-screen จึงต้องตั้งหน้าตา input เอง */
+.tinyfeed-profile-edit-body { max-height: 66vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--tf-sp-3); }
+.tinyfeed-profile-edit-body input[type="text"],
+.tinyfeed-profile-edit-body input[type="number"],
+.tinyfeed-profile-edit-body textarea {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-2) var(--tf-sp-4);
+    font: inherit;
+    font-size: var(--tf-fs-sm);
+    outline: none;
+}
+.tinyfeed-profile-edit-body input:focus,
+.tinyfeed-profile-edit-body textarea:focus { border-color: var(--tf-accent); }
+.tinyfeed-profile-edit-foot { display: flex; justify-content: flex-end; gap: var(--tf-sp-3); margin-top: var(--tf-sp-4); }
+.tinyfeed-pe-list { display: flex; flex-direction: column; gap: var(--tf-sp-3); }
+.tinyfeed-pe-row { display: flex; align-items: flex-start; gap: var(--tf-sp-3); }
+.tinyfeed-pe-thumb {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: var(--tf-r-sm);
+    overflow: hidden;
+    background: var(--tf-bg);
+    border: 1px solid var(--tf-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--tf-text-muted);
+}
+.tinyfeed-pe-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.tinyfeed-pe-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--tf-sp-2); }
+.tinyfeed-pe-del,
+.tinyfeed-pe-hldel { flex-shrink: 0; color: var(--tf-text-muted); cursor: pointer; padding: var(--tf-sp-2); }
+.tinyfeed-pe-del:hover,
+.tinyfeed-pe-hldel:hover { color: var(--tf-danger); }
+/* NPC ในสังกัด (เฉพาะโปรไฟล์ตัวละครหลัก) */
+.tinyfeed-profile-npcs { margin-top: var(--tf-sp-4); border-top: 1px solid var(--tf-border-soft); padding-top: var(--tf-sp-4); }
+.tinyfeed-profile-sectitle { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); margin-bottom: var(--tf-sp-3); }
+.tinyfeed-profile-npcrow { display: flex; gap: var(--tf-sp-4); overflow-x: auto; padding-bottom: var(--tf-sp-2); }
+.tinyfeed-profile-npc { flex-shrink: 0; width: 62px; display: flex; flex-direction: column; align-items: center; gap: var(--tf-sp-1); }
+.tinyfeed-profile-npc .tinyfeed-avatar { width: 46px; height: 46px; }
+.tinyfeed-profile-npc span { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); text-align: center; word-break: break-word; line-height: 1.2; }
+
+/* ===== TinyFeed: สตอรี่ 24 ชม. + โน้ตบนแถบสตอรี่ ===== */
+.tinyfeed-story-bar {
+    display: flex;
+    gap: var(--tf-sp-4);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--tf-sp-2) var(--tf-sp-1) var(--tf-sp-4);
+    border-bottom: 1px solid var(--tf-border-soft);
+    margin-bottom: var(--tf-sp-3);
+}
+.tinyfeed-story-item {
+    flex-shrink: 0;
+    width: 68px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--tf-sp-1);
+    cursor: pointer;
+}
+/* วงแหวนรอบรูป — สีเดินตามธีมโทรศัพท์ (--tf-accent) */
+.tinyfeed-story-ava {
+    position: relative;
+    width: 62px;
+    height: 62px;
+    border-radius: 50%;
+    padding: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+}
+.tinyfeed-story-ring-unseen {
+    background: conic-gradient(var(--tf-accent), color-mix(in srgb, var(--tf-accent) 40%, #000), var(--tf-accent));
+}
+.tinyfeed-story-ring-seen { background: var(--tf-border); }
+.tinyfeed-story-ava .tinyfeed-avatar {
+    width: 100%;
+    height: 100%;
+    border: 2px solid var(--tf-bg);
+    box-sizing: border-box;
+}
+.tinyfeed-story-archive-ico { display: flex; align-items: center; justify-content: center; background: var(--tf-topbar); color: var(--tf-text-muted); }
+.tinyfeed-story-add {
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--tf-accent);
+    color: #fff;
+    font-size: var(--tf-fs-xs);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--tf-bg);
+}
+.tinyfeed-story-name {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    text-align: center;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tinyfeed-story-genchip.tinyfeed-generating { opacity: 0.5; pointer-events: none; }
+.tinyfeed-story-genchip.tinyfeed-generating .tinyfeed-story-archive-ico i { animation: tinyfeed-spin 1s linear infinite; }
+
+/* ฟองโน้ต (เลียนแบบ Instagram Notes) — ลอยเหนือรูปโปรไฟล์ */
+.tinyfeed-storynote-bubble {
+    position: relative;
+    max-width: 100%;
+    box-sizing: border-box;
+    background: var(--tf-topbar);
+    border: 1px solid var(--tf-border);
+    color: var(--tf-text);
+    font-size: var(--tf-fs-xs);
+    line-height: 1.25;
+    padding: var(--tf-sp-1) var(--tf-sp-2);
+    border-radius: var(--tf-r-md);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 2px;
+}
+/* หางฟองชี้ลงหารูปโปรไฟล์ */
+.tinyfeed-storynote-bubble::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    bottom: -4px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--tf-topbar);
+    border: 1px solid var(--tf-border);
+}
+.tinyfeed-storynote-empty { color: var(--tf-text-soft); font-style: italic; }
+.tinyfeed-storynote-view-head { display: flex; align-items: center; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-4); }
+.tinyfeed-storynote-view-head .tinyfeed-avatar { width: 40px; height: 40px; }
+.tinyfeed-storynote-view-name { font-size: var(--tf-fs-md); font-weight: 600; color: var(--tf-text-strong); cursor: pointer; }
+.tinyfeed-storynote-view-time { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); }
+.tinyfeed-storynote-view-text {
+    background: var(--tf-topbar);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-lg);
+    padding: var(--tf-sp-4);
+    font-size: var(--tf-fs-md);
+    color: var(--tf-text);
+    line-height: 1.5;
+}
+.tinyfeed-storynote-react { display: flex; gap: var(--tf-sp-3); justify-content: center; margin: var(--tf-sp-4) 0; }
+.tinyfeed-storynote-emoji {
+    background: none;
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-pill);
+    font-size: var(--tf-fs-lg);
+    padding: var(--tf-sp-1) var(--tf-sp-4);
+    cursor: pointer;
+}
+.tinyfeed-storynote-emoji:hover { background: color-mix(in srgb, var(--tf-accent) 14%, transparent); }
+#tinyfeed-storynote-reply { width: 100%; }
+#tinyfeed-storynote-input,
+#tinyfeed-story-compose-caption,
+#tinyfeed-story-text-input {
+    box-sizing: border-box;
+    width: 100%;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-2) var(--tf-sp-4);
+    font: inherit;
+    font-size: var(--tf-fs-sm);
+    outline: none;
+}
+#tinyfeed-storynote-input:focus,
+#tinyfeed-story-compose-caption:focus,
+#tinyfeed-story-text-input:focus { border-color: var(--tf-accent); }
+
+/* หน้าดูสตอรี่ — เต็มจอ ใต้หน้าจอโทร (z-index 50) แต่เหนือ modal (40) */
+.tinyfeed-story-viewer {
+    position: absolute;
+    inset: 0;
+    z-index: 45;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+}
+.tinyfeed-story-viewer-bars { display: flex; gap: 3px; padding: var(--tf-sp-3) var(--tf-sp-4) 0; flex-shrink: 0; }
+.tinyfeed-story-pbar { flex: 1; height: 2px; border-radius: var(--tf-r-pill); background: rgba(255, 255, 255, 0.28); overflow: hidden; }
+.tinyfeed-story-pfill { height: 100%; width: 0; background: #fff; }
+.tinyfeed-story-pfill-done { width: 100%; }
+.tinyfeed-story-pfill-active { width: 100%; }
+.tinyfeed-story-viewer-head { display: flex; align-items: center; justify-content: space-between; gap: var(--tf-sp-3); padding: var(--tf-sp-3) var(--tf-sp-4); flex-shrink: 0; }
+.tinyfeed-story-vhead-who { display: flex; align-items: center; gap: var(--tf-sp-3); cursor: pointer; min-width: 0; }
+.tinyfeed-story-vhead-who .tinyfeed-avatar { width: 32px; height: 32px; font-size: 0.9em; }
+.tinyfeed-story-vhead-meta { display: flex; flex-direction: column; min-width: 0; }
+.tinyfeed-story-vhead-name { font-size: var(--tf-fs-sm); font-weight: 600; color: #fff; }
+.tinyfeed-story-vhead-time { font-size: var(--tf-fs-xs); color: rgba(255, 255, 255, 0.65); }
+.tinyfeed-story-vhead-btns { display: flex; gap: var(--tf-sp-4); flex-shrink: 0; color: #fff; }
+.tinyfeed-story-vhead-btns span { cursor: pointer; }
+.tinyfeed-story-viewer-canvas,
+.tinyfeed-story-canvas {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: #000;   /* จอวิวมีเดียเต็มจอ ตั้งใจดำเสมอไม่ว่าธีมไหน (ข้อยกเว้นราก hex บทที่ 1 ของ CONVENTIONS.md) */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+/* ผืนผ้าใบตอนเขียนสตอรี่ — คุมด้วย "ความสูง" ให้ความกว้างวิ่งตาม ไม่งั้น aspect-ratio 9:16 ดันการ์ดทะลุกรอบเครื่อง */
+.tinyfeed-story-canvas {
+    flex: none;
+    align-self: center;
+    height: min(38vh, 300px);
+    width: auto;
+    aspect-ratio: 9 / 16;
+    border-radius: var(--tf-r-md);
+    margin-bottom: var(--tf-sp-3);
+}
+#tinyfeed-story-compose .tinyfeed-modal-card { overflow: hidden; }
+/* ส่วนที่เลื่อนได้ของหน้าต่างเขียนสตอรี่ (หัว/ปุ่มท้ายอยู่นอก ไม่เลื่อนตาม) */
+.tinyfeed-story-compose-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--tf-sp-3);
+}
+.tinyfeed-story-img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.tinyfeed-story-pick-hint { display: flex; flex-direction: column; align-items: center; gap: var(--tf-sp-3); color: var(--tf-text-muted); font-size: var(--tf-fs-sm); }
+.tinyfeed-story-pick-hint i { font-size: 2em; }
+/* ข้อความที่แปะบนรูป — ตำแหน่งเป็น % ของกล่อง จึงไม่พังเวลาจอกว้างต่างกัน */
+.tinyfeed-story-text {
+    position: absolute;
+    max-width: 86%;
+    padding: 2px var(--tf-sp-2);
+    border-radius: var(--tf-r-sm);
+    background: rgba(0, 0, 0, 0.32);
+    font-weight: 700;
+    line-height: 1.25;
+    text-align: center;
+    word-break: break-word;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.tinyfeed-story-text-draggable { cursor: grab; touch-action: none; }
+.tinyfeed-story-size-sm { font-size: var(--tf-fs-sm); }
+.tinyfeed-story-size-md { font-size: var(--tf-fs-lg); }
+.tinyfeed-story-size-lg { font-size: var(--tf-fs-xl); }
+.tinyfeed-story-color-white { color: #fff; }
+.tinyfeed-story-color-accent { color: var(--tf-accent); }
+.tinyfeed-story-color-danger { color: var(--tf-danger); }
+.tinyfeed-story-color-warn { color: var(--tf-warn); }
+.tinyfeed-story-color-success { color: var(--tf-success); }
+.tinyfeed-story-nav { position: absolute; top: 0; bottom: 0; width: 32%; }
+.tinyfeed-story-nav-prev { left: 0; }
+.tinyfeed-story-nav-next { right: 0; }
+.tinyfeed-story-viewer-foot { flex-shrink: 0; max-height: 40%; overflow-y: auto; padding: var(--tf-sp-3) var(--tf-sp-4) var(--tf-sp-4); background: rgba(0, 0, 0, 0.55); }
+.tinyfeed-story-caption { font-size: var(--tf-fs-sm); color: #fff; line-height: 1.5; margin-bottom: var(--tf-sp-3); }
+.tinyfeed-story-replies { display: flex; flex-direction: column; gap: var(--tf-sp-2); margin-bottom: var(--tf-sp-3); }
+.tinyfeed-story-reply { font-size: var(--tf-fs-sm); color: rgba(255, 255, 255, 0.88); line-height: 1.4; }
+.tinyfeed-story-reply b { color: #fff; cursor: pointer; }
+.tinyfeed-story-replybar { display: flex; align-items: center; gap: var(--tf-sp-2); }
+#tinyfeed-story-reply-input {
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: var(--tf-r-pill);
+    color: #fff;
+    font: inherit;
+    font-size: var(--tf-fs-sm);
+    padding: var(--tf-sp-2) var(--tf-sp-4);
+    outline: none;
+}
+.tinyfeed-story-replybar .tinyfeed-compose-iconbtn { color: #fff; }
+.tinyfeed-story-compose-tools { display: flex; gap: var(--tf-sp-3); margin-bottom: var(--tf-sp-3); }
+.tinyfeed-story-compose-tools button { flex: 1; }
+.tinyfeed-story-text-opts { display: flex; gap: var(--tf-sp-3); align-items: center; margin: var(--tf-sp-3) 0; }
+.tinyfeed-story-text-opts select {
+    flex: 1;
+    min-width: 0;
+    background: var(--tf-bg);
+    color: var(--tf-text);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-2);
+    font: inherit;
+    font-size: var(--tf-fs-sm);
+}
+.tinyfeed-story-text-opts input[type="range"] { flex: 1; min-width: 0; }
+
+/* คลังสตอรี่ (ใช้หน้า detail ของฟีด) */
+.tinyfeed-story-archive-title { font-size: var(--tf-fs-lg); font-weight: 700; color: var(--tf-text-strong); margin-bottom: var(--tf-sp-4); }
+.tinyfeed-story-archive-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--tf-sp-2); }
+.tinyfeed-story-archive-cell {
+    position: relative;
+    aspect-ratio: 9 / 16;
+    overflow: hidden;
+    border-radius: var(--tf-r-sm);
+    background: var(--tf-topbar);
+    cursor: pointer;
+}
+.tinyfeed-story-archive-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tinyfeed-story-archive-who,
+.tinyfeed-story-archive-when {
+    position: absolute;
+    left: var(--tf-sp-1);
+    right: var(--tf-sp-1);
+    font-size: var(--tf-fs-xs);
+    color: #fff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.tinyfeed-story-archive-who { top: var(--tf-sp-1); font-weight: 600; }
+.tinyfeed-story-archive-when { bottom: var(--tf-sp-1); opacity: 0.85; }
+
+/* ธีมผูกกับ persona — กล่องสวิตช์บนสุดของหมวด "ปรับแต่งหน้าตา" */
+.tinyfeed-persona-theme-box {
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    padding: var(--tf-sp-4);
+    margin-bottom: var(--tf-sp-4);
+    background: var(--tf-topbar);
+}
+.tinyfeed-persona-theme-tools { display: flex; gap: var(--tf-sp-3); flex-wrap: wrap; margin-top: var(--tf-sp-3); }
+.tinyfeed-persona-theme-tools button { flex: 1; min-width: 140px; }
+
+/* ===== ฝากไว้กับการ์ด ===== */
+.tinyfeed-card-status {
+    font-size: var(--tf-fs-sm);
+    color: var(--tf-text-muted);
+    padding: var(--tf-sp-3);
+    background: var(--tf-topbar);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    margin-bottom: var(--tf-sp-3);
+}
+.tinyfeed-card-status-alert { color: var(--tf-warn); font-weight: 600; }
+
+/* ===== TinyConnect: ข้อความตั้งเวลา ===== */
+.tinyfeed-sched-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-3);
+    padding: var(--tf-sp-3) 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+}
+.tinyfeed-sched-row:last-child { border-bottom: none; }
+.tinyfeed-sched-when {
+    flex-shrink: 0;
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+    white-space: nowrap;
+}
+.tinyfeed-sched-text { flex: 1; min-width: 0; font-size: var(--tf-fs-sm); color: var(--tf-text); word-break: break-word; }
+.tinyfeed-sched-del { flex-shrink: 0; color: var(--tf-text-muted); cursor: pointer; padding: var(--tf-sp-2); }
+.tinyfeed-sched-del:hover { color: var(--tf-danger); }
