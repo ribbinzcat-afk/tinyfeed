@@ -131,11 +131,29 @@ export function escapeHtml(str) {
     return escapeText(str).replace(/\n/g, "<br>");
 }
 
+const GENIMG_TOKEN_RE = /\[genimg:([^\]|]+)\|([^\]]+)\]/i;
+
 export function resolveMediaPriority(s) {
     s = String(s == null ? "" : s);
     const hasValidImg = [...s.matchAll(/\[img:([^\]]+)\]/gi)].some((m) => findGalleryImage(unescapeLite(m[1])));
-    if (hasValidImg) s = s.replace(/\[sticker:[^\]]+\]/gi, "");
+    // [genimg:] ที่กำลังขอ/รอเจนอยู่ก็ต้องชนะสติกเกอร์เหมือนรูปที่มีอยู่แล้วในคลัง (AI ตั้งใจส่งรูปมา ไม่ใช่ตกลง
+    // ไปใช้สติกเกอร์สำรอง) — เจอบั๊กจริงจากผู้ใช้ 2026-09-15: โพสต์ที่มีทั้งคู่ สติกเกอร์โผล่แทนรูปที่กำลังเจน
+    const hasGenImg = GENIMG_TOKEN_RE.test(s);
+    if (hasValidImg || hasGenImg) s = s.replace(/\[sticker:[^\]]+\]/gi, "");
     return s;
+}
+
+// แทนที่โทเคน [genimg:ชื่อ|คำบรรยาย] ทั้งหมดใน s ด้วยผลลัพธ์จาก mapFn(name, description) — ใช้ร่วมกันทั้ง
+// renderRich() (เรนเดอร์อินไลน์) และ renderPostBody() ของ index.js (ดึงออกไปเก็บในโซนสื่อเหมือน img/sticker)
+// เพื่อให้ "จำนวนที่ขอได้สูงสุดต่อข้อความ" นับรวมกันจริง ไม่ใช่นับแยกคนละที่ (เกินโควตา = ปล่อยเป็นข้อความดิบ)
+export function replaceGenImgTokens(s, mapFn) {
+    const maxGenImg = Math.max(0, parseInt(getSetting("genImageMaxPerMessage"), 10) || 0);
+    let count = 0;
+    return String(s == null ? "" : s).replace(/\[genimg:([^\]|]+)\|([^\]]+)\]/gi, (m, n, d) => {
+        count++;
+        if (count > maxGenImg) return m;
+        return mapFn(unescapeLite(n).trim(), unescapeLite(d).trim());
+    });
 }
 
 export function renderRich(html) {
@@ -143,15 +161,9 @@ export function renderRich(html) {
     // โทเคนคลังรูป: [sticker:ชื่อ] → รูปสติกเกอร์ · [img:ชื่อ] → รูปพร้อมคำบรรยาย (ทำก่อน markdown)
     s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => renderStickerToken(unescapeLite(n)));
     s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => renderImgToken(unescapeLite(n)));
-    // [genimg:ชื่อ|คำบรรยาย] → ขอรูปที่ยังไม่มีในคลัง (เฟส E) — จำกัดจำนวนต่อข้อความ/ครั้งที่ renderRich() ถูกเรียก
-    // ด้วยตัวนับในโคลสเชอร์นี้ (เกินโควตา = ปล่อยเป็นข้อความดิบ ไม่ตัดขอรูปเพิ่ม)
-    const maxGenImg = Math.max(0, parseInt(getSetting("genImageMaxPerMessage"), 10) || 0);
-    let genImgCount = 0;
-    s = s.replace(/\[genimg:([^\]|]+)\|([^\]]+)\]/gi, (m, n, d) => {
-        genImgCount++;
-        if (genImgCount > maxGenImg) return m;
-        return renderGenImgToken(unescapeLite(n).trim(), unescapeLite(d).trim());
-    });
+    // [genimg:ชื่อ|คำบรรยาย] → ขอรูปที่ยังไม่มีในคลัง (เฟส E) — ใช้ในบริบทที่ไม่ใช่โพสต์ฟีด (คอมเมนต์/แชต/โน้ต ฯลฯ)
+    // ที่ไม่มีโซนสื่อแยกให้ดึงไปวาง จึงเรนเดอร์อินไลน์ตรงนี้เลย (renderPostBody() ของโพสต์ฟีดดึงออกไปเองต่างหาก)
+    s = replaceGenImgTokens(s, (name, desc) => renderGenImgToken(name, desc));
     s = s.replace(/`([^`<]+)`/g, '<code class="tinyfeed-code">$1</code>');
     s = s.replace(/\*\*([^*<]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/\*([^*<\n]+)\*/g, "<em>$1</em>");

@@ -9,7 +9,7 @@ import {
 } from "./src/store.js";
 import {
     cleanAiName, displayTime, downscaleImageFile, escapeAttr, escapeHtml, escapeText, findGalleryImage, formatChatTime, htmlToPlain,
-    itemTimestamp, renderImgToken, renderRich, renderStickerToken, resolveMediaPriority,
+    itemTimestamp, renderGenImgToken, renderImgToken, renderRich, renderStickerToken, replaceGenImgTokens, resolveMediaPriority,
     setGenImageHandler, setMentionUserResolver, stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
 } from "./src/util.js";
 import {
@@ -6086,10 +6086,13 @@ function randomInitialLikes() {
 
 // วาดเนื้อโพสต์ TinyFeed: ข้อความ/แคปชันอยู่บน · รูป/สติกเกอร์ย้ายลงล่างเสมอ
 function renderPostBody(text) {
-    let s = resolveMediaPriority(text);   // รูป > สติกเกอร์
+    let s = resolveMediaPriority(text);   // รูป > สติกเกอร์ (นับ [genimg:] ที่กำลังขอ/รอเจนอยู่เป็น "รูป" ด้วย)
     const media = [];
     s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => { media.push(renderStickerToken(unescapeLite(n))); return ""; });
     s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => { media.push(renderImgToken(unescapeLite(n))); return ""; });
+    // [genimg:] ดึงเข้าโซนสื่อเหมือน img/sticker (ไม่ปล่อยให้ renderRich() เรนเดอร์อินไลน์ในเนื้อข้อความ) — ใช้
+    // replaceGenImgTokens() ร่วมกับ renderRich() เพื่อให้โควตาต่อข้อความนับรวมกันจริง ไม่ใช่นับแยกคนละที่
+    s = replaceGenImgTokens(s, (name, desc) => { media.push(renderGenImgToken(name, desc)); return ""; });
     const textHtml = renderRich(s).replace(/^(?:<br>\s*)+|(?:<br>\s*)+$/g, "").trim();
     const mediaHtml = media.length ? `<div class="tinyfeed-post-media">${media.join("")}</div>` : "";
     return textHtml + mediaHtml;
@@ -7191,15 +7194,29 @@ function galleryPromptBlock() {
 const pendingGenImages = new Map();
 const GEN_IMAGE_TIMEOUT_MS = 3 * 60 * 1000; // 3 นาที — เผื่อฝั่ง scene-captured อยู่โหมด "ถามก่อน" แล้วผู้ใช้ไม่กด
 
+// requestId -> resolve(result) — ใช้เฉพาะจุดที่ "รอรูปเสร็จได้จริง" เพราะไม่ได้อยู่ใน render loop (เช่น สตอรี่
+// ที่ถูกกดสั่งครั้งเดียวแล้วรอผลได้ ต่างจาก renderGenImgToken() ที่ห้าม await เด็ดขาด)
+const genImageWaiters = new Map();
+
 function genImageKey(name) {
     return String(name || "").trim().toLowerCase();
 }
 
-// รีเพนต์แอปที่เปิดอยู่ตอนนี้ (ถ้ามี) — ใช้ .open() ของ APPS ซ้ำ เพราะ [genimg:] อาจโผล่ได้แทบทุกแอป
-// (ฟีด/แชต/ไลฟ์/กระทู้/ถาม-ตอบ ฯลฯ) ไม่ไล่ hook ทีละจุด — เสียแค่ scroll/สถานะหน้าย่อยบางแอปรีเซ็ต ยอมรับได้
+// รีเพนต์เนื้อหาจริงของแอป/หน้าจอย่อยที่เปิดอยู่ตอนนี้ — ต้องเรียกฟังก์ชัน render ตรงๆ ทีละแอป ใช้ app.open() ของ
+// APPS ซ้ำแบบเดิมไม่ได้ เพราะ 2 ปัญหาที่เจอจริง (ผู้ใช้รายงาน 2026-09-15):
+// (1) "feed".open() เรียก switchTab() ซึ่งแค่สลับ visibility ไม่ได้วาด HTML ใหม่เลย — โพสต์ที่เคย render ค้างคำว่า
+//     "กำลังเจนรูป" ไปตลอดกาลแม้รูปจะเจนเสร็จแล้ว (renderFeed() วาดใหม่จริง ต้องเรียกตรงๆ)
+// (2) "connect"/"forum".open() พาผู้ใช้ย้อนกลับไปหน้ารายชื่อ/หน้ากระทู้เสมอ — ถ้ากำลังเปิดอ่านเธรด/กระทู้ค้างรอรูป
+//     อยู่ จะโดนเด้งออกจากหน้าที่กำลังดูอย่างไม่ตั้งใจ ต้องเช็คว่าเปิดหน้าย่อยไหนอยู่แล้วรีเพนต์เฉพาะหน้านั้น
 function repaintAfterGenImage() {
-    const app = APPS.find((a) => a.id === currentApp);
-    if (app && typeof app.open === "function") app.open();
+    switch (currentApp) {
+        case "feed": renderFeed(); return;
+        case "connect": if (isConnectThreadOpen()) renderThread(); return;
+        case "forum": if (isForumThreadOpen() && activeForumThread) renderForumThread(activeForumThread); return;
+        case "stream": renderStream(); return;
+        case "memo": switchMemoTab(memoTab); return;
+        case "ask": switchAskTab(askTab); return;
+    }
 }
 
 // เรียกจาก renderGenImgToken() ทุกครั้งที่เจอโทเคน [genimg:] ตอน render — ต้อง sync ล้วนๆ (ห้าม await เพราะ
@@ -7244,6 +7261,48 @@ function handleGenImageRequest(name, description) {
     });
 
     return "pending";
+}
+
+// เวอร์ชัน await ได้ของ handleGenImageRequest() — ใช้เฉพาะจุดที่ไม่ได้อยู่ใน render loop และยอมรอผลจริงได้
+// (ตอนนี้มีที่เดียว: สตอรี่ที่ AI ตอบ "IMAGE: NEW: ชื่อ|คำบรรยาย" — กดสั่งครั้งเดียว รอ 10-30 วิได้ มี spinner
+// .tinyfeed-story-genchip.tinyfeed-generating แสดงระหว่างรออยู่แล้ว) คืน {ok, error, name} เสมอ ไม่ throw
+async function requestGenImageAndWait(name, description) {
+    if (!getSetting("allowAiImageRequest")) return { ok: false, error: "ปิดฟีเจอร์นี้อยู่ (เปิดได้ที่ตั้งค่า TinyGallery)" };
+    const key = genImageKey(name);
+    if (!key) return { ok: false, error: "ไม่มีชื่อรูปให้ขอ" };
+
+    const requestId = `tf${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    pendingGenImages.set(key, { status: "pending", requestId, at: Date.now() });
+
+    const ctx = getContext();
+    const req = {
+        requesterId: "tinyfeed",
+        requestId,
+        description: String(description || "").trim() || name,
+        name,
+        accepted: false,
+        error: null,
+    };
+    try {
+        await ctx.eventSource.emit("scap:generate-image", req);
+    } catch (e) {
+        pendingGenImages.delete(key);
+        return { ok: false, error: String(e?.message || e) };
+    }
+    if (!req.accepted) {
+        pendingGenImages.delete(key);
+        return { ok: false, error: req.error || "ไม่มี extension ไหนรับคำขอเลย" };
+    }
+
+    return new Promise((resolve) => {
+        // กันรอค้างตลอดกาลถ้า "scap:generate-result" ไม่ยิงกลับมาด้วยเหตุผลใดก็ตาม (bug ฝั่งผู้เจน/extension ไม่มีอยู่จริงกลางทาง)
+        const timer = setTimeout(() => {
+            if (!genImageWaiters.has(requestId)) return;
+            genImageWaiters.delete(requestId);
+            resolve({ ok: false, error: "รอผลนานเกินไป (ไม่ได้รับ scap:generate-result)" });
+        }, GEN_IMAGE_TIMEOUT_MS);
+        genImageWaiters.set(requestId, (result) => { clearTimeout(timer); resolve(result); });
+    });
 }
 
 // Phase 2: แทรกฟีด/ข่าว/แชต/ไลฟ์ เข้าประวัติแชทหลัก ให้โมเดล RP รับรู้ (เรียลไทม์)
@@ -7809,7 +7868,10 @@ async function generateStory(opts) {
     if (isStoryBusy) return;
     const char = getCurrentCharacter();
     if (!char) { if (!opts.silent) toastr.info("เลือกตัวละครก่อนนะ", "TinyFeed"); return; }
-    if (!storyAllowedImages().length) {
+    // เดิมบล็อกทันทีถ้าคลังว่าง — แต่ถ้าเปิด "ให้ AI ขอรูปที่ยังไม่มีในคลังได้" ไว้ AI ขอเจนรูปใหม่ได้เองระหว่างเขียน
+    // สตอรี่ (ดู IMAGE: NEW: ด้านล่าง) จึงไม่ต้องมีรูปในคลังมาก่อนก็เริ่มได้ (เจอบั๊กจริงจากผู้ใช้ 2026-09-15: ลบรูป
+    // ทั้งหมดเพื่อทดสอบฟีเจอร์นี้แล้วกดเริ่มสตอรี่ไม่ได้เลย)
+    if (!storyAllowedImages().length && !getSetting("allowAiImageRequest")) {
         if (!opts.silent) toastr.info("ยังไม่มีรูปในคลัง — เพิ่มที่แอป TinyGallery ก่อนนะ", "TinyFeed");
         return;
     }
@@ -7827,7 +7889,25 @@ async function generateStory(opts) {
         const raw = await tinyGenerate(q, parseInt(getSetting("storyTokens"), 10) || 200, "story");
         if (!raw) { if (!opts.silent) toastr.warning("AI ไม่ตอบกลับมา", "TinyFeed"); return; }
         const author = cleanAiName(grabLine(raw, "NAME")) || charName;
-        const img = storyPickImage(unescapeLite(grabLine(raw, "IMAGE")));
+
+        // IMAGE: NEW: ชื่อ|คำบรรยาย — AI ไม่เจอรูปไหนในคลังที่เข้ากับสตอรี่เลย ขอเจนใหม่แทน (เฟส E) ต่างจากโทเคน
+        // [genimg:] ของโพสต์ปกติตรงที่ฟิลด์ IMAGE นี้รับได้แค่ "ชื่อเดียว" ไม่ใช่ข้อความอิสระ จึงต้องมี syntax ของตัวเอง
+        const imageLine = unescapeLite(grabLine(raw, "IMAGE"));
+        const newMatch = /^new:\s*([^|]+)\|?(.*)$/i.exec(imageLine.trim());
+        let img;
+        if (newMatch && getSetting("allowAiImageRequest")) {
+            const wantName = newMatch[1].trim();
+            const wantDesc = newMatch[2].trim() || wantName;
+            const result = await requestGenImageAndWait(wantName, wantDesc);
+            if (!result.ok) {
+                if (!opts.silent) toastr.warning(`ขอเจนรูปสำหรับสตอรี่ไม่สำเร็จ: ${result.error || "ไม่ทราบสาเหตุ"}`, "TinyFeed");
+                return;
+            }
+            img = findGalleryImage(result.name || wantName);
+            if (!img) { if (!opts.silent) toastr.warning("เจนรูปสำเร็จแล้ว แต่หาในคลังไม่เจอ (ลองอีกครั้ง)", "TinyFeed"); return; }
+        } else {
+            img = storyPickImage(imageLine);
+        }
         if (!img) { if (!opts.silent) toastr.warning("หารูปในคลังไม่เจอ", "TinyFeed"); return; }
         const overlay = stripWrapBrackets(grabLine(raw, "STORY"));
         const caption = stripWrapBrackets(grabLine(raw, "CAPTION"));
@@ -8230,8 +8310,8 @@ const PROMPT_DEFS = {
     storyPost: {
         label: "สตอรี่ (TinyFeed)", marker: "STORY:", tokens: ["roster", "extra", "gallery", "context"],
         default:
-            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งสตอรี่ 24 ชั่วโมง 1 ชิ้นที่ตัวละครจะลงในโทรศัพท์ สะท้อนช่วงเวลาตอนนี้ของเนื้อเรื่อง. {{roster}}เลือกรูป 1 รูปจากคลังโดยพิมพ์ชื่อรูปให้ตรงเป๊ะ. ข้อความที่แปะบนรูปต้องสั้นมาก (ไม่เกิน 8 คำ) เหมือนสติกเกอร์ข้อความ. ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนหรือกระทำแทนผู้ใช้. {{extra}}{{gallery}}{{context}}\n` +
-            `ตอบกลับตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\nNAME: <ชื่อผู้ลงสตอรี่>\nIMAGE: <ชื่อรูปจากคลัง>\nSTORY: <ข้อความบนรูป>\nCAPTION: <คำบรรยายสั้นๆ ใส่ - ถ้าไม่มี>`,
+            `[คำสั่งระบบ — ไม่ใช่ส่วนของเนื้อเรื่อง] แต่งสตอรี่ 24 ชั่วโมง 1 ชิ้นที่ตัวละครจะลงในโทรศัพท์ สะท้อนช่วงเวลาตอนนี้ของเนื้อเรื่อง. {{roster}}เลือกรูป 1 รูปจากคลังโดยพิมพ์ชื่อรูปให้ตรงเป๊ะ ถ้าไม่มีรูปไหนในคลังเข้ากับสตอรี่นี้เลยและด้านล่างอนุญาตให้ขอเจนรูปใหม่ได้ ให้ตอบ IMAGE: NEW: <ชื่อสั้นๆ>|<คำบรรยายภาพที่ต้องการ> แทนชื่อรูปจากคลัง. ข้อความที่แปะบนรูปต้องสั้นมาก (ไม่เกิน 8 คำ) เหมือนสติกเกอร์ข้อความ. ใช้ภาษาเดียวกับเนื้อเรื่อง ห้ามพูดแทนหรือกระทำแทนผู้ใช้. {{extra}}{{gallery}}{{context}}\n` +
+            `ตอบกลับตามรูปแบบนี้เท่านั้น ห้ามมีข้อความอื่น:\nNAME: <ชื่อผู้ลงสตอรี่>\nIMAGE: <ชื่อรูปจากคลัง หรือ NEW: ชื่อ|คำบรรยาย>\nSTORY: <ข้อความบนรูป>\nCAPTION: <คำบรรยายสั้นๆ ใส่ - ถ้าไม่มี>`,
     },
     storyComment: {
         label: "คนมาตอบสตอรี่ (TinyFeed)", marker: "COMMENT:", tokens: ["author", "storyText", "roster", "count", "context"],
@@ -10986,6 +11066,13 @@ jQuery(async () => {
         setGenImageHandler(handleGenImageRequest);
         context.eventSource.on("scap:generate-result", (result) => {
             if (!result || result.requesterId !== "tinyfeed") return;
+            // ผู้รอแบบ await (requestGenImageAndWait() — ตอนนี้มีแค่สตอรี่) เช็คแยกจาก pendingGenImages ด้วย
+            // requestId ตรงๆ เพราะแม่นยำกว่า (ไม่โดนคำขอถัดไปที่ชื่อซ้ำทับคีย์เดียวกันในนั้นบัง)
+            const waiter = genImageWaiters.get(result.requestId);
+            if (waiter) {
+                genImageWaiters.delete(result.requestId);
+                waiter({ ok: result.ok, error: result.error, name: result.name });
+            }
             const key = genImageKey(result.name);
             const rec = pendingGenImages.get(key);
             if (!rec || rec.requestId !== result.requestId) return;   // คนละคำขอ (ถูกแทนที่ไปแล้ว) — เมิน
