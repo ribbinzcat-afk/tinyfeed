@@ -2,7 +2,7 @@
  * `[img:ชื่อ]` และ `[sticker:ชื่อ]` ถูกแปลงกลางที่ renderRich() ที่นี่
  * ทุกแอปจึงได้ฟีเจอร์นี้ฟรี — ห้าม parse token เอง (CONVENTIONS.md บทที่ 4.8)
  * ขึ้นกับ store.js อย่างเดียว (getGallery) ห้าม import จาก index.js */
-import { getGallery } from "./store.js";
+import { getGallery, getSetting } from "./store.js";
 
 // ตัดอักขระที่ "ครอบทั้งชื่อ" ออก (AI ชอบตอบชื่อมาแบบมีเครื่องหมายคำพูด/วงเล็บ/ป้ายกำกับหุ้ม)
 // ต่างจาก regex เดิม (^["'“”\[\(]+|["'“”\]\)]+$) ตรงที่ตัดเฉพาะคู่ที่ห่อ "ทั้งสตริง" จริงๆ
@@ -54,6 +54,20 @@ function currentUserDisplayName() {
     } catch (e) {
         console.error("[tinyfeed] mentionUserResolver ล้มเหลว:", e);   // fallback = แสดง "@user" ตามเดิม
         return "";
+    }
+}
+
+// ===== เฟส E: [genimg:ชื่อ|คำบรรยาย] — ให้ AI ขอรูปที่ยังไม่มีในคลังได้ =====
+// การยิงคำขอจริง (ยุ่งกับ eventSource/getContext) ต้องอยู่ใน index.js เสมอ (กฎเหล็กข้อ 4 — ไฟล์นี้ import
+// จาก index.js ไม่ได้) ใช้แพทเทิร์นฉีด callback เดียวกับ mentionUserResolver ด้านบน
+let genImageHandler = null;
+export function setGenImageHandler(fn) { genImageHandler = fn; }
+function requestGenImage(name, description) {
+    try {
+        return (genImageHandler && genImageHandler(name, description)) || null;
+    } catch (e) {
+        console.error("[tinyfeed] genImageHandler ล้มเหลว:", e);
+        return null;
     }
 }
 
@@ -129,6 +143,15 @@ export function renderRich(html) {
     // โทเคนคลังรูป: [sticker:ชื่อ] → รูปสติกเกอร์ · [img:ชื่อ] → รูปพร้อมคำบรรยาย (ทำก่อน markdown)
     s = s.replace(/\[sticker:([^\]]+)\]/gi, (m, n) => renderStickerToken(unescapeLite(n)));
     s = s.replace(/\[img:([^\]]+)\]/gi, (m, n) => renderImgToken(unescapeLite(n)));
+    // [genimg:ชื่อ|คำบรรยาย] → ขอรูปที่ยังไม่มีในคลัง (เฟส E) — จำกัดจำนวนต่อข้อความ/ครั้งที่ renderRich() ถูกเรียก
+    // ด้วยตัวนับในโคลสเชอร์นี้ (เกินโควตา = ปล่อยเป็นข้อความดิบ ไม่ตัดขอรูปเพิ่ม)
+    const maxGenImg = Math.max(0, parseInt(getSetting("genImageMaxPerMessage"), 10) || 0);
+    let genImgCount = 0;
+    s = s.replace(/\[genimg:([^\]|]+)\|([^\]]+)\]/gi, (m, n, d) => {
+        genImgCount++;
+        if (genImgCount > maxGenImg) return m;
+        return renderGenImgToken(unescapeLite(n).trim(), unescapeLite(d).trim());
+    });
     s = s.replace(/`([^`<]+)`/g, '<code class="tinyfeed-code">$1</code>');
     s = s.replace(/\*\*([^*<]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/\*([^*<\n]+)\*/g, "<em>$1</em>");
@@ -158,6 +181,23 @@ export function renderImgToken(name) {
     if (im && im.url) {
         // คำบรรยายไม่โชว์ในเนื้อหา (ใช้เป็น prompt + โชว์ตอนดูรูปเต็มในคลังเท่านั้น)
         return `<span class="tinyfeed-content-img-wrap"><img class="tinyfeed-content-img" src="${escapeAttr(im.url)}" alt="${escapeText(im.name)}" onerror="this.classList.add('tinyfeed-img-broken')" /></span>`;
+    }
+    return `<span class="tinyfeed-token-missing">[รูป: ${escapeText(name)}]</span>`;
+}
+
+// [genimg:ชื่อ|คำบรรยาย] — ถ้ารูปมาถึงคลังแล้ว (ชื่อตรงกับที่ขอ) แสดงเหมือน [img:] ปกติเลย ไม่ต้องถามสถานะอีก
+// ถ้ายังไม่มี ให้ index.js (ผ่าน requestGenImage) ตัดสินใจว่าจะยิงคำขอหรือไม่ แล้วคืนสถานะมาเลือก UI ที่ตรงจริง
+export function renderGenImgToken(name, description) {
+    const im = findGalleryImage(name);
+    if (im && im.url) {
+        return `<span class="tinyfeed-content-img-wrap"><img class="tinyfeed-content-img" src="${escapeAttr(im.url)}" alt="${escapeText(im.name)}" onerror="this.classList.add('tinyfeed-img-broken')" /></span>`;
+    }
+    const status = requestGenImage(name, description); // "pending" | "failed" | null (ยังไม่ขอ/ฟีเจอร์ปิดอยู่)
+    if (status === "pending") {
+        return `<span class="tinyfeed-token-missing tinyfeed-generating"><i class="fa-solid fa-spinner fa-spin"></i> กำลังเจนรูป: ${escapeText(name)}…</span>`;
+    }
+    if (status === "failed") {
+        return `<span class="tinyfeed-token-missing">[เจนรูปไม่สำเร็จ: ${escapeText(name)}]</span>`;
     }
     return `<span class="tinyfeed-token-missing">[รูป: ${escapeText(name)}]</span>`;
 }

@@ -1107,6 +1107,26 @@
                         <input id="tinyfeed-cfg-gallery-max-stickers" type="number" min="1" />
                     </label>
                     <small class="tinyfeed-field-hint">คลังรูป/สติกเกอร์เป็น <b>global</b> ใช้ร่วมทุกแชท ไม่เปลี่ยนตามแชท · เปิดตัวเลือกแรกจะแนบรายชื่อสติกเกอร์/รูป (ตามขอบเขต+จำนวนสูงสุด) เข้าไปตอน AI คุย/โพสต์ เพื่อให้เลือกส่งด้วย <code>[sticker:ชื่อ]</code> / <code>[img:ชื่อ]</code> · ผู้ใช้กดปุ่ม 😊 ในแถบพิมพ์เพื่อส่งเองได้ทุกแอป</small>
+
+                    <label class="tinyfeed-field-row">
+                        <span>รับรูปจาก extension อื่น (เช่น Scene Captured)</span>
+                        <input id="tinyfeed-cfg-gallery-accept-external" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">อัลบั้มที่จะเก็บรูปจากภายนอก</span>
+                        <input id="tinyfeed-cfg-gallery-external-album" type="text" placeholder="AI สร้าง" />
+                    </label>
+                    <small class="tinyfeed-field-hint">เมื่อเปิด extension อื่นที่รองรับจะเห็น TinyGallery เป็นปลายทางให้เลือกส่งรูปได้ตอนเจนภาพ — สร้างอัลบั้มข้างต้นให้อัตโนมัติถ้ายังไม่มี</small>
+
+                    <label class="tinyfeed-field-row">
+                        <span>ให้ AI ขอรูปที่ยังไม่มีในคลังได้ (เช่น จาก Scene Captured)</span>
+                        <input id="tinyfeed-cfg-allow-ai-image-request" type="checkbox" />
+                    </label>
+                    <label class="tinyfeed-field">
+                        <span class="tinyfeed-field-label">จำนวนรูปที่ขอได้สูงสุดต่อข้อความ</span>
+                        <input id="tinyfeed-cfg-gen-image-max" type="number" min="0" />
+                    </label>
+                    <small class="tinyfeed-field-hint">เปิดแล้ว AI พิมพ์ <code>[genimg:ชื่อ|คำบรรยาย]</code> เพื่อขอเจนรูปใหม่ได้เมื่อไม่มีรูปที่ตรงในคลัง — ต้องมี extension ที่รองรับการเจนรูป (เช่น Scene Captured) ติดตั้งและเปิดรับคำขอไว้ด้วย เจนภาพเปลืองโควตาจริง ปิดไว้เป็นค่าเริ่มต้น</small>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="bank">

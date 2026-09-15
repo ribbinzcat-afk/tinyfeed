@@ -5,12 +5,12 @@ import { saveBase64AsFile } from "../../../utils.js";
 // โมดูลย่อย (ดู CONVENTIONS.md บทที่ 7 — module layout)
 import {
     extensionName, extensionFolderPath,
-    defaultSettings, flushAllSaves, getFeedData, getGallery, getSetting, saveFeedDataDebounced, saveGallery, setSetting,
+    addGalleryImageExternal, defaultSettings, flushAllSaves, getFeedData, getGallery, getSetting, saveFeedDataDebounced, saveGallery, setSetting,
 } from "./src/store.js";
 import {
     cleanAiName, displayTime, downscaleImageFile, escapeAttr, escapeHtml, escapeText, findGalleryImage, formatChatTime, htmlToPlain,
     itemTimestamp, renderImgToken, renderRich, renderStickerToken, resolveMediaPriority,
-    setMentionUserResolver, stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
+    setGenImageHandler, setMentionUserResolver, stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
 } from "./src/util.js";
 import {
     composeBarHtml, emptyInlineHtml, emptyStateHtml, skeletonCardHtml, uploadBtnHtml,
@@ -7165,13 +7165,85 @@ function galleryPromptBlock() {
     const inScope = (it) => !selected || selected.has(String(it.album || "ทั่วไป"));
     const capImg = Math.max(1, parseInt(getSetting("galleryMaxImages"), 10) || 24);
     const capStk = Math.max(1, parseInt(getSetting("galleryMaxStickers"), 10) || 24);
-    const stk = g.stickers.filter(inScope).slice(0, capStk).map((s) => s.name).filter(Boolean);
-    const img = g.images.filter(inScope).slice(0, capImg).map((s) => s.caption ? `${s.name} (${htmlToPlain(s.caption)})` : s.name).filter(Boolean);
-    if (!stk.length && !img.length) return "";
+    // เรียงใหม่สุดก่อนตัด — ไม่งั้นพอคลังเกิน cap รูป/สติกเกอร์ที่เพิ่งเพิ่มเข้ามาใหม่ (เช่นจากท่อส่งรูปข้ามส่วนขยาย)
+    // จะเป็นตัวที่ถูกตัดออกก่อนเสมอ (อยู่ท้าย array) ซึ่งตรงข้ามกับที่ต้องการ — .filter() คืน array ใหม่ .sort() ตรงนี้จึงไม่กระทบลำดับจริงในคลัง
+    const byNewest = (a, b) => (b.ts || 0) - (a.ts || 0);
+    const stk = g.stickers.filter(inScope).sort(byNewest).slice(0, capStk).map((s) => s.name).filter(Boolean);
+    const img = g.images.filter(inScope).sort(byNewest).slice(0, capImg).map((s) => s.caption ? `${s.name} (${htmlToPlain(s.caption)})` : s.name).filter(Boolean);
+    // เฟส E: ให้ AI ขอรูปที่ยังไม่มีในคลังได้ — แสดงกติกาแม้คลังจะว่าง (ไม่ผูกกับ !stk.length && !img.length ด้านล่าง)
+    const canRequestGenImage = getSetting("allowAiImageRequest");
+    if (!stk.length && !img.length && !canRequestGenImage) return "";
+
     let out = "\n[คลังสื่อในโทรศัพท์ — ส่งได้ถ้าเข้ากับสถานการณ์ อย่าฝืนใส่ทุกครั้ง]\n";
     if (stk.length) out += `ส่งสติกเกอร์: พิมพ์ [sticker:ชื่อ] โดยเลือกจาก: ${stk.join(", ")}.\n`;
     if (img.length) out += `แนบรูป: พิมพ์ [img:ชื่อ] โดยเลือกจาก: ${img.join(", ")}.\n`;
+    if (canRequestGenImage) {
+        out += `ถ้าต้องการรูปที่ไม่มีในคลังเลย ขอเจนใหม่ได้ด้วย [genimg:ชื่อสั้นๆ|คำบรรยายภาพที่ต้องการ] (ใช้ไม่เกิน 1 ครั้งต่อข้อความ เฉพาะตอนฉากต้องการรูปจริงๆ เท่านั้น — รูปจะไม่โผล่ทันที ต้องรอเจนสักครู่).\n`;
+    }
     return out;
+}
+
+// ===== เฟส E: ขอ extension เจนรูป (เช่น scene-captured) เจนรูปที่ยังไม่มีในคลังให้ — ยิงจาก renderGenImgToken()
+// (src/util.js) ผ่าน callback ที่ฉีดไว้ด้วย setGenImageHandler() เพราะ util.js เรียก eventSource เองไม่ได้ =====
+
+// key(ชื่อ lowercase) -> { status: "pending"|"failed", requestId, at } — เก็บใน memory ล้วนๆ ตั้งใจไม่ persist
+// ลง settings (คำขอค้างข้ามการรีโหลดจะติดตลอดกาล) รีโหลดหน้า = สถานะหายไปเฉยๆ ไม่ยิงซ้ำอัตโนมัติ
+const pendingGenImages = new Map();
+const GEN_IMAGE_TIMEOUT_MS = 3 * 60 * 1000; // 3 นาที — เผื่อฝั่ง scene-captured อยู่โหมด "ถามก่อน" แล้วผู้ใช้ไม่กด
+
+function genImageKey(name) {
+    return String(name || "").trim().toLowerCase();
+}
+
+// รีเพนต์แอปที่เปิดอยู่ตอนนี้ (ถ้ามี) — ใช้ .open() ของ APPS ซ้ำ เพราะ [genimg:] อาจโผล่ได้แทบทุกแอป
+// (ฟีด/แชต/ไลฟ์/กระทู้/ถาม-ตอบ ฯลฯ) ไม่ไล่ hook ทีละจุด — เสียแค่ scroll/สถานะหน้าย่อยบางแอปรีเซ็ต ยอมรับได้
+function repaintAfterGenImage() {
+    const app = APPS.find((a) => a.id === currentApp);
+    if (app && typeof app.open === "function") app.open();
+}
+
+// เรียกจาก renderGenImgToken() ทุกครั้งที่เจอโทเคน [genimg:] ตอน render — ต้อง sync ล้วนๆ (ห้าม await เพราะ
+// renderRich() เรียกจากกลางการ render หลายสิบจุด) คืนสถานะปัจจุบันให้ util.js เลือก UI เอง
+function handleGenImageRequest(name, description) {
+    if (!getSetting("allowAiImageRequest")) return null;
+    const key = genImageKey(name);
+    if (!key) return null;
+
+    const existing = pendingGenImages.get(key);
+    if (existing) {
+        if (existing.status === "pending" && Date.now() - existing.at > GEN_IMAGE_TIMEOUT_MS) {
+            existing.status = "failed";   // ค้างนานเกินไป (เช่นฝั่งโน้นอยู่โหมด "ถามก่อน" แล้วผู้ใช้ไม่กด) — เลิกรอ
+        }
+        return existing.status;
+    }
+
+    const requestId = `tf${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    pendingGenImages.set(key, { status: "pending", requestId, at: Date.now() });
+
+    const ctx = getContext();
+    const req = {
+        requesterId: "tinyfeed",
+        requestId,
+        description: String(description || "").trim() || name,
+        name,
+        accepted: false,
+        error: null,
+    };
+    // fire-and-forget โดยตั้งใจ — ไม่ await ตรงนี้ (ดูคอมเมนต์บนฟังก์ชัน) เช็คผล accept/reject แบบ async แทน
+    ctx.eventSource.emit("scap:generate-image", req).then(() => {
+        if (req.accepted) return;   // รับงานแล้ว รอ "scap:generate-result" ตัดสินสถานะสุดท้ายต่อไป
+        console.warn(`[${extensionName}] scap:generate-image ถูกปฏิเสธ: ${req.error || "(ไม่ทราบสาเหตุ — อาจไม่มี extension ไหนรับคำขอเลย)"}`);
+        const rec = pendingGenImages.get(key);
+        if (rec && rec.requestId === requestId) rec.status = "failed";
+        repaintAfterGenImage();
+    }).catch((e) => {
+        console.error(`[${extensionName}] scap:generate-image ล้มเหลว:`, e);
+        const rec = pendingGenImages.get(key);
+        if (rec && rec.requestId === requestId) rec.status = "failed";
+        repaintAfterGenImage();
+    });
+
+    return "pending";
 }
 
 // Phase 2: แทรกฟีด/ข่าว/แชต/ไลฟ์ เข้าประวัติแชทหลัก ให้โมเดล RP รับรู้ (เรียลไทม์)
@@ -7721,7 +7793,8 @@ function storyAllowedImages() {
     const g = getGallery();
     if (getSetting("galleryPromptScope") !== "selected") return g.images;
     const scope = new Set(getSetting("galleryAlbums") || []);
-    const picked = g.images.filter((im) => scope.has(im.album));
+    // เดิมเทียบ im.album ตรงๆ (ไม่มี fallback "ทั่วไป") ไม่ตรงกับ inScope() ของ galleryPromptBlock() — sync กันไว้ ไม่งั้นรูปที่ไม่มี album ระบุ (เก่า/ยังไม่ตั้ง) จะถูกตัดออกจากพูลสุ่มทั้งที่ AI เห็นชื่อมันใน prompt
+    const picked = g.images.filter((im) => scope.has(im.album || "ทั่วไป"));
     return picked.length ? picked : g.images;
 }
 function storyPickImage(name) {
@@ -10616,6 +10689,10 @@ function populateSettings() {
     $("#tinyfeed-cfg-gallery-scope").val(getSetting("galleryPromptScope") || "all");
     $("#tinyfeed-cfg-gallery-max-images").val(getSetting("galleryMaxImages"));
     $("#tinyfeed-cfg-gallery-max-stickers").val(getSetting("galleryMaxStickers"));
+    $("#tinyfeed-cfg-gallery-accept-external").prop("checked", Boolean(getSetting("galleryAcceptExternal")));
+    $("#tinyfeed-cfg-gallery-external-album").val(getSetting("galleryExternalAlbum"));
+    $("#tinyfeed-cfg-allow-ai-image-request").prop("checked", Boolean(getSetting("allowAiImageRequest")));
+    $("#tinyfeed-cfg-gen-image-max").val(getSetting("genImageMaxPerMessage"));
     galleryCfgPage = 0;
     renderGalleryCfgAlbums();
     populateCurrencySettings();
@@ -10849,6 +10926,75 @@ jQuery(async () => {
             // GENERATION_STARTED ยิงตอนเริ่มฟังก์ชัน Generate() ก่อน abortController/streamingProcessor ตัวจริงของ
             // รอบนี้จะถูกสร้าง (สร้างอีกไม่กี่บรรทัดถัดไปในนั้น) เรียกซ้ำอีกทีถัดจากนี้ 1 tick ให้ชัวร์ว่าจับตัวจริงทัน
             setTimeout(() => { if (isCallActive()) interruptMainChatGeneration(getContext()); }, 0);
+        });
+
+        // ===== ท่อส่งรูปจาก extension อื่น (เช่น scene-captured) เข้า TinyGallery — event bus ล้วนๆ ไม่ import กันตรงๆ =====
+        // เหตุผลที่ทำแบบนี้แทนให้ฝั่งโน้นเขียน extension_settings.tinyfeed ตรงๆ: store.js ประกาศตัวเองเป็นที่เดียวที่
+        // รู้จักรูปร่างของ settings นี้ (ดูคอมเมนต์หัวไฟล์) และฟังก์ชัน repaint ทั้งหมดเป็น private ในไฟล์นี้ — import
+        // จากข้างนอกไม่ได้อยู่ดี จึงให้ปลายทาง (ฝั่งนี้) เป็นคนเขียน+repaint เอง ฝั่งโน้นแค่ยิง event มา
+        context.eventSource.on("scap:discover-targets", (probe) => {
+            if (!getSetting("galleryAcceptExternal")) return;
+            if (!probe || !Array.isArray(probe.targets)) return;   // payload หน้าตาไม่ตรงสัญญา — เมินไปเงียบๆ (อาจเป็น event ชื่อชนจาก extension อื่น)
+            probe.targets.push({ id: "tinyfeed", label: "TinyGallery" });
+        });
+        context.eventSource.on("scap:image-generated", async (payload) => {
+            if (!payload || payload.targetId !== "tinyfeed") return;   // ไม่ใช่ปลายทางเรา — ปล่อยให้ extension อื่นจัดการ
+            if (!getSetting("galleryAcceptExternal")) {
+                payload.error = "TinyGallery ปิดรับรูปจากภายนอกอยู่ (เปิดได้ที่ตั้งค่า TinyGallery)";
+                return;
+            }
+            try {
+                // คัดลอกไฟล์เป็นสำเนาของตัวเองก่อนบันทึก — ห้ามใช้ payload.url ตรงๆ (path ของ scene-captured)
+                // เพราะไฟล์เดียวกันจะถูกอ้างอิงทั้งจากข้อความในแชทของ scene-captured และคลังนี้พร้อมกัน แล้วใครลบก่อน
+                // อีกฝ่ายพัง (เจอบั๊กจริงตอนทดสอบ 2026-09-15: กด "ลบรูปนี้" ในแชทแล้ว TinyGallery กลายเป็นรูปพัง)
+                // สำเนาที่ได้จะอยู่ใต้ user/images/tinyphone/ ตามปกติ → ตัวกวาดไฟล์กำพร้า/แท็บ "ไฟล์ทั้งหมด" มองเห็นด้วย
+                // ยกเว้น URL ภายนอก (http/https เต็ม เช่น Custom API ที่ตอบเป็นลิงก์ตรง) — ไม่ต้องคัดลอกเลย เพราะไฟล์ไม่ได้
+                // อยู่บนดิสก์เรา ไม่มีใครเป็นเจ้าของ ไม่มีปัญหา "ใครลบก่อน" (fetch() ก็ทำไม่ได้อยู่ดีถ้าปลายทางไม่เปิด CORS)
+                const isExternalUrl = /^https?:\/\//i.test(payload.url || "");
+                let localPath = payload.url;
+                if (!isExternalUrl) {
+                    const res = await fetch(payload.url);
+                    if (!res.ok) throw new Error(`โหลดรูปจากปลายทางไม่สำเร็จ (HTTP ${res.status})`);
+                    const blob = await res.blob();
+                    localPath = await uploadTinyImage(blob, "image");
+                }
+
+                const { entry, error } = addGalleryImageExternal({
+                    url: localPath,
+                    name: payload.name,
+                    caption: payload.caption,
+                    album: getSetting("galleryExternalAlbum"),
+                });
+                if (!entry) {
+                    payload.error = error || "เพิ่มรูปเข้า TinyGallery ไม่สำเร็จ";
+                    return;
+                }
+                payload.accepted = true;
+                payload.name = entry.name;   // ชื่ออาจถูกต่อเลขท้ายถ้าซ้ำ — ให้ฝั่งเรียก toast ชื่อจริงที่บันทึกได้
+                renderGalleryAlbums();   // อัลบั้มอาจเพิ่งถูกสร้างใหม่
+                if (currentApp === "gallery") renderGalleryGrid("image");
+                if (galleryPickTarget && galleryPickTarget.kind === "image") renderPickerGrid();
+                repaintAfterGenImage();  // เฟส E: รูปที่เพิ่งเข้าคลังอาจเป็นคำตอบของ [genimg:] ที่ค้างอยู่ในโพสต์/ข้อความอื่น
+            } catch (e) {
+                console.error(`[${extensionName}] scap:image-generated listener ล้มเหลว:`, e);
+                payload.error = "เกิดข้อผิดพลาดขณะเพิ่มรูปเข้า TinyGallery";
+            }
+        });
+
+        // ===== เฟส E: ให้ AI ขอรูปที่ยังไม่มีในคลังได้ — ยิงคำขอไปยัง extension เจนรูป (เช่น scene-captured) ผ่าน
+        // "scap:generate-image" (ทิศทางกลับกับบล็อกด้านบน — ที่นั่นเราเป็นผู้รับรูป ที่นี่เราเป็นผู้ขอ) =====
+        setGenImageHandler(handleGenImageRequest);
+        context.eventSource.on("scap:generate-result", (result) => {
+            if (!result || result.requesterId !== "tinyfeed") return;
+            const key = genImageKey(result.name);
+            const rec = pendingGenImages.get(key);
+            if (!rec || rec.requestId !== result.requestId) return;   // คนละคำขอ (ถูกแทนที่ไปแล้ว) — เมิน
+            if (result.ok) {
+                pendingGenImages.delete(key);   // รูปมาถึงคลังแล้วผ่าน scap:image-generated ก่อนหน้านี้ — findGalleryImage() เจอเอง
+            } else {
+                rec.status = "failed";
+            }
+            repaintAfterGenImage();
         });
 
         // ผูก event
@@ -12592,6 +12738,19 @@ jQuery(async () => {
         $(document).on("input", "#tinyfeed-cfg-gallery-max-stickers", function () {
             const v = parseInt($(this).val(), 10);
             setSetting("galleryMaxStickers", Number.isFinite(v) && v > 0 ? v : 24);
+        });
+        $(document).on("change", "#tinyfeed-cfg-gallery-accept-external", function () {
+            setSetting("galleryAcceptExternal", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-gallery-external-album", function () {
+            setSetting("galleryExternalAlbum", String($(this).val() || "").trim() || "AI สร้าง");
+        });
+        $(document).on("change", "#tinyfeed-cfg-allow-ai-image-request", function () {
+            setSetting("allowAiImageRequest", $(this).prop("checked"));
+        });
+        $(document).on("input", "#tinyfeed-cfg-gen-image-max", function () {
+            const v = parseInt($(this).val(), 10);
+            setSetting("genImageMaxPerMessage", Number.isFinite(v) && v >= 0 ? v : 1);
         });
         // ตัวแก้ห้อง (global setting forumRooms)
         $(document).on("input", ".tinyfeed-room-name", function () {

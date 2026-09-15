@@ -209,6 +209,13 @@ export const defaultSettings = {
     galleryAlbums: [],            // ชื่ออัลบั้มที่ให้ AI เข้าถึง (เมื่อ scope = "selected")
     galleryMaxImages: 24,         // จำนวนรูปสูงสุดที่แนบเข้า prompt
     galleryMaxStickers: 24,       // จำนวนสติกเกอร์สูงสุดที่แนบเข้า prompt
+    // ท่อรับรูปจาก extension อื่น (เช่น scene-captured) ผ่าน event bus "scap:*" — ดู CLAUDE.md/CONVENTIONS.md เรื่อง event listener
+    galleryAcceptExternal: true,      // เปิด = ให้ extension อื่นส่งรูปเข้าคลังได้ (ประกาศตัวเองตอนถูกถาม "scap:discover-targets")
+    galleryExternalAlbum: "AI สร้าง", // อัลบั้มที่รูปจากภายนอกจะถูกจัดเก็บ (สร้างอัตโนมัติถ้ายังไม่มี)
+    // เฟส E — ให้ AI สั่งเจนรูปที่ยังไม่มีในคลังได้ (ขอไปยัง extension เจนรูป เช่น scene-captured ผ่าน "scap:generate-image")
+    // ปิดไว้เป็นค่าเริ่มต้นเสมอ — เจนรูปเปลืองโควตาจริงของอีก extension หนึ่ง
+    allowAiImageRequest: false,
+    genImageMaxPerMessage: 1,     // กันข้อความเดียวมี [genimg:] หลายตัวจนขอรูปรัวๆ เกินจำเป็น
     // เชื่อมเนื้อหาข้ามแอป (ตอน generate แต่ละแอปจะเห็นเนื้อหาแอปอื่น)
     crossAppEnabled: false,       // master switch
     crossAppCount: 3,
@@ -333,6 +340,43 @@ export function saveGallery() {
     extension_settings[extensionName] = extension_settings[extensionName] || {};
     extension_settings[extensionName].gallery = getGallery();
     saveSettingsDebounced();
+}
+
+// สูตรเดียวกับ galleryId() ใน index.js (private ในนั้น เรียกจากที่นี่ไม่ได้ — ต้องลอกสูตรมา)
+function galleryId() {
+    return "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// เขียนรูปเข้าคลังจากภายนอก (ท่อส่งรูปข้าม extension เช่น scene-captured ผ่าน event "scap:image-generated")
+// ต่างจาก addGalleryImage() ใน index.js (อ่านค่าจาก jQuery ของฟอร์มในแอป) — ตัวนี้รับอาร์กิวเมนต์ตรงๆ ไม่แตะ DOM เลย
+// คืน { entry } เมื่อสำเร็จ หรือ { error } เมื่อไม่สำเร็จ (ไม่ throw — ฝั่งเรียกต้องเขียน payload.error กลับตามกติกาเรื่อง emit() กลืน error)
+export function addGalleryImageExternal({ url, name, caption, album }) {
+    const cleanUrl = String(url || "").trim();
+    if (!cleanUrl) return { error: "ไม่มีลิงก์รูปที่จะเพิ่ม" };
+
+    const g = getGallery();
+    const albumName = String(album || "ทั่วไป").trim() || "ทั่วไป";
+
+    // ดันชื่ออัลบั้มเข้า imageAlbums ถ้ายังไม่มี (เช็คแบบ case-insensitive เหมือน addGalleryAlbum() ใน index.js)
+    // — พลาดจุดนี้แล้วรูปจะหายจากทุก UI แบบเงียบๆ เพราะ dropdown อัลบั้มกรองด้วยชื่อที่มีอยู่ใน imageAlbums เท่านั้น
+    if (!g.imageAlbums.some((a) => a.trim().toLowerCase() === albumName.toLowerCase())) {
+        g.imageAlbums.push(albumName);
+    }
+
+    // ชื่อห้ามซ้ำแบบ case-insensitive (เช็คแบบเดียวกับ addGalleryImage() ใน index.js) — ซ้ำให้ต่อท้ายเลขแทนที่จะปฏิเสธ
+    // เพราะฝั่งเรียก (AI เขียน prompt) ไม่รู้ล่วงหน้าว่าชื่อไหนใช้ไปแล้ว
+    let finalName = String(name || "").trim() || `รูป-${g.images.length + 1}`;
+    const nameTaken = (n) => g.images.some((im) => String(im.name).trim().toLowerCase() === n.toLowerCase());
+    if (nameTaken(finalName)) {
+        let n = 2;
+        while (nameTaken(`${finalName} (${n})`)) n++;
+        finalName = `${finalName} (${n})`;
+    }
+
+    const entry = { id: galleryId(), url: cleanUrl, caption: String(caption || "").trim(), name: finalName, album: albumName, ts: Date.now() };
+    g.images.push(entry);
+    saveGallery();
+    return { entry };
 }
 
 export function saveFeedData() {
