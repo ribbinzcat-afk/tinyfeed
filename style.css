@@ -46,6 +46,7 @@
     --tf-app-pet: #8b5cf6;
     --tf-app-ask: #6366f1;
     --tf-app-bag: #0ea5e9;
+    --tf-app-people: #14b8a6;
     --tf-app-news: #f59e0b;      /* ไม่ใช่แอป — เป็นแท็บใน feed */
 }
 
@@ -1059,16 +1060,27 @@
     flex-shrink: 0;
 }
 
-/* แถวรายการ NPC ประจำ */
+/* การ์ดรายการ NPC ประจำ — แต่ละใบมีชื่อจริง(คีย์)/รูป/username/alias/ชื่อหลัก */
 .tinyfeed-npc-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: var(--tf-sp-4);
+    margin-bottom: var(--tf-sp-4);
+    border: 1px solid var(--tf-border);
+    border-radius: var(--tf-r-md);
+    background: var(--tf-topbar);
+}
+
+.tinyfeed-npc-toprow {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
 }
 
-.tinyfeed-npc-row .tinyfeed-npc-name {
-    flex: 0 0 34%;
+.tinyfeed-npc-toprow .tinyfeed-npc-name {
+    flex: 1;
+    min-width: 0;
 }
 
 .tinyfeed-npc-row .tinyfeed-npc-avatar {
@@ -1076,7 +1088,37 @@
     min-width: 0;
 }
 
-.tinyfeed-npc-del {
+.tinyfeed-npc-row .tinyfeed-npc-aliasrow {
+    margin-bottom: 0;
+}
+
+.tinyfeed-npc-warn {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-danger);
+}
+
+.tinyfeed-npc-primaryrow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--tf-sp-2);
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+}
+
+.tinyfeed-npc-primaryrow select {
+    width: auto;
+    margin-left: 6px;
+    display: inline-block;
+}
+
+.tinyfeed-npc-display b {
+    color: var(--tf-text-strong);
+}
+
+.tinyfeed-npc-del,
+.tinyfeed-npc-openprofile {
     flex-shrink: 0;
     padding: 4px 6px;
     color: var(--tf-text-muted);
@@ -1087,6 +1129,11 @@
 
 .tinyfeed-npc-del:hover {
     color: var(--tf-danger);
+    opacity: 1;
+}
+
+.tinyfeed-npc-openprofile:hover {
+    color: var(--tf-accent);
     opacity: 1;
 }
 
@@ -5288,6 +5335,18 @@ div.tinyfeed-profile-open:active { opacity: 0.75; }
 .tinyfeed-pe-hldel { flex-shrink: 0; color: var(--tf-text-muted); cursor: pointer; padding: var(--tf-sp-2); }
 .tinyfeed-pe-del:hover,
 .tinyfeed-pe-hldel:hover { color: var(--tf-danger); }
+
+/* แก้รูปข้างในไฮไลต์ (#tinyfeed-profile-hl-edit) — ยืม .tinyfeed-pe-* ของโพสต์/ไฮไลต์ปกเดิม */
+.tinyfeed-pe-hlitems { cursor: pointer; }
+.tinyfeed-hle-tools { display: flex; align-items: center; gap: var(--tf-sp-3); margin-top: var(--tf-sp-1); }
+.tinyfeed-hle-pick,
+.tinyfeed-hle-up,
+.tinyfeed-hle-down,
+.tinyfeed-hle-del { flex-shrink: 0; color: var(--tf-text-muted); cursor: pointer; padding: var(--tf-sp-2); }
+.tinyfeed-hle-pick:hover,
+.tinyfeed-hle-up:hover,
+.tinyfeed-hle-down:hover { color: var(--tf-accent); }
+.tinyfeed-hle-del:hover { color: var(--tf-danger); }
 /* NPC ในสังกัด (เฉพาะโปรไฟล์ตัวละครหลัก) */
 .tinyfeed-profile-npcs { margin-top: var(--tf-sp-4); border-top: 1px solid var(--tf-border-soft); padding-top: var(--tf-sp-4); }
 .tinyfeed-profile-sectitle { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); margin-bottom: var(--tf-sp-3); }
@@ -5623,3 +5682,59 @@ div.tinyfeed-profile-open:active { opacity: 0.75; }
 .tinyfeed-sched-text { flex: 1; min-width: 0; font-size: var(--tf-fs-sm); color: var(--tf-text); word-break: break-word; }
 .tinyfeed-sched-del { flex-shrink: 0; color: var(--tf-text-muted); cursor: pointer; padding: var(--tf-sp-2); }
 .tinyfeed-sched-del:hover { color: var(--tf-danger); }
+
+/* ===== TinyPeople (แอปที่ 12): รายชื่อโปรไฟล์ทุกคน ===== */
+.tinyfeed-people-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.tinyfeed-people-row {
+    display: flex;
+    align-items: center;
+    gap: var(--tf-sp-4);
+    padding: var(--tf-sp-3) 0;
+    border-bottom: 1px solid var(--tf-border-soft);
+    cursor: pointer;
+}
+
+.tinyfeed-people-row:active { opacity: 0.75; }
+.tinyfeed-people-row:last-child { border-bottom: none; }
+
+.tinyfeed-people-ava .tinyfeed-avatar {
+    width: 48px;
+    height: 48px;
+}
+
+.tinyfeed-people-col {
+    flex: 1;
+    min-width: 0;
+}
+
+.tinyfeed-people-name {
+    font-size: var(--tf-fs-md);
+    font-weight: 600;
+    color: var(--tf-text-strong);
+}
+
+.tinyfeed-people-handle,
+.tinyfeed-people-meta {
+    font-size: var(--tf-fs-xs);
+    color: var(--tf-text-muted);
+}
+
+.tinyfeed-people-bio {
+    font-size: var(--tf-fs-sm);
+    color: var(--tf-text);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tinyfeed-people-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--tf-sp-3);
+    margin-top: var(--tf-sp-5);
+}

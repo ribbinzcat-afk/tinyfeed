@@ -212,6 +212,9 @@
                     <div class="tinyfeed-tab" data-ptab="timeline">
                         <span class="fa-solid fa-list"></span> ไทม์ไลน์
                     </div>
+                    <div class="tinyfeed-tab" data-ptab="stories">
+                        <span class="fa-solid fa-circle-play"></span> สตอรี่
+                    </div>
                 </div>
                 <div id="tinyfeed-profile-body" class="tinyfeed-profile-body"></div>
             </div>
@@ -691,7 +694,7 @@
                     <button id="tinyfeed-npc-add" class="tinyfeed-btn-generate">
                         <i class="fa-solid fa-plus"></i> <span>เพิ่ม NPC</span>
                     </button>
-                    <small class="tinyfeed-field-hint">กำหนดตัวละครประจำโลกของแชทนี้ · AI จะเลือกโพสต์จากรายชื่อนี้ · ใส่ลิงก์รูปให้ NPC มีรูปเฉพาะตัว (เว้นว่าง = วงกลมสีอักษรแรก)</small>
+                    <small class="tinyfeed-field-hint">กำหนดตัวละครประจำโลกของแชทนี้ · AI จะเลือกโพสต์จากรายชื่อนี้ · ใส่ลิงก์รูปให้ NPC มีรูปเฉพาะตัว (เว้นว่าง = วงกลมสีอักษรแรก) · <b>ชื่อจริง</b>คือคีย์ประจำตัวที่ผูกห้องแชต/สตอรี่ไว้ เปลี่ยนแล้วระบบตามไปแก้ให้ แต่โพสต์/ข้อความเก่าจะยังอ้างชื่อเดิม — ถ้าแค่อยากเปลี่ยน "ชื่อที่แสดง" ให้ตั้ง <b>Username/Alias</b> แทน</small>
                 </div>
 
                 <div class="tinyfeed-settings-group tinyfeed-hidden" data-group="cardSync">
@@ -1654,6 +1657,10 @@
             </div>
         </div>
 
+        <div id="tinyfeed-app-people" class="tinyfeed-app tinyfeed-hidden">
+            <div id="tinyfeed-people-body" class="tinyfeed-screen"></div>
+        </div>
+
         <div id="tinyfeed-ask-send-modal" class="tinyfeed-modal tinyfeed-hidden">
             <div class="tinyfeed-modal-card">
                 <div class="tinyfeed-modal-head">
@@ -1755,6 +1762,21 @@
                 <div class="tinyfeed-profile-edit-foot">
                     <button id="tinyfeed-profile-edit-cancel" class="tinyfeed-btn-ghost">ยกเลิก</button>
                     <button id="tinyfeed-profile-edit-save" class="tinyfeed-btn-primary">บันทึก</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- แก้รูปข้างในไฮไลต์ — ซ้อนบน #tinyfeed-profile-edit (OVERLAYS layer 2) ไม่ปิด modal แม่ -->
+        <div id="tinyfeed-profile-hl-edit" class="tinyfeed-modal tinyfeed-hidden">
+            <div class="tinyfeed-modal-card">
+                <div class="tinyfeed-modal-head">
+                    <span>รูปในไฮไลต์: <b id="tinyfeed-hle-title">—</b></span>
+                    <span id="tinyfeed-hle-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+                </div>
+                <div id="tinyfeed-hle-body" class="tinyfeed-profile-edit-body"></div>
+                <div class="tinyfeed-profile-edit-foot">
+                    <button id="tinyfeed-hle-add" class="tinyfeed-btn-ghost"><i class="fa-solid fa-plus"></i> เพิ่มรูป</button>
+                    <button id="tinyfeed-hle-done" class="tinyfeed-btn-primary">เสร็จ</button>
                 </div>
             </div>
         </div>

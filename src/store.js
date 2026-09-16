@@ -50,7 +50,8 @@ export const defaultSettings = {
     // Identity: โปรไฟล์ผูกกับ persona / char + NPC ผูกกับ char
     userProfiles: {},           // { <personaKey>: { avatarUrl, username, alias, primary } }
     charProfiles: {},           // { <charFile>: { avatarUrl, username, alias, primary } }
-    npcsByChar: {},             // { <charFile>: [{ name, avatar }] } — NPC ผูกกับตัวละคร
+    npcsByChar: {},             // { <charFile>: [{ name, avatar, username, alias, primary, profile }] } — NPC ผูกกับตัวละคร
+                                // name = คีย์ประจำตัว (ห้ามแก้ตรงๆ ใช้ renameNpcEverywhere) · username/alias/primary = ชื่อที่แสดง (เหมือน userProfiles/charProfiles)
     personaThemes: {},          // { <personaKey>: { enabled, theme, accentColor, wallpaperUrl, ... } } — ธีมเฉพาะ persona (ว่าง/enabled:false = ใช้ธีมกลาง)
     // ── ฝากโปรไฟล์ไว้กับการ์ดตัวละคร ──
     cardSyncByChar: {},         // { <charFile>: { exportedAt, seenAt, importedAt, pending } } — สถานะซิงก์ต่อการ์ด

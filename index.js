@@ -170,25 +170,35 @@ const APPS = [
         panel: "#tinyfeed-app-bag", home: true, remember: true,
         open() { renderBag(); },
     },
+    {
+        id: "people", name: "TinyPeople", label: "รายชื่อโปรไฟล์", icon: "fa-address-book", a: "#14b8a6", b: "#0f766e",
+        panel: "#tinyfeed-app-people", home: true, remember: true,
+        open() { renderPeople(); },
+        // ไม่ต้องมี back() — หน้าโปรไฟล์เป็น overlay layer 0 ถูกปิดในขั้นแรกของ handleBack ก่อนถึง APPS[].back อยู่แล้ว
+    },
 ];
 
 const APP_BY_ID = Object.fromEntries(APPS.map((a) => [a.id, a]));
 
 /* ทะเบียน overlay/modal — ใช้ร่วมกันระหว่าง openApp (กันค้างข้ามแอป) และ handleBack (ปุ่มย้อนกลับ)
- * เดิมสองที่นี้ถือลิสต์คนละชุด → char-profile ปิดด้วยปุ่มย้อนกลับไม่ได้ */
+ * เดิมสองที่นี้ถือลิสต์คนละชุด → char-profile ปิดด้วยปุ่มย้อนกลับไม่ได้
+ * layer = ชั้นการซ้อน (ไม่ใส่ = 1 ค่าเริ่มต้น) — 0 หน้าจอเต็ม (โปรไฟล์) · 1 modal ทั่วไป · 2 modal ที่ซ้อนบน modal อื่น · 3 picker ที่เปิดจากตัวอื่นเสมอ
+ * handleBack ปิดแค่ "ชั้นบนสุด" ที่เปิดอยู่ (closeOpenOverlays) กันตัวที่ซ้อนกันหลุดพร้อมกันหมด
+ * ส่วน openApp/goHome/openSettings ต้องปิดทุกชั้น (closeAllOverlays) กันค้างข้ามแอป */
 const OVERLAYS = [
-    { sel: "#tinyfeed-gallery-picker", close: closeGalleryOverlays },
-    { sel: "#tinyfeed-gallery-view", close: closeGalleryOverlays },
-    { sel: "#tinyfeed-gallery-edit", close: closeGalleryOverlays },
+    { sel: "#tinyfeed-profile-screen", close: closeProfileScreen, layer: 0 },
+    { sel: "#tinyfeed-gallery-picker", close: closeGalleryOverlays, layer: 3 },
+    { sel: "#tinyfeed-gallery-view", close: closeGalleryOverlays, layer: 3 },
+    { sel: "#tinyfeed-gallery-edit", close: closeGalleryOverlays, layer: 3 },
     { sel: "#tinyfeed-char-picker", close: closeCharPicker },
     { sel: "#tinyfeed-story-viewer", close: closeStoryViewer },
     { sel: "#tinyfeed-story-compose", close: closeStoryCompose },
     { sel: "#tinyfeed-story-text-edit", close: closeStoryTextEdit },
     { sel: "#tinyfeed-storynote-edit", close: closeStoryNoteEdit },
     { sel: "#tinyfeed-storynote-view", close: closeStoryNoteView },
-    { sel: "#tinyfeed-profile-screen", close: closeProfileScreen },
     { sel: "#tinyfeed-profile-post", close: closeProfilePost },
     { sel: "#tinyfeed-profile-edit", close: closeProfileEdit },
+    { sel: "#tinyfeed-profile-hl-edit", close: closeHighlightEdit, layer: 2 },
     { sel: "#tinyfeed-group-edit-modal", close: closeGroupEditModal },
     { sel: "#tinyfeed-slip-modal", close: closeSlipModal },
     { sel: "#tinyfeed-connect-bg-modal", close: closeConnectBgModal },
@@ -208,13 +218,26 @@ const OVERLAYS = [
     { sel: "#tinyfeed-connect-sched", close: closeConnectSchedModal },
 ];
 
+// ★ ห้ามใช้ `Number(o.layer) || 1` — layer 0 (หน้าโปรไฟล์) เป็นค่า falsy จะเด้งไปเป็น 1 ทับกับ modal ทั่วไปโดยไม่รู้ตัว
+function overlayLayer(o) { return Number.isFinite(o.layer) ? o.layer : 1; }
+
 function anyOverlayOpen() {
     return OVERLAYS.some((o) => !$(o.sel).hasClass("tinyfeed-hidden"));
 }
 
-// ปิดเฉพาะ overlay ที่เปิดอยู่จริง (เดิมเรียก close ทุกตัวรัวๆ ไม่ว่าตัวไหนเปิด)
+// ปิดเฉพาะ "ชั้นบนสุด" ที่เปิดอยู่จริง — ใช้ใน handleBack กันตัวที่ซ้อนกันหลุดพร้อมกันหมด
 function closeOpenOverlays() {
-    OVERLAYS.forEach((o) => { if (!$(o.sel).hasClass("tinyfeed-hidden")) o.close(); });
+    const open = OVERLAYS.filter((o) => !$(o.sel).hasClass("tinyfeed-hidden"));
+    if (!open.length) return;
+    const top = Math.max(...open.map(overlayLayer));
+    open.filter((o) => overlayLayer(o) === top).forEach((o) => o.close());
+}
+
+// ปิดทุกชั้นที่เปิดอยู่ ไล่จากบนลงล่าง — ใช้ใน openApp/goHome/openSettings กัน overlay ค้างข้ามแอป
+function closeAllOverlays() {
+    const open = OVERLAYS.filter((o) => !$(o.sel).hasClass("tinyfeed-hidden"));
+    open.sort((a, b) => overlayLayer(b) - overlayLayer(a));
+    open.forEach((o) => { if (!$(o.sel).hasClass("tinyfeed-hidden")) o.close(); });
 }
 
 // หยุด timer ทุกตัวที่ผูกกับหน้าจอ (พื้นหลัง petTimer/proactiveTimer ยังเดินต่อ)
@@ -232,7 +255,7 @@ function goHome() {
     currentApp = "home";
     if (quoteTarget) cancelQuotePost();   // ออกจากฟีดแล้วเลิกโควทที่ค้างไว้ ไม่ให้ข้ามหน้าจอ
     clearScreenTimers();
-    closeOpenOverlays();
+    closeAllOverlays();
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-settings-screen").addClass("tinyfeed-hidden");
     $("#tinyfeed-home").removeClass("tinyfeed-hidden");
@@ -253,7 +276,7 @@ function openApp(id) {
     }
     if (id !== "feed" && quoteTarget) cancelQuotePost();   // สลับไปแอปอื่นแล้วเลิกโควทที่ค้างไว้ (id==="feed" = ยังอยู่หน้าเดิม ไม่ต้องยกเลิก)
     clearScreenTimers();
-    closeOpenOverlays();   // กัน overlay ค้างข้ามแอป
+    closeAllOverlays();   // กัน overlay ค้างข้ามแอป (ทุกชั้น)
     $("#tinyfeed-home").addClass("tinyfeed-hidden");
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
     $("#tinyfeed-settings-screen").addClass("tinyfeed-hidden");
@@ -303,13 +326,14 @@ function getStreamer() {
     if (main === POSTER_USER) {
         return { name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
     }
-    if (main) return { name: main, avatarItem: streamSpeakerAvatarItem(main) };
+    // main เก็บเป็นชื่อ display ของตัวละครหลัก หรือ canonical name ของ NPC — npcDisplayNameFor แปลงให้เป็น display เสมอ
+    if (main) return { name: npcDisplayNameFor(main), avatarItem: streamSpeakerAvatarItem(main) };
     // ค่าเริ่มต้น = ตัวละครหลัก (ใช้ชื่อ display = username/alias)
     const name = getCharName();
     return { name, avatarItem: { isMain: true, author: name } };
 }
 
-// รายชื่อผู้ไลฟ์ที่เป็น AI (หลัก + ตัวละครร่วมไลฟ์) — ไม่รวมผู้ใช้ (ผู้ใช้พิมพ์เอง)
+// รายชื่อผู้ไลฟ์ที่เป็น AI (หลัก + ตัวละครร่วมไลฟ์) — ไม่รวมผู้ใช้ (ผู้ใช้พิมพ์เอง) — คืนชื่อ display เสมอ
 function getStreamHosts() {
     const hosts = [];
     const seen = new Set();
@@ -319,7 +343,7 @@ function getStreamHosts() {
         if (!seen.has(k.toLowerCase())) { seen.add(k.toLowerCase()); hosts.push(k); }
     };
     if (!streamerIsUser()) add(getStreamer().name);
-    for (const co of (getStreamData().coHosts || [])) add(co);
+    for (const co of (getStreamData().coHosts || [])) add(npcDisplayNameFor(co));
     return hosts;
 }
 
@@ -328,10 +352,10 @@ function userIsHost() {
     return streamerIsUser() || (getStreamData().coHosts || []).includes(POSTER_USER);
 }
 
-// แปลงค่า host (ชื่อ หรือ POSTER_USER) เป็น { name, avatarItem } สำหรับแสดงผล
+// แปลงค่า host ที่เก็บไว้ (ชื่อ หรือ POSTER_USER) เป็น { name, avatarItem } สำหรับแสดงผล — name เป็น display เสมอ
 function hostDisplay(hostVal) {
     if (hostVal === POSTER_USER) return { name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
-    return { name: hostVal, avatarItem: streamSpeakerAvatarItem(hostVal) };
+    return { name: npcDisplayNameFor(hostVal), avatarItem: streamSpeakerAvatarItem(hostVal) };
 }
 
 // ชนิดการพูด: มีคอมเมนต์ผู้ใช้ค้างล่าสุด = ตอบ, ไม่งั้น = เล่าเรื่อง
@@ -362,7 +386,8 @@ function renderStreamHosts() {
     // ตัวร่วมไลฟ์ (ไม่ซ้ำกับหลัก) — อาจมี POSTER_USER (เรา)
     const co = (s.coHosts || []).filter((v) => {
         if (mainIsUser) return v !== POSTER_USER;
-        return v !== mainVal && v !== main.name;
+        // v เป็นค่าดิบที่เก็บไว้ (canonical) — เทียบทั้งดิบ-ดิบ (mainVal) และ display-display (ผ่าน npcDisplayNameFor) กันซ้ำทุกกรณี
+        return v !== mainVal && npcDisplayNameFor(v) !== main.name;
     });
     const multi = co.length > 0;
     const hint = (isUser) => isUser ? "แตะเพื่อพิมพ์คำพูดของเรา" : "แตะให้พูด";
@@ -670,7 +695,7 @@ async function loadLiveComments(opts) {
     try {
         const streamer = getStreamer();
         const you = getUserName();
-        const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
+        const npcNames = getNpcs().map(npcDisplayName).filter(Boolean);
         const recent = s.comments.slice(-6).map((c) => `${c.author}: ${htmlToPlain(c.text)}`).join("\n");
         const extra = String(getSetting("streamExtraPrompt") || "").trim();
         // ระบบโดเนท: ให้ AI เลือกให้ผู้ชมโดเนทเอง (กำหนดจำนวน + ข้อความ)
@@ -1964,21 +1989,26 @@ function profileRefFor(nameOrKey) {
     const npcName = raw.startsWith("npc:") ? raw.slice(4) : raw;
     const npc = getNpcRecord(npcName);
     if (npc) {
+        // key/ownerKey/avatarItem.author ใช้ npc.name (คีย์ประจำตัว) เสมอ — name ที่โชว์ใช้ username/alias ถ้าตั้งไว้
         return {
-            kind: "npc", key: npc.name, name: npc.name, ownerKey: "npc:" + npc.name,
-            avatarItem: { author: npc.name, avatar: npc.avatar || "" }, rec: getNpcProfileRecord(npc.name),
+            kind: "npc", key: npc.name, name: npcDisplayName(npc), ownerKey: "npc:" + npc.name,
+            avatarItem: { author: npc.name, avatar: npc.avatar || "" }, rec: getNpcProfileRecord(npc.name), npcRec: npc,
         };
     }
     // ชื่อที่ไม่อยู่ในทะเบียน (คนนอกที่ AI เอ่ยถึง) — เปิดดูได้แต่แก้ไม่ได้ ดีกว่าแตะแล้วไม่มีอะไรเกิดขึ้น
     return { kind: "unknown", key: "", name: npcName, ownerKey: "", avatarItem: { author: npcName }, rec: null };
 }
 
-// @ชื่อผู้ใช้ที่โชว์ใต้ชื่อจริง — persona/ตัวละครใช้ username ที่ตั้งไว้ในหน้าตั้งค่า · NPC ใช้ชื่อตัวเอง
+// @ชื่อผู้ใช้ที่โชว์ใต้ชื่อจริง — persona/ตัวละคร/NPC ใช้ username ที่ตั้งไว้ · ไม่ตั้ง = slug จากชื่อที่แสดง
 function profileHandle(ref) {
     if (!ref) return "";
     if (ref.kind === "user" || ref.kind === "char") {
         const p = ref.kind === "user" ? getUserProfile() : getCharProfile();
         const h = (p.username || p.alias || "").trim();
+        if (h) return h;
+    }
+    if (ref.kind === "npc" && ref.npcRec) {
+        const h = (ref.npcRec.username || ref.npcRec.alias || "").trim();
         if (h) return h;
     }
     return String(ref.name || "").trim().replace(/\s+/g, "_").toLowerCase();
@@ -2000,14 +2030,18 @@ function openProfileScreen(ref) {
     closeProfileEdit();
     profileCtx = r;
     profileTab = "grid";
+    // เข้าได้จากแอปปกติ · หน้าโฮม · หน้าตั้งค่า (รวมหัวข้อที่กางอยู่) — ต้องจำให้ครบถึงจะย้อนกลับถูกที่
     profileReturn = {
         app: currentApp,
+        settingsGroup: currentApp === "settings" ? settingsGroupOpen : "",
         title: $(".tinyfeed-title").text(),
         back: $("#tinyfeed-back").hasClass("tinyfeed-hidden"),
         home: $("#tinyfeed-home-btn").hasClass("tinyfeed-hidden"),
         settings: $("#tinyfeed-settings-btn").hasClass("tinyfeed-hidden"),
     };
     $(".tinyfeed-app").addClass("tinyfeed-hidden");
+    $("#tinyfeed-home").addClass("tinyfeed-hidden");
+    $("#tinyfeed-settings-screen").addClass("tinyfeed-hidden");
     $("#tinyfeed-profile-screen").removeClass("tinyfeed-hidden");
     $("#tinyfeed-back").removeClass("tinyfeed-hidden");
     $("#tinyfeed-home-btn").removeClass("tinyfeed-hidden");
@@ -2021,19 +2055,27 @@ function closeProfileScreen() {
     profileCtx = null;
     const r = profileReturn || {};
     profileReturn = null;
+    // กลับไปหน้าตั้งค่า (ที่หัวข้อเดิมถ้ามี) — ต้องเช็คก่อนทาง APP_BY_ID เพราะ "settings" ไม่ใช่ id ใน APPS
+    if (r.app === "settings") {
+        $("#tinyfeed-settings-screen").removeClass("tinyfeed-hidden");
+        if (r.settingsGroup) openSettingsGroup(r.settingsGroup);
+        else closeSettingsGroup();
+        $("#tinyfeed-back").removeClass("tinyfeed-hidden");
+        $("#tinyfeed-home-btn, #tinyfeed-settings-btn").addClass("tinyfeed-hidden");
+        return;
+    }
     const app = APP_BY_ID[r.app];
-    if (app) $(app.panel).removeClass("tinyfeed-hidden");
-    $(".tinyfeed-title").text(r.title || (app ? app.name : "TinyPhone"));
+    // กลับหน้าโฮม หรือแอปที่ไม่รู้จักแล้ว (เช่นถูกถอดออกจากโค้ด) — ซ่อนหน้าโปรไฟล์ไปแล้วข้างบน ปลอดภัยที่จะเรียก goHome ต่อ
+    if (r.app === "home" || !app) { goHome(); return; }
+    $(app.panel).removeClass("tinyfeed-hidden");
+    $(".tinyfeed-title").text(r.title || app.name);
     $("#tinyfeed-back").toggleClass("tinyfeed-hidden", Boolean(r.back));
     $("#tinyfeed-home-btn").toggleClass("tinyfeed-hidden", Boolean(r.home));
     $("#tinyfeed-settings-btn").toggleClass("tinyfeed-hidden", Boolean(r.settings));
 }
 
-// เข้ากันได้กับโค้ดเก่า (เดิมเป็น modal เล็ก) — ตอนนี้เป็นหน้าจอเต็ม
-function openCharProfile(ref) { openProfileScreen(ref); }
-
 function switchProfileTab(tab) {
-    profileTab = tab === "timeline" ? "timeline" : "grid";
+    profileTab = (tab === "timeline" || tab === "stories") ? tab : "grid";
     // จำกัด [data-ptab] เสมอ — ทุกแอปใช้ .tinyfeed-tab ร่วมกัน ไม่จำกัดจะล้าง active ของแอปอื่น
     $("#tinyfeed-profile-screen .tinyfeed-tab[data-ptab]").removeClass("tinyfeed-tab-active");
     $(`#tinyfeed-profile-screen .tinyfeed-tab[data-ptab="${profileTab}"]`).addClass("tinyfeed-tab-active");
@@ -2080,7 +2122,7 @@ function renderProfileNpcs() {
         <div class="tinyfeed-profile-sectitle">NPC ในสังกัด (${npcs.length})</div>
         <div class="tinyfeed-profile-npcrow">${npcs.map((n) => `
             <div class="tinyfeed-profile-npc tinyfeed-profile-open" data-author="${escapeAttr(n.name)}">
-                ${makeAvatar({ author: n.name, avatar: n.avatar || "" })}<span>${escapeText(n.name)}</span>
+                ${makeAvatar({ author: n.name, avatar: n.avatar || "" })}<span>${escapeText(npcDisplayName(n))}</span>
             </div>`).join("")}</div>`);
 }
 
@@ -2099,6 +2141,7 @@ function renderProfileHighlights() {
 
 function renderProfileBody() {
     if (profileTab === "timeline") renderProfileTimeline();
+    else if (profileTab === "stories") renderProfileStories();
     else renderProfileGrid();
 }
 
@@ -2135,6 +2178,44 @@ function renderProfileTimeline() {
             <div class="tinyfeed-profile-tl-meta"><i class="fa-solid fa-heart"></i> ${formatCount(x.likes)}</div>
             ${x.caption ? `<div class="tinyfeed-profile-tl-cap">${renderRich(escapeHtml(x.caption))}</div>` : ""}
         </div>`).join(""));
+}
+
+// สตอรี่/คลังของเจ้าของโปรไฟล์นี้เท่านั้น (ผูกกับแชทปัจจุบัน — โปรไฟล์เป็น global แต่สตอรี่ไม่ใช่ ต่างจากแชทอื่นได้)
+function renderProfileStories() {
+    const ref = profileCtx;
+    const body = $("#tinyfeed-profile-body");
+    if (!ref || !ref.ownerKey) {
+        body.html(emptyStateHtml("fa-circle-play", "ยังไม่มีสตอรี่", "คนนี้ยังไม่มีสตอรี่ในแชทนี้"));
+        return;
+    }
+    let act = [];
+    let old = [];
+    try {
+        act = activeStories().filter((s) => s.ownerKey === ref.ownerKey);
+        old = expiredStories().filter((s) => s.ownerKey === ref.ownerKey);
+    } catch (e) {
+        // ยังไม่มีแชทเปิดอยู่ (getFeedData ต้องมี chatMetadata) — ปกติของหน้านี้ที่เข้าได้จากหลายที่ ไม่ต้อง toast แค่โชว์ว่าง
+        console.error(`[${extensionName}] renderProfileStories: อ่านสตอรี่ไม่ได้ (ยังไม่มีแชทเปิดอยู่?)`, e);
+    }
+    const cell = (s, archive) => `
+        <div class="tinyfeed-story-archive-cell" data-pstory="${escapeAttr(s.id)}"${archive ? ` data-parch="1"` : ""}>
+            <img src="${escapeAttr(storyImgUrl(s))}" alt="" loading="lazy" onerror="this.classList.add('tinyfeed-img-broken')" />
+            <span class="tinyfeed-story-archive-when">${escapeText(timeAgo(s.ts))}</span>
+        </div>`;
+    if (!act.length && !old.length) {
+        body.html(`
+            <div class="tinyfeed-profile-sectitle">สตอรี่ผูกกับแชทนี้ ส่วนโปรไฟล์ใช้ร่วมทุกแชท</div>
+            ${emptyInlineHtml("แชทนี้ยังไม่มีสตอรี่ของคนนี้")}
+        `);
+        return;
+    }
+    body.html(`
+        <div class="tinyfeed-profile-sectitle">สตอรี่ผูกกับแชทนี้ ส่วนโปรไฟล์ใช้ร่วมทุกแชท</div>
+        <div class="tinyfeed-settings-title">กำลังใช้งาน (${act.length})</div>
+        ${act.length ? `<div class="tinyfeed-story-archive-grid">${act.map((s) => cell(s, false)).join("")}</div>` : emptyInlineHtml("ไม่มีสตอรี่ที่กำลังใช้งาน")}
+        <div class="tinyfeed-settings-title">คลัง (${old.length})</div>
+        ${old.length ? `<div class="tinyfeed-story-archive-grid">${old.map((s) => cell(s, true)).join("")}</div>` : emptyInlineHtml("คลังยังว่าง")}
+    `);
 }
 
 // ★ ทางลัดเข้าห้องแชท 1:1 โดยตรง — ไม่ต้องกดโฮม → เข้าแอป → หาห้องเอง
@@ -2197,7 +2278,7 @@ function openProfileEdit() {
     renderProfileEditBody();
     $("#tinyfeed-profile-edit").removeClass("tinyfeed-hidden");
 }
-function closeProfileEdit() { $("#tinyfeed-profile-edit").addClass("tinyfeed-hidden"); profileEditCtx = null; }
+function closeProfileEdit() { closeHighlightEdit(); $("#tinyfeed-profile-edit").addClass("tinyfeed-hidden"); profileEditCtx = null; }
 
 function renderProfileEditBody() {
     const rec = profileEditCtx && profileEditCtx.rec;
@@ -2246,7 +2327,7 @@ function renderProfileEditBody() {
                 <div class="tinyfeed-pe-fields">
                     <input class="tinyfeed-pe-hltitle" type="text" value="${escapeAttr(h.title)}" placeholder="ชื่อไฮไลต์" />
                     <input class="tinyfeed-pe-hlcover" type="text" value="${escapeAttr(h.cover)}" placeholder="ลิงก์รูปปก https://..." />
-                    <small class="tinyfeed-field-hint">${h.items.length} รูปข้างใน</small>
+                    <span class="tinyfeed-pe-hlitems tinyfeed-ai-link"><i class="fa-solid fa-images"></i> แก้รูปข้างใน (${h.items.length})</span>
                 </div>
                 <span class="tinyfeed-pe-hldel" title="ลบไฮไลต์"><i class="fa-solid fa-trash"></i></span>
             </div>`).join("") || emptyInlineHtml("ยังไม่มีไฮไลต์")}</div>
@@ -2258,6 +2339,7 @@ function renderProfileEditBody() {
 function saveProfileEdit() {
     const rec = profileEditCtx && profileEditCtx.rec;
     if (!rec) return;
+    closeHighlightEdit();   // ล้างตัวแก้รูปที่อาจค้างอยู่ก่อนอ่านค่ากลับ (idempotent — ไม่มีผลถ้าปิดอยู่แล้ว)
     rec.bio = String($("#tinyfeed-pe-bio").val() || "");
     rec.followers = normProfileCount($("#tinyfeed-pe-followers").val());
     rec.following = normProfileCount($("#tinyfeed-pe-following").val());
@@ -2347,9 +2429,184 @@ function profileDelPost(id) {
 function profileDelHighlight(id) {
     const rec = profileEditCtx && profileEditCtx.rec;
     if (!rec) return;
+    if (profileHlEditId === id) closeHighlightEdit();   // กันตัวแก้รูปค้างอ้างไฮไลต์ที่ลบไปแล้ว
     saveProfileEditFieldsOnly();
     rec.highlights = rec.highlights.filter((x) => x.id !== id);
     renderProfileEditBody();
+}
+
+// ── แก้รูปข้างในไฮไลต์ (ซ้อนบน #tinyfeed-profile-edit — ไม่ปิด modal แม่) ──
+let profileHlEditId = "";   // id ของไฮไลต์ที่กำลังแก้รูปอยู่
+
+function currentHighlightRec() {
+    const rec = profileEditCtx && profileEditCtx.rec;
+    if (!rec || !Array.isArray(rec.highlights)) return null;
+    return rec.highlights.find((h) => h.id === profileHlEditId) || null;
+}
+
+function openHighlightEdit(hlId) {
+    if (!profileEditCtx || !profileEditCtx.rec) return;
+    saveProfileEditFieldsOnly();   // เก็บค่าที่พิมพ์ค้างใน modal แม่ก่อนเปิดลูก (ไบโอ/ชื่อไฮไลต์ ฯลฯ)
+    const rec = profileEditCtx.rec;
+    const hl = (Array.isArray(rec.highlights) ? rec.highlights : []).find((h) => h.id === hlId);
+    if (!hl) return;
+    if (!Array.isArray(hl.items)) hl.items = [];
+    profileHlEditId = hlId;
+    renderHighlightEditBody();
+    $("#tinyfeed-hle-title").text(hl.title || "ไฮไลต์");
+    $("#tinyfeed-profile-hl-edit").removeClass("tinyfeed-hidden");
+}
+
+function closeHighlightEdit() {
+    if ($("#tinyfeed-profile-hl-edit").hasClass("tinyfeed-hidden")) { profileHlEditId = ""; return; }
+    saveHighlightItemsOnly();
+    $("#tinyfeed-profile-hl-edit").addClass("tinyfeed-hidden");
+    profileHlEditId = "";
+    renderProfileEditBody();   // อัปเดตตัวนับ "n รูปข้างใน" ในหน้าแม่
+}
+
+function renderHighlightEditBody() {
+    const hl = currentHighlightRec();
+    if (!hl) return;
+    const items = hl.items || [];
+    $("#tinyfeed-hle-body").html(`
+        <small class="tinyfeed-field-hint">ใช้ลิงก์ http/https เพื่อให้รูปติดไปกับการ์ดตัวละคร · รูปจากคลังที่อัปโหลดในเครื่องจะไม่ติดไป</small>
+        <div id="tinyfeed-hle-items" class="tinyfeed-pe-list">${items.map((it, idx) => `
+            <div class="tinyfeed-pe-row" data-hli="${idx}">
+                <div class="tinyfeed-pe-thumb"><img src="${escapeAttr(it.url)}" alt="" onerror="this.classList.add('tinyfeed-img-broken')" /></div>
+                <div class="tinyfeed-pe-fields">
+                    <input class="tinyfeed-hle-url" type="text" value="${escapeAttr(it.url)}" placeholder="ลิงก์รูป https://..." />
+                    <input class="tinyfeed-hle-cap" type="text" value="${escapeAttr(it.caption || "")}" placeholder="คำบรรยาย" />
+                    <div class="tinyfeed-hle-tools">
+                        <span class="tinyfeed-hle-pick" title="เลือกจากคลัง"><i class="fa-solid fa-images"></i></span>
+                        <span class="tinyfeed-hle-up${idx === 0 ? " tinyfeed-field-disabled" : ""}" title="เลื่อนขึ้น"><i class="fa-solid fa-chevron-up"></i></span>
+                        <span class="tinyfeed-hle-down${idx === items.length - 1 ? " tinyfeed-field-disabled" : ""}" title="เลื่อนลง"><i class="fa-solid fa-chevron-down"></i></span>
+                    </div>
+                </div>
+                <span class="tinyfeed-hle-del" title="ลบรูป"><i class="fa-solid fa-trash"></i></span>
+            </div>`).join("") || emptyInlineHtml("ยังไม่มีรูปในไฮไลต์นี้")}</div>
+    `);
+}
+
+// อ่านทุกแถวกลับเข้า hl.items (คู่ขนานกับ saveProfileEditFieldsOnly ของ modal แม่) — เรียกก่อน re-render ทุกครั้งกันพิมพ์แล้วหาย
+function saveHighlightItemsOnly() {
+    const hl = currentHighlightRec();
+    if (!hl || !$("#tinyfeed-hle-body").length) return;
+    const items = [];
+    $("#tinyfeed-hle-items .tinyfeed-pe-row").each(function () {
+        const row = $(this);
+        items.push({
+            url: String(row.find(".tinyfeed-hle-url").val() || "").trim(),
+            caption: String(row.find(".tinyfeed-hle-cap").val() || ""),
+        });
+    });
+    hl.items = items;
+}
+
+function highlightAddItem() {
+    const hl = currentHighlightRec();
+    if (!hl) return;
+    saveHighlightItemsOnly();
+    hl.items.push({ url: "", caption: "" });
+    renderHighlightEditBody();
+}
+
+function highlightDelItem(idx) {
+    const hl = currentHighlightRec();
+    if (!hl) return;
+    saveHighlightItemsOnly();
+    hl.items.splice(idx, 1);
+    renderHighlightEditBody();
+}
+
+function highlightMoveItem(idx, dir) {
+    const hl = currentHighlightRec();
+    if (!hl) return;
+    saveHighlightItemsOnly();
+    const j = idx + dir;
+    if (j < 0 || j >= hl.items.length) return;
+    const tmp = hl.items[idx];
+    hl.items[idx] = hl.items[j];
+    hl.items[j] = tmp;
+    renderHighlightEditBody();
+}
+
+function highlightPickItemImage(idx) {
+    const hl = currentHighlightRec();
+    if (!hl) return;
+    saveHighlightItemsOnly();   // กันแถวอื่นที่พิมพ์ค้างหายตอน picker ปิดแล้ว re-render
+    openGalleryPicker("image", (token, name) => {
+        const im = findGalleryImage(name);
+        if (!im || !im.url) return;
+        const cur = currentHighlightRec();
+        if (!cur || !cur.items[idx]) return;
+        cur.items[idx].url = im.url;
+        renderHighlightEditBody();
+        if (!isPortableUrl(im.url)) {
+            toastr.info("รูปนี้เป็นไฟล์ในเครื่อง — จะไม่ติดไปกับการ์ดตัวละคร", "TinyPhone");
+        }
+    });
+}
+
+// ===== TinyPeople (แอปที่ 12): รายชื่อโปรไฟล์ทุกคน — ทางเข้าหลักของหน้าโปรไฟล์ =====
+// สร้าง ref ผ่าน profileRefFor() เท่านั้น (แหล่งเดียวของการ resolve ตัวตน) — ไม่ไล่ getNpcs()/getCurrentCharacter() ซ้ำเอง
+function peopleEntries() {
+    const out = [];
+    const user = profileRefFor("user");
+    if (user) out.push(user);
+    if (getCurrentCharacter()) {
+        const main = profileRefFor("main");
+        if (main) out.push(main);
+    }
+    for (const npc of getNpcs()) {
+        if (!String(npc.name || "").trim()) continue;   // NPC ที่ยังไม่ตั้งชื่อ — ข้ามในรายชื่อ (ตั้งชื่อในตั้งค่าก่อน)
+        const ref = profileRefFor("npc:" + npc.name);
+        if (ref) out.push(ref);
+    }
+    return out;
+}
+
+function peopleRowHtml(ref) {
+    const d = profileDecor(ref);
+    const roleTag = ref.kind === "user" ? "คุณ" : ref.kind === "npc" ? "NPC" : "ตัวละคร";
+    const bioLine = d.bio ? `<div class="tinyfeed-people-bio">${renderRich(escapeHtml(d.bio))}</div>` : "";
+    return `
+        <div class="tinyfeed-people-row tinyfeed-profile-open" data-author="${escapeAttr(ref.ownerKey)}">
+            <div class="tinyfeed-people-ava">${makeAvatar(ref.avatarItem)}</div>
+            <div class="tinyfeed-people-col">
+                <div class="tinyfeed-people-name">${escapeText(ref.name)} <span class="tinyfeed-profile-role">${roleTag}</span></div>
+                <div class="tinyfeed-people-handle">@${escapeText(profileHandle(ref))}</div>
+                <div class="tinyfeed-people-meta">${formatCount(d.posts.length)} โพสต์ · ${formatCount(d.highlights.length)} ไฮไลต์</div>
+                ${bioLine}
+            </div>
+        </div>`;
+}
+
+function renderPeople() {
+    const body = $("#tinyfeed-people-body");
+    if (!body.length) return;
+    const entries = peopleEntries();
+    const list = entries.length
+        ? `<div class="tinyfeed-people-list">${entries.map(peopleRowHtml).join("")}</div>`
+        : emptyStateHtml("fa-address-book", "ยังไม่มีใครในสมุดรายชื่อ", "เปิดแชทที่มีตัวละคร หรือกด “เพิ่ม NPC” ด้านล่าง");
+    body.html(`
+        ${list}
+        <div class="tinyfeed-people-actions">
+            <button id="tinyfeed-people-addnpc" class="tinyfeed-btn-generate"><i class="fa-solid fa-user-plus"></i> <span>เพิ่ม NPC</span></button>
+            <button id="tinyfeed-people-cfg-profile" class="tinyfeed-btn-ghost"><i class="fa-solid fa-id-badge"></i> รูปโปรไฟล์</button>
+            <button id="tinyfeed-people-cfg-npc" class="tinyfeed-btn-ghost"><i class="fa-solid fa-users"></i> NPC ประจำ</button>
+            <button id="tinyfeed-people-cfg-card" class="tinyfeed-btn-ghost"><i class="fa-solid fa-id-card"></i> ฝากไว้กับการ์ด</button>
+        </div>
+    `);
+}
+
+// เพิ่ม NPC ใหม่แล้วพาไปตั้งชื่อ/รูปทันที — ใช้ตัวแก้ NPC เดิมในหน้าตั้งค่า ไม่สร้าง UI แก้ NPC ตัวที่สอง
+function peopleAddNpc() {
+    getNpcs().push({ name: uniqueNpcName("NPC ใหม่"), avatar: "", username: "", alias: "", primary: "username" });
+    saveNpcs();
+    renderPeople();
+    openSettingsAt("npc");
+    setTimeout(() => { $(".tinyfeed-npc-name").last().trigger("focus").trigger("select"); }, 0);
 }
 
 // TinyMemo: กำหนดการ + โน้ต/ความจำ (ensure array สำหรับแชทเก่า)
@@ -2461,18 +2718,27 @@ let charPickTarget = null;   // callback(value) เมื่อเลือก
 function charPickerItems(opts) {
     opts = opts || {};
     const out = [];
-    const exclude = new Set((opts.exclude || []).map(String));
-    if (opts.includeUser && !exclude.has(POSTER_USER)) {
+    // exclude มาจากหลายที่ (ชื่อ canonical, display name, POSTER_USER ปน) → ขยายเป็นเซ็ตที่เทียบได้ทุกฝั่งของ NPC ตัวนั้น
+    const excludeSet = new Set();
+    for (const x of (opts.exclude || [])) {
+        const raw = String(x || "");
+        const npc = getNpcRecord(raw);
+        if (npc) npcNameSet(npc).forEach((n) => excludeSet.add(n));
+        else excludeSet.add(raw.trim().toLowerCase());
+    }
+    const isExcluded = (name) => excludeSet.has(String(name || "").trim().toLowerCase());
+    if (opts.includeUser && !isExcluded(POSTER_USER)) {
         out.push({ value: POSTER_USER, name: getUserName() + " (เรา)", node: makeAvatar({ isUser: true, author: getUserName() }) });
     }
     const char = getCurrentCharacter();
     const mainName = getCharName();
-    if (opts.includeMain !== false && char && mainName && !exclude.has(mainName)) {
+    if (opts.includeMain !== false && char && mainName && !isExcluded(mainName)) {
         out.push({ value: mainName, name: mainName, node: makeAvatar({ isMain: true, author: mainName }) });
     }
     for (const npc of getNpcs()) {
         const nm = String(npc.name || "").trim();
-        if (nm && !exclude.has(nm)) out.push({ value: nm, name: nm, node: makeAvatar({ author: nm, avatar: npc.avatar || "" }) });
+        // value คง npc.name (canonical) — ถูกเซฟลง feedPoster/stream.mainStreamer/coHosts/ask.owner ต้องไม่เปลี่ยนตามชื่อที่ตั้ง
+        if (nm && !isExcluded(nm)) out.push({ value: nm, name: npcDisplayName(npc), node: makeAvatar({ author: nm, avatar: npc.avatar || "" }) });
     }
     // "อัตโนมัติ" อยู่ล่างสุดเสมอ
     if (opts.includeAuto) {
@@ -2805,7 +3071,7 @@ function getConnectContacts() {
     if (char) contacts.push({ key: "main", name: getCharName(), isMain: true, avatar: "" });
     for (const npc of getNpcs()) {
         const name = String(npc.name || "").trim();
-        if (name) contacts.push({ key: "npc:" + name, name, isMain: false, avatar: npc.avatar || "" });
+        if (name) contacts.push({ key: "npc:" + name, name: npcDisplayName(npc), isMain: false, avatar: npc.avatar || "" });
     }
     const p = getPet();
     if (p.exists && !p.isDead) contacts.push({ key: "pet", name: p.name || "เพ็ท", isPet: true, avatar: petSpriteUrl(petState()) });
@@ -4758,6 +5024,62 @@ function getNpcs() {
 }
 function saveNpcs() { saveSettingsDebounced(); }
 
+// เปลี่ยนคีย์ประจำตัวของ NPC (npc.name) แล้วตามไปแก้ทุกที่ที่อ้างด้วยค่าดิบ — ไม่แตะ author ในโพสต์/คอมเมนต์/ข้อความเก่า (ประวัติในเรื่อง)
+// คืน true = เปลี่ยนสำเร็จ, false = ชื่อว่าง/ชนกับคนอื่น (toast ให้แล้ว เรียกฝั่ง caller ต้องคืนค่าช่องกลับเป็นชื่อเดิม)
+function renameNpcEverywhere(oldName, newName) {
+    const npc = getNpcRecord(oldName);
+    if (!npc) return false;
+    const trimmed = String(newName || "").trim();
+    if (!trimmed) { toastr.warning("ชื่อจริงห้ามว่าง", "TinyPhone"); return false; }
+    if (trimmed === oldName) return true;   // ไม่ได้เปลี่ยนจริง
+    if (npcNameTaken(trimmed, npc)) {
+        toastr.warning(`ชื่อ "${trimmed}" ซ้ำกับคนอื่นที่มีอยู่แล้ว เลือกชื่ออื่นนะ`, "TinyPhone");
+        return false;
+    }
+    const oldDisplay = npcDisplayName(npc);   // ก่อนเปลี่ยน — ใช้ตามรอยที่เก็บเป็น "ชื่อที่แสดง" (เช่น สมาชิกกลุ่ม)
+    npc.name = trimmed;
+    const newDisplay = npcDisplayName(npc);
+    const oldKey = "npc:" + oldName;
+    const newKey = "npc:" + trimmed;
+    try {
+        // ห้องแชต TinyConnect — ย้ายคีย์ทั้งชุดข้อความ
+        const threads = getConnectData().threads;
+        if (threads && Object.prototype.hasOwnProperty.call(threads, oldKey)) {
+            threads[newKey] = threads[oldKey];
+            delete threads[oldKey];
+        }
+        // สมาชิกกลุ่ม — เก็บเป็นชื่อที่แสดง ณ ตอนสร้างกลุ่ม ตามรอยเฉพาะตอนชื่อที่แสดงเปลี่ยนจริง
+        if (oldDisplay !== newDisplay) {
+            for (const g of getConnectGroups()) {
+                g.members = (g.members || []).map((m) => (m === oldDisplay ? newDisplay : m));
+            }
+        }
+        // สตอรี่ — ownerKey เป็น canonical เสมอ (ตามรอยเต็ม) · author เป็นประวัติในเรื่อง ไม่แตะ
+        for (const s of getStories()) {
+            if (s.ownerKey === oldKey) s.ownerKey = newKey;
+        }
+        // TinyStream — mainStreamer/coHosts เก็บ canonical
+        const stream = getStreamData();
+        if (stream.mainStreamer === oldName) stream.mainStreamer = trimmed;
+        if (Array.isArray(stream.coHosts)) {
+            stream.coHosts = stream.coHosts.map((v) => (v === oldName ? trimmed : v));
+        }
+        // TinyAsk — owner เก็บ canonical
+        for (const q of getAsk()) {
+            if (q.owner === oldName) q.owner = trimmed;
+        }
+        saveNpcs();
+        saveFeedDataDebounced();
+        return true;
+    } catch (e) {
+        console.error(`[${extensionName}] renameNpcEverywhere ล้มเหลวกลางคัน:`, e);
+        // อย่างน้อย npc.name เปลี่ยนไปแล้ว — เซฟเท่าที่ทำได้ ที่เหลือ (ห้องแชต/กลุ่ม/สตรีม/ask) อาจตกหล่นถ้าไม่มีแชทเปิดอยู่
+        saveNpcs();
+        toastr.warning("เปลี่ยนชื่อ NPC แล้ว แต่บางจุด (ห้องแชต/สตอรี่) อาจตามไม่ทัน ลองเช็คอีกครั้ง", "TinyPhone");
+        return true;
+    }
+}
+
 // เก็บใน extension_settings.tinyfeed.pet (ไม่ใช่ chat_metadata) → เพ็ทตัวเดียวตามผู้เล่นทุกแชท
 const PET_DECAY_DEFAULTS = { hunger: 0.25, energy: 0.2, cleanliness: 0.15 };   // ต่อนาที (ลดลงจากเดิม 0.5/0.35/0.3 — น้องตายไวไป)
 // สถานะ → sprite (เรียงตามความสำคัญใน petState) · emoji = fallback ตอนไม่มีไฟล์/ลิงก์
@@ -6012,10 +6334,9 @@ function renderPetSpriteCfg() {
 // หาสติกเกอร์/รูปในคลังตามชื่อ (case-insensitive) ไม่เจอคืน null
 
 // หา URL รูปของ NPC จากรายชื่อประจำ (ตามชื่อ) ไม่เจอคืน ""
+// จับคู่ทั้งชื่อจริง/username/alias ผ่าน getNpcRecord — ได้รูปแม้ author ที่เก็บไว้เป็น alias เก่า
 function getNpcAvatar(name) {
-    const key = String(name || "").trim().toLowerCase();
-    if (!key) return "";
-    const npc = getNpcs().find((n) => String(n.name || "").trim().toLowerCase() === key);
+    const npc = getNpcRecord(name);
     return (npc && npc.avatar) ? npc.avatar : "";
 }
 
@@ -6135,8 +6456,11 @@ function decorForExport(d) {
     };
 }
 function buildCardPayload() {
+    // username/alias/primary ของ NPC ส่งออกด้วย (ต่างจาก persona/ตัวละครหลักที่ตั้งใจไม่ส่ง — ชื่อ NPC เป็นเนื้อหาของการ์ดอยู่แล้ว)
     const npcs = getNpcs().map((n) => ({
         name: String(n.name || ""), avatar: String(n.avatar || ""),
+        username: String(n.username || ""), alias: String(n.alias || ""),
+        primary: n.primary === "alias" ? "alias" : "username",
         profile: decorForExport(n.profile || {}),
     }));
     return {
@@ -6220,7 +6544,19 @@ function importProfilesFromCard(mode) {
         const name = String(inNpc.name || "").trim();
         if (!name) continue;
         let target = npcs.find((n) => String(n.name || "").trim().toLowerCase() === name.toLowerCase());
-        if (!target) { target = { name, avatar: String(inNpc.avatar || "") }; npcs.push(target); }
+        if (!target) {
+            target = {
+                name, avatar: String(inNpc.avatar || ""),
+                username: String(inNpc.username || ""), alias: String(inNpc.alias || ""),
+                primary: inNpc.primary === "alias" ? "alias" : "username",
+            };
+            npcs.push(target);
+        } else {
+            // ตัวที่มีอยู่แล้ว — เคารพโหมด fill เหมือน decor (การ์ดเก่า v1 ที่ยังไม่มีฟิลด์นี้ = undefined ไม่ทับอะไร)
+            if (!fill || !target.username) target.username = String(inNpc.username || target.username || "");
+            if (!fill || !target.alias) target.alias = String(inNpc.alias || target.alias || "");
+            if (!fill || !target.primary) target.primary = (inNpc.primary === "alias" ? "alias" : (target.primary || "username"));
+        }
         if (!target.profile || typeof target.profile !== "object") target.profile = {};
         mergeDecorInto(target.profile, inNpc.profile || {}, fill);
     }
@@ -6230,6 +6566,7 @@ function importProfilesFromCard(mode) {
     renderCardSyncStatus();
     if (isProfileOpen()) renderProfileScreen();
     renderNpcList();
+    if (currentApp === "people") renderPeople();
     toastr.success(mode === "fill" ? "เติมช่องว่างจากการ์ดแล้ว" : "นำเข้าจากการ์ดแล้ว (ทับของเดิม)", "TinyPhone");
 }
 // รวมข้อมูลตกแต่งเข้า rec จริงใน store — fill=true เติมเฉพาะช่องว่าง, false=ทับทุกอย่าง
@@ -6275,9 +6612,16 @@ function renderCardSyncStatus() {
 }
 
 function renderNpcList() {
-    const rows = getNpcs().map((npc, i) => `
+    const rows = getNpcs().map((npc, i) => {
+        const nameEmpty = !String(npc.name || "").trim();
+        return `
         <div class="tinyfeed-npc-row" data-index="${i}">
-            <input class="tinyfeed-npc-name" type="text" placeholder="ชื่อ NPC" value="${escapeAttr(npc.name)}" />
+            <div class="tinyfeed-npc-toprow">
+                <input class="tinyfeed-npc-name" type="text" placeholder="ชื่อจริง (คีย์ประจำตัว)" value="${escapeAttr(npc.name)}" />
+                <span class="tinyfeed-npc-openprofile" title="ดูโปรไฟล์"><i class="fa-solid fa-id-badge"></i></span>
+                <span class="tinyfeed-npc-del" title="ลบ NPC"><i class="fa-solid fa-trash"></i></span>
+            </div>
+            ${nameEmpty ? `<div class="tinyfeed-npc-warn">ตั้งชื่อก่อนถึงจะใช้งานได้</div>` : ""}
             <div class="tinyfeed-uploadrow">
                 <div class="tinyfeed-upload-preview-wrap tinyfeed-gallery-thumb-wrap${npc.avatar ? "" : " tinyfeed-hidden"}">
                     <img class="tinyfeed-upload-preview tinyfeed-gallery-thumb" src="${escapeAttr(npc.avatar)}" onerror="this.classList.add('tinyfeed-img-broken')" />
@@ -6285,9 +6629,24 @@ function renderNpcList() {
                 <input class="tinyfeed-npc-avatar" type="text" placeholder="ลิงก์รูป (optional)" value="${escapeAttr(npc.avatar)}" />
                 <span class="tinyfeed-upload-btn" data-kind="avatar" title="อัปโหลดรูปจากเครื่อง"><i class="fa-solid fa-upload"></i></span>
             </div>
-            <span class="tinyfeed-npc-del" title="ลบ NPC"><i class="fa-solid fa-trash"></i></span>
+            <div class="tinyfeed-field-2col tinyfeed-npc-aliasrow">
+                <label class="tinyfeed-field"><span class="tinyfeed-field-label">Username</span>
+                    <input class="tinyfeed-npc-username" type="text" placeholder="ชื่อผู้ใช้" value="${escapeAttr(npc.username || "")}" /></label>
+                <label class="tinyfeed-field"><span class="tinyfeed-field-label">Alias</span>
+                    <input class="tinyfeed-npc-alias" type="text" placeholder="ชื่อเล่น" value="${escapeAttr(npc.alias || "")}" /></label>
+            </div>
+            <div class="tinyfeed-npc-primaryrow">
+                <span class="tinyfeed-field-label">ใช้เป็นชื่อหลัก:
+                    <select class="tinyfeed-npc-primary">
+                        <option value="username"${npc.primary === "alias" ? "" : " selected"}>Username</option>
+                        <option value="alias"${npc.primary === "alias" ? " selected" : ""}>Alias</option>
+                    </select>
+                </span>
+                <span class="tinyfeed-npc-display">แสดงเป็น: <b>${escapeText(npcDisplayName(npc))}</b></span>
+            </div>
         </div>
-    `).join("");
+    `;
+    }).join("");
     $("#tinyfeed-npc-list").html(rows);
 }
 
@@ -6397,10 +6756,11 @@ function renderAskFeed() {
         const askerLabel = q.anon && !q.revealed ? "ไม่ระบุตัวตน" : escapeText(q.from);
         const revealBtn = (q.anon && !q.revealed && getSetting("askReveal"))
             ? `<span class="tinyfeed-ask-reveal" data-id="${escapeAttr(q.id)}" title="เฉลยคนถาม"><i class="fa-solid fa-eye"></i></span>` : "";
-        const ownerLabel = q.owner === POSTER_USER ? "" : `<span class="tinyfeed-ask-owner">ถึง ${escapeText(q.owner)}</span>`;
+        const ownerName = npcDisplayNameFor(q.owner);   // q.owner เก็บ canonical (POSTER_USER/mainName/npc.name) — โชว์ด้วยชื่อที่ตั้งไว้
+        const ownerLabel = q.owner === POSTER_USER ? "" : `<span class="tinyfeed-ask-owner">ถึง ${escapeText(ownerName)}</span>`;
         const answerBlock = q.answer
             ? `<div class="tinyfeed-ask-a-box">${makeAvatar({ author: q.owner, isUser: q.owner === POSTER_USER })}<div class="tinyfeed-ask-a-text">${renderRich(q.answer)}</div></div>`
-            : `<div class="tinyfeed-ask-pending"><span class="tinyfeed-ai-link tinyfeed-ask-getanswer" data-id="${escapeAttr(q.id)}"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ ${escapeText(q.owner)} ตอบ</span></div>`;
+            : `<div class="tinyfeed-ask-pending"><span class="tinyfeed-ai-link tinyfeed-ask-getanswer" data-id="${escapeAttr(q.id)}"><i class="fa-solid fa-wand-magic-sparkles"></i> ให้ ${escapeText(ownerName)} ตอบ</span></div>`;
         return `
         <div class="tinyfeed-ask-card" data-id="${escapeAttr(q.id)}">
             <div class="tinyfeed-ask-q-box">
@@ -6563,7 +6923,7 @@ async function generateAskAnswer(id) {
     try {
         const extra = String(getSetting("askExtraPrompt") || "").trim();
         const prompt = buildPrompt("askAnswer", {
-            owner: q.owner, question: htmlToPlain(q.text),
+            owner: npcDisplayNameFor(q.owner), question: htmlToPlain(q.text),
             roster: npcRosterLine(charName),
             extra: extra ? ` คำสั่งเพิ่มเติม: ${extra}.` : "",
             context: crossAppContext("ask"),
@@ -6785,10 +7145,14 @@ function getProfileRecord(kind) {
     return cur;
 }
 // โปรไฟล์ NPC ฝังในรายการ NPC เดิม (object เดียวกับ {name, avatar}) — เปลี่ยนชื่อ NPC แล้วโปรไฟล์ตามไปเอง
+// name = คีย์ประจำตัว (ห้ามเปลี่ยนโดยไม่ผ่าน renameNpcEverywhere) — ตรงเป๊ะก่อนเสมอ กันชนกับ username/alias ของ NPC ตัวอื่น
 function getNpcRecord(name) {
     const k = String(name || "").trim().toLowerCase();
     if (!k) return null;
-    return getNpcs().find((n) => String(n.name || "").trim().toLowerCase() === k) || null;
+    const npcs = getNpcs();
+    const exact = npcs.find((n) => String(n.name || "").trim().toLowerCase() === k);
+    if (exact) return exact;
+    return npcs.find((n) => npcNameSet(n).includes(k)) || null;
 }
 function getNpcProfileRecord(name) {
     const npc = getNpcRecord(name);
@@ -6802,6 +7166,40 @@ function getNpcProfileRecord(name) {
     p.following = normProfileCount(p.following);
     return p;
 }
+
+// ── ชื่อที่แสดงของ NPC (username/alias เหมือน persona/ตัวละครหลัก) — name ยังคงเป็นคีย์ประจำตัวเสมอ ──
+function npcDisplayName(npc) {
+    if (!npc) return "";
+    const primary = (npc.primary === "alias" ? npc.alias : npc.username);
+    const chosen = String(primary || "").trim();
+    return chosen || String(npc.name || "").trim();
+}
+function npcNameSet(npc) {
+    if (!npc) return [];
+    return [npc.name, npc.username, npc.alias]
+        .map((x) => String(x || "").trim().toLowerCase())
+        .filter(Boolean);
+}
+// ตัวแปลงเดียวของระบบ: สตริงที่เก็บไว้แล้ว (author/owner ฯลฯ) → ชื่อที่ควรแสดง — ไม่เจอ NPC = คืนค่าเดิม
+function npcDisplayNameFor(rawName) {
+    const npc = getNpcRecord(rawName);
+    return npc ? npcDisplayName(npc) : String(rawName || "");
+}
+// เช็คชื่อ/username/alias ชนกับ persona · ตัวละครหลัก · NPC ตัวอื่น (ไม่รวมตัวเอง) — ชนแล้วจะเข้าไม่ถึงเงียบๆ (profileRefFor ไล่ user→char→npc)
+function npcNameTaken(name, exceptNpc) {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) return false;
+    if (userNameSet().includes(n)) return true;
+    if (charNameSet().includes(n)) return true;
+    return getNpcs().some((npc) => npc !== exceptNpc && npcNameSet(npc).includes(n));
+}
+function uniqueNpcName(base) {
+    if (!npcNameTaken(base)) return base;
+    let i = 2;
+    while (npcNameTaken(`${base} ${i}`)) i++;
+    return `${base} ${i}`;
+}
+
 function setProfileField(kind, field, value) {
     const key = kind === "char" ? getCharKey() : getPersonaKey();
     if (!key) return;
@@ -7125,7 +7523,7 @@ function buildAppBlocks(want) {
     }
     if (want.ask) {
         const answered = getAsk().filter((q) => q.answer).slice(0, count).map((q) =>
-            `- ${q.anon ? "มีคนถามนิรนาม" : `${q.from}ถาม`}${q.owner === POSTER_USER ? "" : ` (ถึง ${q.owner})`}: "${htmlToPlain(q.text)}" → ตอบว่า: "${htmlToPlain(q.answer)}"`);
+            `- ${q.anon ? "มีคนถามนิรนาม" : `${q.from}ถาม`}${q.owner === POSTER_USER ? "" : ` (ถึง ${npcDisplayNameFor(q.owner)})`}: "${htmlToPlain(q.text)}" → ตอบว่า: "${htmlToPlain(q.answer)}"`);
         if (answered.length) blocks.push(`คำถาม-คำตอบล่าสุดในแอป TinyAsk:\n${answered.join("\n")}`);
     }
     if (want.story) {
@@ -7420,8 +7818,9 @@ function ownerDisplay(key) {
     if (key === "user") return { key, name: getUserName(), avatarItem: { isUser: true, author: getUserName() } };
     const c = getConnectContacts().find((x) => x.key === key);
     if (c) return { key, name: c.name, avatarItem: contactAvatarItem(c) };
+    // เจ้าของที่ไม่อยู่ในรายชื่อติดต่อแล้ว (เช่น NPC ถูกลบ) — ยังลองแปลงเป็นชื่อที่เคยตั้งไว้ ถ้าหาไม่เจอค่อย fallback เป็นค่าดิบ
     const raw = key.startsWith("npc:") ? key.slice(4) : key;
-    return { key, name: raw, avatarItem: { author: raw } };
+    return { key, name: npcDisplayNameFor(raw), avatarItem: { author: raw } };
 }
 // ★ แหล่งเดียวของทั้งแถบสตอรี่ · โน้ต · viewer — ห้ามไล่ getNpcs()/getConnectContacts() ซ้ำที่อื่น
 function storyOwners() {
@@ -7498,6 +7897,7 @@ function closeStoryViewer() {
     $("#tinyfeed-story-viewer").addClass("tinyfeed-hidden");
     storyViewCtx = null;
     if (currentApp === "feed") renderStoryBar();
+    if (isProfileOpen() && profileTab === "stories") renderProfileBody();   // แท็บสตอรี่ในโปรไฟล์ต้องเห็นสถานะ seen/ลบล่าสุด
 }
 function storyViewerNext() {
     if (!storyViewCtx) return;
@@ -7533,6 +7933,9 @@ function renderStoryViewer() {
     markStorySeen(story.id);
     const owner = ownerDisplay(story.ownerKey || ownerKeyForName(story.author));
     const isMine = story.ownerKey === "user" || story.isUser;
+    // ปักไฮไลต์ได้ถ้าเจ้าของมีโปรไฟล์ที่แก้ได้ (user/char/npc) — ไม่จำกัดแค่สตอรี่ของตัวเราเองอีกต่อไป (แก้ที่ pinStoryToHighlight แล้ว)
+    const pinRef = profileRefFor(story.ownerKey || ownerKeyForName(story.author));
+    const canPin = Boolean(pinRef && pinRef.rec);
     $("#tinyfeed-story-viewer-bars").html(storyViewCtx.ids.map((id, i) => `
         <div class="tinyfeed-story-pbar"><div class="tinyfeed-story-pfill${i < storyViewCtx.idx ? " tinyfeed-story-pfill-done" : i === storyViewCtx.idx ? " tinyfeed-story-pfill-active" : ""}"></div></div>`).join(""));
     $("#tinyfeed-story-viewer-head").html(`
@@ -7544,7 +7947,7 @@ function renderStoryViewer() {
             </div>
         </div>
         <div class="tinyfeed-story-vhead-btns">
-            ${isMine ? `<span id="tinyfeed-story-pin" title="ปักเป็นไฮไลต์ในโปรไฟล์"><i class="fa-solid fa-bookmark"></i></span>` : ""}
+            ${canPin ? `<span id="tinyfeed-story-pin" title="ปักเป็นไฮไลต์ในโปรไฟล์"><i class="fa-solid fa-bookmark"></i></span>` : ""}
             ${isMine ? `<span id="tinyfeed-story-del" title="ลบสตอรี่"><i class="fa-solid fa-trash"></i></span>` : ""}
             <span id="tinyfeed-story-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
         </div>`);
@@ -7613,8 +8016,10 @@ function deleteStory(id) {
 function pinStoryToHighlight(id) {
     const story = findStory(id);
     if (!story) return;
-    const rec = getProfileRecord("user");
-    if (!rec) { toastr.error("ยังไม่รู้จัก persona ปัจจุบัน", "TinyPhone"); return; }
+    // ปักเข้าโปรไฟล์ของ "เจ้าของสตอรี่" จริง (user/char/npc) ไม่ใช่ของเราเสมอไป — ใช้ profileRefFor ตัวเดียวกับหน้าโปรไฟล์
+    const ref = profileRefFor(story.ownerKey || ownerKeyForName(story.author));
+    if (!ref || !ref.rec) { toastr.info("ยังไม่รู้จักเจ้าของสตอรี่นี้ ปักเป็นไฮไลต์ไม่ได้", "TinyPhone"); return; }
+    const rec = ref.rec;   // user/char → getProfileRecord() · npc → getNpcProfileRecord()
     const url = storyImgUrl(story);
     if (!url) { toastr.info("สตอรี่นี้ไม่มีรูปให้ปัก", "TinyPhone"); return; }
     let hl = rec.highlights.find((h) => h.title === "สตอรี่");
@@ -7623,7 +8028,8 @@ function pinStoryToHighlight(id) {
     hl.items.push({ url, caption: String(story.caption || "") });
     saveSettingsDebounced();
     if (!isPortableUrl(url)) toastr.info("รูปนี้เป็นไฟล์ในเครื่อง — จะไม่ติดไปกับการ์ดตัวละคร", "TinyPhone");
-    else toastr.success("ปักเป็นไฮไลต์ในโปรไฟล์แล้ว", "TinyPhone");
+    else toastr.success(`ปักเป็นไฮไลต์ในโปรไฟล์ของ ${ref.name} แล้ว`, "TinyPhone");
+    if (isProfileOpen()) renderProfileScreen();   // เผื่อเปิดโปรไฟล์คนนี้ค้างไว้อยู่ (แท็บไฮไลต์อัปเดตสด)
 }
 
 // ── คลังสตอรี่ (ใช้ showDetail ได้ปุ่มย้อนกลับฟรี — เข้าจากแถบสตอรี่ในฟีดเท่านั้น) ──
@@ -7837,7 +8243,7 @@ function replyToNoteInConnect(ownerKey, prefill) {
 let isStoryBusy = false;
 
 function storyRosterLine(charName) {
-    const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
+    const npcNames = getNpcs().map(npcDisplayName).filter(Boolean);
     return npcNames.length
         ? `ผู้ลงสตอรี่ต้องเป็นตัวละครหลัก (${charName}) หรือ NPC เหล่านี้เท่านั้น (สะกดชื่อให้ตรงเป๊ะ): ${npcNames.join(", ")}. `
         : `ผู้ลงสตอรี่คือตัวละครหลัก (${charName}). `;
@@ -8685,12 +9091,13 @@ async function generateFeedPost(opts) {
 
     const charName = getCharName();
 
-    // 6.5: รายชื่อ NPC ประจำ → คุมให้ AI เลือกผู้โพสต์จากลิสต์
-    const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
-    // คนโพสต์ที่เลือกจากรูปโปรไฟล์ (auto = ให้ AI เลือก, __user__ ไม่มาถึงนี่)
+    // 6.5: รายชื่อ NPC ประจำ → คุมให้ AI เลือกผู้โพสต์จากลิสต์ (ใช้ชื่อ display ให้ AI เขียนด้วยชื่อที่ตั้งไว้)
+    const npcNames = getNpcs().map(npcDisplayName).filter(Boolean);
+    // คนโพสต์ที่เลือกจากรูปโปรไฟล์ (auto = ให้ AI เลือก, __user__ ไม่มาถึงนี่) — canonical ไว้ผูก author จริง
     const forcedPoster = (feedPoster && feedPoster !== POSTER_AUTO && feedPoster !== POSTER_USER) ? feedPoster : "";
+    const forcedPosterDisplay = npcDisplayNameFor(forcedPoster);
     const rosterLine = forcedPoster
-        ? `ผู้โพสต์ต้องเป็น ${forcedPoster} เท่านั้น เขียนในน้ำเสียง/มุมมองของ ${forcedPoster}. `
+        ? `ผู้โพสต์ต้องเป็น ${forcedPosterDisplay} เท่านั้น เขียนในน้ำเสียง/มุมมองของ ${forcedPosterDisplay}. `
         : (npcNames.length
             ? `ผู้โพสต์ต้องเป็น ${charName} หรือหนึ่งใน NPC ต่อไปนี้เท่านั้น (สะกดชื่อให้ตรงเป๊ะ): ${npcNames.join(", ")}. `
             : `ผู้โพสต์จะเป็น ${charName} หรือ NPC ตัวใดตัวหนึ่งในโลกของเรื่องก็ได้. `);
@@ -8808,9 +9215,9 @@ async function addComment(postId, text) {
     }
 }
 
-// รวมรายชื่อ NPC เป็นประโยคสำหรับ prompt
+// รวมรายชื่อ NPC เป็นประโยคสำหรับ prompt (ชื่อ display — แก้ที่นี่ที่เดียวครอบคลุมทุก call site)
 function npcRosterLine(charName) {
-    const npcNames = getNpcs().map((n) => String(n.name || "").trim()).filter(Boolean);
+    const npcNames = getNpcs().map(npcDisplayName).filter(Boolean);
     return npcNames.length
         ? `ผู้คอมเมนต์เป็นตัวละครหลัก (${charName}) หรือ NPC เหล่านี้ (สะกดชื่อให้ตรงเป๊ะ): ${npcNames.join(", ")}. `
         : `ผู้คอมเมนต์เป็นตัวละครหลัก (${charName}) หรือ NPC ตัวใดในโลกของเรื่องก็ได้. `;
@@ -10576,6 +10983,12 @@ function closeSettingsGroup() {
     $(".tinyfeed-title").text("ตั้งค่า");
 }
 
+// เปิดตั้งค่าตรงไปที่หัวข้อเดียว (ทางลัดจาก TinyPeople) — openSettings() จบด้วย closeSettingsGroup() เสมอ ต้องเรียก openSettingsGroup ทีหลัง
+function openSettingsAt(groupId) {
+    openSettings();
+    if (groupId) openSettingsGroup(groupId);
+}
+
 // ===== Stage 5: หน้า settings ในโทรศัพท์ =====
 function isSettingsOpen() {
     return !$("#tinyfeed-settings-screen").hasClass("tinyfeed-hidden");
@@ -10873,6 +11286,7 @@ function commentComposeHtml({ postId, dataKey, inputCls, stickerCls, sendCls }) 
 let settingsReturn = "feed";   // แอปที่จะกลับไปหลังปิด settings
 
 function openSettings() {
+    closeAllOverlays();   // กันหน้าโปรไฟล์ (หรือ overlay อื่น) ค้างซ้อนอยู่ใต้หน้าตั้งค่า
     populateSettings();
     renderSettingsList();
     settingsReturn = currentApp === "settings" ? settingsReturn : currentApp;   // จำแอปเดิม
@@ -11486,6 +11900,17 @@ jQuery(async () => {
             const list = expiredStories().filter((x) => x.ownerKey === st.ownerKey);
             openStoryViewer(st.ownerKey, list.findIndex((x) => x.id === st.id), { archive: true });
         });
+        // แท็บสตอรี่ในหน้าโปรไฟล์ — จำกัด selector กันชนกับ handler ข้างบน (คลังรวมในฟีดใช้ data-story ไม่ใช่ data-pstory)
+        $(document).on("click", "#tinyfeed-profile-body .tinyfeed-story-archive-cell[data-pstory]", function () {
+            const key = profileCtx && profileCtx.ownerKey;
+            if (!key) return;
+            const id = String($(this).data("pstory"));
+            const archive = Boolean($(this).data("parch"));
+            const list = (archive ? expiredStories() : activeStories()).filter((s) => s.ownerKey === key);
+            const idx = list.findIndex((s) => s.id === id);
+            if (idx < 0) { renderProfileBody(); return; }   // สลับแชทไปแล้วเซลล์ค้าง — วาดใหม่แทนเปิด viewer ว่าง
+            openStoryViewer(key, idx, { archive });
+        });
         // หน้าดูสตอรี่
         $(document).on("click", "#tinyfeed-story-close", closeStoryViewer);
         $(document).on("click", "#tinyfeed-story-viewer .tinyfeed-story-nav[data-dir]", function () {
@@ -11582,6 +12007,48 @@ jQuery(async () => {
             if (!img.length) { thumb.empty().append("<img alt='' />"); img = thumb.find("img"); }
             setImgSrcSafe(img, url);
         });
+
+        // ── แก้รูปข้างในไฮไลต์ (modal ซ้อน) ──
+        $(document).on("click", ".tinyfeed-pe-hlitems", function (e) {
+            e.stopPropagation();
+            openHighlightEdit(String($(this).closest(".tinyfeed-pe-row").data("ph")));
+        });
+        $(document).on("click", "#tinyfeed-hle-close, #tinyfeed-hle-done", closeHighlightEdit);
+        $(document).on("click", "#tinyfeed-profile-hl-edit", function (e) {
+            if (e.target === this) closeHighlightEdit();   // แตะพื้นหลังนอกการ์ด = ปิด
+        });
+        $(document).on("click", "#tinyfeed-hle-add", highlightAddItem);
+        $(document).on("click", "#tinyfeed-hle-items .tinyfeed-hle-pick", function (e) {
+            e.stopPropagation();
+            highlightPickItemImage(Number($(this).closest(".tinyfeed-pe-row").data("hli")));
+        });
+        $(document).on("click", "#tinyfeed-hle-items .tinyfeed-hle-up", function (e) {
+            e.stopPropagation();
+            highlightMoveItem(Number($(this).closest(".tinyfeed-pe-row").data("hli")), -1);
+        });
+        $(document).on("click", "#tinyfeed-hle-items .tinyfeed-hle-down", function (e) {
+            e.stopPropagation();
+            highlightMoveItem(Number($(this).closest(".tinyfeed-pe-row").data("hli")), 1);
+        });
+        $(document).on("click", "#tinyfeed-hle-items .tinyfeed-hle-del", function (e) {
+            e.stopPropagation();
+            highlightDelItem(Number($(this).closest(".tinyfeed-pe-row").data("hli")));
+        });
+        // พิมพ์ลิงก์รูปแล้วให้ thumbnail อัปเดตตาม (ท่าเดียวกับโพสต์/ปกไฮไลต์ข้างบน)
+        $(document).on("input", "#tinyfeed-hle-items .tinyfeed-hle-url", function () {
+            const url = String($(this).val() || "").trim();
+            const thumb = $(this).closest(".tinyfeed-pe-row").find(".tinyfeed-pe-thumb");
+            let img = thumb.find("img");
+            if (!img.length) { thumb.empty().append("<img alt='' />"); img = thumb.find("img"); }
+            setImgSrcSafe(img, url);
+        });
+
+        // ===== TinyPeople =====
+        $(document).on("click", "#tinyfeed-people-addnpc", peopleAddNpc);
+        $(document).on("click", "#tinyfeed-people-cfg-npc", function () { openSettingsAt("npc"); });
+        $(document).on("click", "#tinyfeed-people-cfg-profile", function () { openSettingsAt("profile"); });
+        $(document).on("click", "#tinyfeed-people-cfg-card", function () { openSettingsAt("cardSync"); });
+
         $(document).on("click", "#tinyfeed-pet-speak", function () { petReact("", { silent: false }); });
         $(document).on("click", "#tinyfeed-pet-post", function () { petPostToFeed({ notify: false, silent: false }); });
         $(document).on("click", "#tinyfeed-pet-share", sharePetStatus);
@@ -12119,24 +12586,81 @@ jQuery(async () => {
 
         // 6.5: รายชื่อ NPC ประจำ (ผูกกับแชท)
         $(document).on("click", "#tinyfeed-npc-add", function () {
-            getNpcs().push({ name: "", avatar: "" });
+            getNpcs().push({ name: uniqueNpcName("NPC ใหม่"), avatar: "", username: "", alias: "", primary: "username" });
             saveNpcs();
             renderNpcList();
+            if (currentApp === "people") renderPeople();
         });
-        $(document).on("input", ".tinyfeed-npc-name", function () {
-            const i = $(this).closest(".tinyfeed-npc-row").data("index");
+        // ชื่อจริงเป็นคีย์ประจำตัว (ผูกห้องแชต/สตอรี่/ฯลฯ) — ใช้ change ไม่ใช่ input กันคีย์เปลี่ยนกลางคันตอนพิมพ์
+        // ห้ามแก้ตรงๆ ต้องผ่าน renameNpcEverywhere() ให้ที่อื่นตามไปด้วย
+        $(document).on("change", ".tinyfeed-npc-name", function () {
+            const row = $(this).closest(".tinyfeed-npc-row");
+            const i = row.data("index");
             const npcs = getNpcs();
-            if (npcs[i]) { npcs[i].name = $(this).val(); saveNpcs(); renderFeed(); }
+            const npc = npcs[i];
+            if (!npc) return;
+            const oldName = npc.name;
+            const ok = renameNpcEverywhere(oldName, $(this).val());
+            if (!ok) { $(this).val(oldName); return; }   // ชนกัน/ว่าง → คืนค่าเดิมในช่อง
+            renderNpcList();
+            renderFeed();
+            if (currentApp === "people") renderPeople();
         });
         $(document).on("input", ".tinyfeed-npc-avatar", function () {
             const i = $(this).closest(".tinyfeed-npc-row").data("index");
             const npcs = getNpcs();
             if (npcs[i]) { npcs[i].avatar = $(this).val().trim(); saveNpcs(); renderFeed(); }
         });
+        // username/alias/primary — อัปเดตแค่บรรทัดพรีวิว ไม่ re-render ทั้งลิสต์ (กันโฟกัสหลุดระหว่างพิมพ์)
+        $(document).on("input", ".tinyfeed-npc-username", function () {
+            const row = $(this).closest(".tinyfeed-npc-row");
+            const i = row.data("index");
+            const npcs = getNpcs();
+            const npc = npcs[i];
+            if (!npc) return;
+            const val = $(this).val();
+            if (npcNameTaken(val, npc)) return;   // ชนกัน — เงียบไว้ก่อน (เช็คอีกทีตอน blur/บันทึกที่อื่นไม่จำเป็น เพราะ username ไม่ใช่คีย์)
+            npc.username = val;
+            saveNpcs();
+            row.find(".tinyfeed-npc-display b").text(npcDisplayName(npc));
+            renderFeed();
+            if (currentApp === "people") renderPeople();
+        });
+        $(document).on("input", ".tinyfeed-npc-alias", function () {
+            const row = $(this).closest(".tinyfeed-npc-row");
+            const i = row.data("index");
+            const npcs = getNpcs();
+            const npc = npcs[i];
+            if (!npc) return;
+            const val = $(this).val();
+            if (npcNameTaken(val, npc)) return;
+            npc.alias = val;
+            saveNpcs();
+            row.find(".tinyfeed-npc-display b").text(npcDisplayName(npc));
+            renderFeed();
+            if (currentApp === "people") renderPeople();
+        });
+        $(document).on("change", ".tinyfeed-npc-primary", function () {
+            const row = $(this).closest(".tinyfeed-npc-row");
+            const i = row.data("index");
+            const npcs = getNpcs();
+            const npc = npcs[i];
+            if (!npc) return;
+            npc.primary = $(this).val() === "alias" ? "alias" : "username";
+            saveNpcs();
+            row.find(".tinyfeed-npc-display b").text(npcDisplayName(npc));
+            renderFeed();
+            if (currentApp === "people") renderPeople();
+        });
+        $(document).on("click", ".tinyfeed-npc-openprofile", function () {
+            const i = $(this).closest(".tinyfeed-npc-row").data("index");
+            const npc = getNpcs()[i];
+            if (npc) openProfileScreen("npc:" + npc.name);
+        });
         $(document).on("click", ".tinyfeed-npc-del", function () {
             const i = $(this).closest(".tinyfeed-npc-row").data("index");
             const npcs = getNpcs();
-            if (npcs[i]) { npcs.splice(i, 1); saveNpcs(); renderNpcList(); renderFeed(); }
+            if (npcs[i]) { npcs.splice(i, 1); saveNpcs(); renderNpcList(); renderFeed(); if (currentApp === "people") renderPeople(); }
         });
 
         // ตั้งค่าล่วงหน้าฟีเจอร์อนาคต (เก็บค่าไว้ก่อน)
