@@ -5281,9 +5281,12 @@ div.tinyfeed-profile-open:active { opacity: 0.75; }
 .tinyfeed-profile-tl-head { display: flex; align-items: center; gap: var(--tf-sp-3); padding: var(--tf-sp-3) var(--tf-sp-4); }
 .tinyfeed-profile-tl-head .tinyfeed-avatar { width: 30px; height: 30px; font-size: 0.9em; }
 .tinyfeed-profile-tl-name { font-size: var(--tf-fs-sm); font-weight: 600; color: var(--tf-text-strong); }
+.tinyfeed-profile-tl-time { font-size: var(--tf-fs-xs); color: var(--tf-text-muted); margin-left: auto; }
 .tinyfeed-profile-tl-img { width: 100%; display: block; }
 .tinyfeed-profile-tl-meta { padding: var(--tf-sp-3) var(--tf-sp-4) 0; font-size: var(--tf-fs-sm); color: var(--tf-text-muted); }
 .tinyfeed-profile-tl-cap { padding: var(--tf-sp-2) var(--tf-sp-4) var(--tf-sp-4); font-size: var(--tf-fs-sm); color: var(--tf-text); line-height: 1.5; }
+/* การ์ดโพสต์จริงจาก TinyFeed ที่รวมเข้ามาในไทม์ไลน์ — เนื้อความ+สื่อผ่าน renderPostBody() เดียวกับฟีดจริง */
+.tinyfeed-profile-tl-body { padding: var(--tf-sp-3) var(--tf-sp-5) var(--tf-sp-4); color: var(--tf-text); line-height: 1.5; font-size: var(--tf-fs-sm); }
 
 /* modal: ดูโพสต์ static / ไฮไลต์ */
 .tinyfeed-profile-post-body { max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--tf-sp-3); }

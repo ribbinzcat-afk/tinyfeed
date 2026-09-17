@@ -8,7 +8,7 @@ import {
     addGalleryImageExternal, defaultSettings, flushAllSaves, getFeedData, getGallery, getSetting, saveFeedDataDebounced, saveGallery, setSetting,
 } from "./src/store.js";
 import {
-    cleanAiName, displayTime, downscaleImageFile, escapeAttr, escapeHtml, escapeText, findGalleryImage, formatChatTime, htmlToPlain,
+    cleanAiName, displayTime, downscaleImageFile, escapeAttr, escapeHtml, escapeText, findGalleryImage, findSticker, formatChatTime, htmlToPlain,
     itemTimestamp, renderGenImgToken, renderImgToken, renderRich, renderStickerToken, replaceGenImgTokens, resolveMediaPriority,
     setGenImageHandler, setMentionUserResolver, stripReasoning, stripWrapBrackets, timeAgo, unescapeLite,
 } from "./src/util.js";
@@ -2094,7 +2094,7 @@ function renderProfileScreen() {
         <div class="tinyfeed-profile-idrow">
             <div class="tinyfeed-profile-ava">${makeAvatar(ref.avatarItem)}</div>
             <div class="tinyfeed-profile-stats">
-                <div class="tinyfeed-profile-stat"><b>${formatCount(d.posts.length)}</b><span>โพสต์</span></div>
+                <div class="tinyfeed-profile-stat"><b>${formatCount(profilePostCount(ref))}</b><span>โพสต์</span></div>
                 <div class="tinyfeed-profile-stat"><b>${formatCount(d.followers)}</b><span>ผู้ติดตาม</span></div>
                 <div class="tinyfeed-profile-stat"><b>${formatCount(d.following)}</b><span>กำลังติดตาม</span></div>
             </div>
@@ -2146,30 +2146,25 @@ function renderProfileBody() {
 }
 
 function renderProfileGrid() {
-    const d = profileDecor(profileCtx);
+    const ref = profileCtx;
+    // กริดโชว์ได้แค่รูป — โพสต์ TinyFeed ที่เป็นข้อความล้วนไม่มีช่องให้ไปอยู่ในนี้ (ยังเห็นได้ในแท็บไทม์ไลน์)
+    const all = profileAllPosts(ref).filter((x) => x.url);
     const body = $("#tinyfeed-profile-body");
-    if (!d.posts.length) {
+    if (!all.length) {
         body.html(emptyStateHtml("fa-table-cells", "ยังไม่มีโพสต์ในโปรไฟล์",
-            profileCanEdit(profileCtx) ? "กด “แก้ไขโปรไฟล์” เพื่อเพิ่มรูป (ใช้ลิงก์ภายนอก)" : "เจ้าของยังไม่ได้ใส่อะไรไว้"));
+            profileCanEdit(ref) ? "กด “แก้ไขโปรไฟล์” เพื่อเพิ่มรูปเอง หรือโพสต์รูปใน TinyFeed แล้วจะขึ้นที่นี่ให้อัตโนมัติ" : "เจ้าของยังไม่ได้ใส่อะไรไว้"));
         return;
     }
-    body.html(`<div class="tinyfeed-profile-grid">${d.posts.map((x) => `
-        <div class="tinyfeed-profile-cell" data-ppost="${escapeAttr(x.id)}">
+    body.html(`<div class="tinyfeed-profile-grid">${all.map((x) => `
+        <div class="tinyfeed-profile-cell" data-ppost="${escapeAttr(x.source === "feed" ? x.postId : x.id)}" data-psrc="${x.source}">
             <img src="${escapeAttr(x.url)}" alt="" loading="lazy" onerror="this.classList.add('tinyfeed-img-broken')" />
         </div>`).join("")}</div>`);
 }
 
-function renderProfileTimeline() {
-    const ref = profileCtx;
-    const d = profileDecor(ref);
-    const body = $("#tinyfeed-profile-body");
-    if (!d.posts.length) {
-        body.html(emptyStateHtml("fa-list", "ยังไม่มีโพสต์ในโปรไฟล์",
-            profileCanEdit(ref) ? "กด “แก้ไขโปรไฟล์” เพื่อเพิ่มรูป (ใช้ลิงก์ภายนอก)" : "เจ้าของยังไม่ได้ใส่อะไรไว้"));
-        return;
-    }
-    body.html(d.posts.map((x) => `
-        <div class="tinyfeed-profile-tl" data-ppost="${escapeAttr(x.id)}">
+// การ์ดโพสต์ที่พิมพ์เองในหน้าโปรไฟล์ (global, export ได้) — แตะแล้วเปิด #tinyfeed-profile-post เดิม
+function manualProfileTlHtml(ref, x) {
+    return `
+        <div class="tinyfeed-profile-tl" data-ppost="${escapeAttr(x.id)}" data-psrc="profile">
             <div class="tinyfeed-profile-tl-head">
                 ${makeAvatar(ref.avatarItem)}
                 <span class="tinyfeed-profile-tl-name">${escapeText(ref.name)}</span>
@@ -2177,7 +2172,35 @@ function renderProfileTimeline() {
             <img class="tinyfeed-profile-tl-img" src="${escapeAttr(x.url)}" alt="" loading="lazy" onerror="this.classList.add('tinyfeed-img-broken')" />
             <div class="tinyfeed-profile-tl-meta"><i class="fa-solid fa-heart"></i> ${formatCount(x.likes)}</div>
             ${x.caption ? `<div class="tinyfeed-profile-tl-cap">${renderRich(escapeHtml(x.caption))}</div>` : ""}
-        </div>`).join(""));
+        </div>`;
+}
+// การ์ดโพสต์จริงจาก TinyFeed (auto/per-chat) — แตะแล้วพาไปเปิดโพสต์จริงใน TinyFeed (มีไลก์/คอมเมนต์จริงให้เล่นต่อ)
+function feedProfileTlHtml(ref, x) {
+    return `
+        <div class="tinyfeed-profile-tl" data-ppost="${escapeAttr(x.postId)}" data-psrc="feed">
+            <div class="tinyfeed-profile-tl-head">
+                ${makeAvatar(ref.avatarItem)}
+                <span class="tinyfeed-profile-tl-name">${escapeText(ref.name)}</span>
+                <span class="tinyfeed-profile-tl-time">${escapeText(timeAgo(x.ts))}</span>
+            </div>
+            <div class="tinyfeed-profile-tl-body">${renderPostBody(x.text)}</div>
+            <div class="tinyfeed-profile-tl-meta"><i class="fa-solid fa-heart"></i> ${formatCount(x.likes)} &nbsp; <i class="fa-solid fa-comment"></i> ${formatCount(x.commentCount)}</div>
+        </div>`;
+}
+
+function renderProfileTimeline() {
+    const ref = profileCtx;
+    const all = profileAllPosts(ref);
+    const body = $("#tinyfeed-profile-body");
+    if (!all.length) {
+        body.html(emptyStateHtml("fa-list", "ยังไม่มีโพสต์ในโปรไฟล์",
+            profileCanEdit(ref) ? "กด “แก้ไขโปรไฟล์” เพื่อเพิ่มรูปเอง หรือโพสต์ใน TinyFeed แล้วจะขึ้นที่นี่ให้อัตโนมัติ" : "เจ้าของยังไม่ได้ใส่อะไรไว้"));
+        return;
+    }
+    body.html(`
+        <div class="tinyfeed-profile-sectitle">โพสต์จาก TinyFeed ขึ้นให้อัตโนมัติจากแชทนี้เท่านั้น — ไม่ติดไปกับการ์ดหรือแชทอื่น</div>
+        ${all.map((x) => x.source === "feed" ? feedProfileTlHtml(ref, x) : manualProfileTlHtml(ref, x)).join("")}
+    `);
 }
 
 // สตอรี่/คลังของเจ้าของโปรไฟล์นี้เท่านั้น (ผูกกับแชทปัจจุบัน — โปรไฟล์เป็น global แต่สตอรี่ไม่ใช่ ต่างจากแชทอื่นได้)
@@ -2252,23 +2275,35 @@ function openProfilePost(id) {
 }
 function closeProfilePost() { $("#tinyfeed-profile-post").addClass("tinyfeed-hidden"); }
 
-// ── ดูไฮไลต์ (ใช้หน้าต่างเดียวกับโพสต์ เพื่อไม่เพิ่ม modal ซ้ำซ้อน) ──
-function openProfileHighlight(id) {
-    const ref = profileCtx;
-    if (!ref) return;
-    const h = profileDecor(ref).highlights.find((x) => x.id === id);
-    if (!h) return;
-    $("#tinyfeed-profile-post-body").html(`
-        <div class="tinyfeed-profile-post-head">
-            ${makeAvatar(ref.avatarItem)}
-            <div class="tinyfeed-profile-post-name">${escapeText(h.title || "ไฮไลต์")}</div>
-        </div>
-        ${h.items.length ? h.items.map((i) => `
-            <img class="tinyfeed-profile-post-img" src="${escapeAttr(i.url)}" alt="" onerror="this.classList.add('tinyfeed-img-broken')" />
-            ${i.caption ? `<div class="tinyfeed-profile-post-cap">${renderRich(escapeHtml(i.caption))}</div>` : ""}`).join("")
-            : emptyInlineHtml("ไฮไลต์นี้ยังว่างอยู่")}
-    `);
-    $("#tinyfeed-profile-post").removeClass("tinyfeed-hidden");
+// ── ดูไฮไลต์: เปิดแบบสตอรี่ (เต็มจอ ปัด/แตะเปลี่ยนรูป) — ยืมกรอบของ #tinyfeed-story-viewer ตัวเดียวกับสตอรี่จริง ──
+// เหตุผลของ storyViewCtx.mode: "story" อ้างสตอรี่จริงผ่าน findStory ด้วย id, "highlight" อ้าง index ใน hl.items สดๆ ทุกครั้ง
+// (ไม่แคชตัว item object ไว้ เพราะตัวแก้ไฮไลต์อาจแก้ items พร้อมกันได้ในบางเคส — อ่านจาก rec ตรงเสมอกันข้อมูลเพี้ยน)
+function openHighlightViewer(ref, hlId, idx) {
+    const r = (ref && typeof ref === "object" && ref.kind) ? ref : profileRefFor(ref);
+    if (!r) return;
+    const hl = profileDecor(r).highlights.find((h) => h.id === hlId);
+    if (!hl || !hl.items.length) { toastr.info("ไฮไลต์นี้ยังว่างอยู่", "TinyPhone"); return; }
+    let start = parseInt(idx, 10);
+    if (!Number.isFinite(start) || start < 0 || start >= hl.items.length) start = 0;
+    storyViewCtx = { mode: "highlight", ownerKey: r.ownerKey, hlId, ids: hl.items.map((_, i) => i), idx: start };
+    $("#tinyfeed-story-viewer").removeClass("tinyfeed-hidden");
+    renderStoryViewer();
+}
+// ลบรูปปัจจุบันออกจากไฮไลต์ที่กำลังดูอยู่ — ไฮไลต์ว่างสนิทแล้วปิดวิวเวอร์ (คงไฮไลต์เปล่าไว้ ไม่ลบทั้งไฮไลต์ ผู้ใช้ลบเองได้ในตัวแก้ไข)
+function deleteHighlightItemFromViewer() {
+    if (!storyViewCtx || storyViewCtx.mode !== "highlight") return;
+    if (!confirm("ต้องการลบรูปนี้ออกจากไฮไลต์ใช่ไหม?")) return;
+    const ref = profileRefFor(storyViewCtx.ownerKey);
+    if (!ref || !ref.rec) { closeStoryViewer(); return; }
+    const hl = (ref.rec.highlights || []).find((h) => h.id === storyViewCtx.hlId);
+    if (!hl) { closeStoryViewer(); return; }
+    hl.items.splice(storyViewCtx.idx, 1);
+    saveSettingsDebounced();
+    if (!hl.items.length) { closeStoryViewer(); if (isProfileOpen()) renderProfileScreen(); return; }
+    storyViewCtx.idx = Math.min(storyViewCtx.idx, hl.items.length - 1);
+    storyViewCtx.ids = hl.items.map((_, i) => i);
+    renderStoryViewer();
+    if (isProfileOpen()) renderProfileHighlights();   // ปกไฮไลต์/จำนวนอาจเปลี่ยน
 }
 
 // ── แก้ไขโปรไฟล์ ──
@@ -2576,7 +2611,7 @@ function peopleRowHtml(ref) {
             <div class="tinyfeed-people-col">
                 <div class="tinyfeed-people-name">${escapeText(ref.name)} <span class="tinyfeed-profile-role">${roleTag}</span></div>
                 <div class="tinyfeed-people-handle">@${escapeText(profileHandle(ref))}</div>
-                <div class="tinyfeed-people-meta">${formatCount(d.posts.length)} โพสต์ · ${formatCount(d.highlights.length)} ไฮไลต์</div>
+                <div class="tinyfeed-people-meta">${formatCount(profilePostCount(ref))} โพสต์ · ${formatCount(d.highlights.length)} ไฮไลต์</div>
                 ${bioLine}
             </div>
         </div>`;
@@ -7822,6 +7857,43 @@ function ownerDisplay(key) {
     const raw = key.startsWith("npc:") ? key.slice(4) : key;
     return { key, name: npcDisplayNameFor(raw), avatarItem: { author: raw } };
 }
+
+// ── สะพานเชื่อมโปรไฟล์ ↔ โพสต์จริงใน TinyFeed ──
+// หารูปแรกใน [img:]/[sticker:] ของโพสต์ (รูป > สติกเกอร์ ตามลำดับเดียวกับ renderPostBody) — ไม่เจอคืน ""
+function firstFeedPostImage(text) {
+    const s = resolveMediaPriority(String(text || ""));
+    let m = /\[img:([^\]]+)\]/i.exec(s);
+    if (m) { const im = findGalleryImage(unescapeLite(m[1])); if (im && im.url) return im.url; }
+    m = /\[sticker:([^\]]+)\]/i.exec(s);
+    if (m) { const st = findSticker(unescapeLite(m[1])); if (st && st.url) return st.url; }
+    return "";
+}
+// โพสต์จริงจาก TinyFeed ของ "แชทนี้" ที่ผู้เขียนตรงกับเจ้าของโปรไฟล์ — auto จากกิจกรรมจริง ไม่ใช่ของที่พิมพ์ในหน้าโปรไฟล์
+// จงใจไม่เก็บ/ไม่แคช: อ่านสดจาก getFeedData().feed ทุกครั้ง → ไม่ export ไปกับการ์ด (การ์ด export แค่ rec.posts) และไม่ข้ามไปแชทอื่น (เหมือนแท็บสตอรี่)
+function profileFeedPosts(ref) {
+    if (!ref || !ref.ownerKey) return [];
+    let feed = [];
+    try { feed = getFeedData().feed || []; } catch (e) {
+        // ยังไม่มีแชทเปิดอยู่ — เข้าหน้าโปรไฟล์ได้จากหลายที่ (TinyPeople ก็เข้าได้โดยไม่มีแชท) ไม่ต้อง toast
+        console.error(`[${extensionName}] profileFeedPosts: อ่านฟีดไม่ได้ (ยังไม่มีแชทเปิดอยู่?)`, e);
+        return [];
+    }
+    return feed
+        .filter((p) => ownerKeyForName(p.author) === ref.ownerKey)
+        .map((p) => ({
+            source: "feed", postId: p.id,
+            url: firstFeedPostImage(p.text), text: String(p.text || ""),
+            likes: Number(p.likes) || 0, commentCount: Array.isArray(p.comments) ? p.comments.length : 0,
+            ts: Number(p.ts) || 0,
+        }));
+}
+// รวม "โพสต์ในโปรไฟล์" (พิมพ์เอง/global/export ได้) + โพสต์จริงจาก TinyFeed ของแชทนี้ (auto/per-chat) เรียงใหม่ล่าสุดก่อนเสมอ
+function profileAllPosts(ref) {
+    const manual = profileDecor(ref).posts.map((x) => ({ source: "profile", ...x }));
+    const feedPosts = profileFeedPosts(ref);
+    return [...manual, ...feedPosts].sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+}
+function profilePostCount(ref) { return profileAllPosts(ref).length; }
 // ★ แหล่งเดียวของทั้งแถบสตอรี่ · โน้ต · viewer — ห้ามไล่ getNpcs()/getConnectContacts() ซ้ำที่อื่น
 function storyOwners() {
     const act = activeStories();
@@ -7876,7 +7948,8 @@ function renderStoryBar() {
 }
 
 // ── หน้าดูสตอรี่ ──
-let storyViewCtx = null;   // { ownerKey, ids: [], idx, archive }
+// mode: "story" (ค่าเริ่มต้น) → ids เป็น storyId อ้างผ่าน findStory · "highlight" → ids เป็น index ใน hl.items (เปิดผ่าน openHighlightViewer)
+let storyViewCtx = null;   // { mode, ownerKey, ids: [], idx, archive, hlId? }
 
 function openStoryViewer(ownerKey, idx, opts) {
     const archive = Boolean(opts && opts.archive);
@@ -7889,7 +7962,7 @@ function openStoryViewer(ownerKey, idx, opts) {
         const firstUnseen = list.findIndex((s) => !s.seen);
         start = firstUnseen >= 0 ? firstUnseen : 0;
     }
-    storyViewCtx = { ownerKey, ids: list.map((s) => s.id), idx: start, archive };
+    storyViewCtx = { mode: "story", ownerKey, ids: list.map((s) => s.id), idx: start, archive };
     $("#tinyfeed-story-viewer").removeClass("tinyfeed-hidden");
     renderStoryViewer();
 }
@@ -7926,8 +7999,14 @@ function storyTextsHtml(texts, editable) {
         >${renderRich(escapeHtml(String(t.text || "")))}</div>`).join("");
 }
 
+// จุดเข้าเดียวของ #tinyfeed-story-viewer — แยกตาม mode เพราะโครงข้อมูลต่างกันจริง (สตอรี่จริงมี seen/replies/pin, ไฮไลต์แค่ url+caption)
 function renderStoryViewer() {
     if (!storyViewCtx) return;
+    if (storyViewCtx.mode === "highlight") { renderHighlightViewerFrame(); return; }
+    renderLiveStoryViewer();
+}
+
+function renderLiveStoryViewer() {
     const story = findStory(storyViewCtx.ids[storyViewCtx.idx]);
     if (!story) { closeStoryViewer(); return; }
     markStorySeen(story.id);
@@ -7968,6 +8047,39 @@ function renderStoryViewer() {
             <button id="tinyfeed-story-reply-send" class="tinyfeed-compose-iconbtn" title="ส่ง"><i class="fa-solid fa-paper-plane"></i></button>
             ${isMine ? `<button id="tinyfeed-story-ai-comment" class="tinyfeed-compose-iconbtn" title="ให้ NPC มาตอบสตอรี่"><i class="fa-solid fa-wand-magic-sparkles"></i></button>` : ""}
         </div>`);
+}
+
+// ไฮไลต์ในกรอบสตอรี่เดียวกัน — ไม่มี seen/replies/pin (ปักอยู่แล้ว) · หัว/แถบด้านล่างต่างจากสตอรี่จริง ที่เหลือ (bars/nav/close) ใช้ CSS ร่วม
+function renderHighlightViewerFrame() {
+    const ctx = storyViewCtx;
+    const ref = profileRefFor(ctx.ownerKey);
+    if (!ref) { closeStoryViewer(); return; }
+    const hl = profileDecor(ref).highlights.find((h) => h.id === ctx.hlId);
+    if (!hl || !hl.items.length) { closeStoryViewer(); return; }
+    if (ctx.idx >= hl.items.length) ctx.idx = hl.items.length - 1;
+    const item = hl.items[ctx.idx];
+    $("#tinyfeed-story-viewer-bars").html(hl.items.map((_, i) => `
+        <div class="tinyfeed-story-pbar"><div class="tinyfeed-story-pfill${i < ctx.idx ? " tinyfeed-story-pfill-done" : i === ctx.idx ? " tinyfeed-story-pfill-active" : ""}"></div></div>`).join(""));
+    $("#tinyfeed-story-viewer-head").html(`
+        <div class="tinyfeed-story-vhead-who tinyfeed-profile-open" data-author="${escapeAttr(ctx.ownerKey)}">
+            ${makeAvatar(ref.avatarItem)}
+            <div class="tinyfeed-story-vhead-meta">
+                <span class="tinyfeed-story-vhead-name">${escapeText(ref.name)}</span>
+                <span class="tinyfeed-story-vhead-time">${escapeText(hl.title || "ไฮไลต์")}</span>
+            </div>
+        </div>
+        <div class="tinyfeed-story-vhead-btns">
+            ${profileCanEdit(ref) ? `<span id="tinyfeed-story-del" title="ลบรูปนี้ออกจากไฮไลต์"><i class="fa-solid fa-trash"></i></span>` : ""}
+            <span id="tinyfeed-story-close" title="ปิด"><i class="fa-solid fa-xmark"></i></span>
+        </div>`);
+    $("#tinyfeed-story-viewer-canvas").html(`
+        <img class="tinyfeed-story-img" alt="" onerror="this.classList.add('tinyfeed-img-broken')" />
+        <div class="tinyfeed-story-nav tinyfeed-story-nav-prev" data-dir="prev"></div>
+        <div class="tinyfeed-story-nav tinyfeed-story-nav-next" data-dir="next"></div>`);
+    setImgSrcSafe($("#tinyfeed-story-viewer-canvas .tinyfeed-story-img"), item.url);
+    $("#tinyfeed-story-viewer-foot").html(`
+        ${item.caption ? `<div class="tinyfeed-story-caption">${renderRich(escapeHtml(item.caption))}</div>` : ""}
+    `);
 }
 
 // ตอบสตอรี่ — เก็บที่ story.replies เสมอ · ถ้าเป็นสตอรี่ของ AI และเปิด storyReplyToDm จะส่งการ์ดอ้างอิงเข้าห้องแชตด้วย
@@ -11917,7 +12029,9 @@ jQuery(async () => {
             if ($(this).data("dir") === "prev") storyViewerPrev(); else storyViewerNext();
         });
         $(document).on("click", "#tinyfeed-story-del", function () {
-            if (storyViewCtx) deleteStory(storyViewCtx.ids[storyViewCtx.idx]);
+            if (!storyViewCtx) return;
+            if (storyViewCtx.mode === "highlight") { deleteHighlightItemFromViewer(); return; }
+            deleteStory(storyViewCtx.ids[storyViewCtx.idx]);
         });
         $(document).on("click", "#tinyfeed-story-pin", function () {
             if (storyViewCtx) pinStoryToHighlight(storyViewCtx.ids[storyViewCtx.idx]);
@@ -11975,10 +12089,13 @@ jQuery(async () => {
             switchProfileTab($(this).data("ptab"));
         });
         $(document).on("click", ".tinyfeed-profile-cell[data-ppost], .tinyfeed-profile-tl[data-ppost]", function () {
-            openProfilePost(String($(this).data("ppost")));
+            const id = String($(this).data("ppost"));
+            // โพสต์จริงจาก TinyFeed — พาไปเปิดของจริง (ไลก์/คอมเมนต์ใช้งานได้จริง) แทนหน้าต่างอ่านอย่างเดียวของโปรไฟล์
+            if ($(this).data("psrc") === "feed") { openApp("feed"); openPostDetail(id); return; }
+            openProfilePost(id);
         });
         $(document).on("click", ".tinyfeed-profile-hl[data-hl]", function () {
-            openProfileHighlight(String($(this).data("hl")));
+            if (profileCtx) openHighlightViewer(profileCtx, String($(this).data("hl")), 0);
         });
         $(document).on("click", "#tinyfeed-profile-post-close", closeProfilePost);
         $(document).on("click", "#tinyfeed-profile-post", function (e) { if (e.target === this) closeProfilePost(); });
